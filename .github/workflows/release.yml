@@ -16,7 +16,25 @@ permissions:
   contents: read
 
 jobs:
+  # Before the ~20 min CI: a tag must name the Cargo.toml version and have its
+  # CHANGELOG.md section (scripts/release.sh writes both; ADR-0043).
+  verify:
+    name: tag, version and changelog
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: The tag matches Cargo.toml and has a CHANGELOG section
+        run: |
+          set -euo pipefail
+          V=${GITHUB_REF_NAME#v} base=$(scripts/version.sh --base)
+          [[ $base == "$V" ]] || { echo "::error::tag $GITHUB_REF_NAME, but Cargo.toml says $base"; exit 1; }
+          notes=$(awk -v v="$V" '$0 ~ "^## \\[" {f = index($0, "## [" v "]") == 1; next} /^\[[^]]+\]: / {next} f' CHANGELOG.md)
+          [[ -n ${notes//[[:space:]]/} ]] || { echo "::error::CHANGELOG.md has no section for [$V]"; exit 1; }
+          echo "ok: $GITHUB_REF_NAME, CHANGELOG [$V] has $(grep -c '^- ' <<<"$notes") items"
+
   ci:
+    needs: verify
     uses: ./.github/workflows/ci.yml
 
   publish:

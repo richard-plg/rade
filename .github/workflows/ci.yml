@@ -160,6 +160,15 @@ jobs:
           mkdir -p dist && docker cp "$c:/src/target/debian/." dist/ && docker rm "$c" >/dev/null
           ls -l dist
           test "$(ls dist/*.deb)" = "dist/rade_${version}_amd64.deb"
+      # Debian packaging lint, reported but not blocking yet (lintian in the
+      # CI image, so the same version as a local run).
+      - name: lintian (warnings only)
+        continue-on-error: true
+        run: |
+          docker run --rm -v "$PWD/dist:/dist:ro" "rade-ci:deb-$GITHUB_RUN_ID" \
+            sh -c 'lintian --info --display-info --pedantic /dist/*.deb' | tee lintian.txt
+          echo "### lintian" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"; cat lintian.txt >> "$GITHUB_STEP_SUMMARY"; echo '```' >> "$GITHUB_STEP_SUMMARY"
       - name: Package E2E (tests/e2e/m10.sh)
         run: ci/e2e.sh "rade-ci:deb-$GITHUB_RUN_ID" m10
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
