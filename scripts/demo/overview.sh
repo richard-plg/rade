@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 # Demo scene: Agent Overview (Ctrl+Shift+Space) over two Workspaces — eight
 # Agents needing you, finished, running and failed. Stills: overview,
-# overview-by-workspace; recording overview.mp4/.gif: open, move the selection,
-# Enter jumps to an Agent in the other Workspace.
+# overview-by-workspace (the recording, with the Preview, is tour.sh's).
 # Usage: scripts/demo/overview.sh (NO_BUILD=1, KEEP=1)
 set -uo pipefail
 NAME=overview
@@ -74,22 +73,4 @@ key alt+g; sleep 0.6
 dark; shot overview-by-workspace-dark; light; shot overview-by-workspace-light; dark
 key alt+g; key escape; sleep 0.5
 
-echo "== recording"
-key alt+p   # Previews back on for the film
-rec_start overview
-sleep 1
-key ctrl+shift+space          # open
-sleep 3
-key ctrl+shift+space; sleep 2.2   # next Agent
-key alt+g; sleep 2.5              # by Workspace
-key alt+g; sleep 1.5              # by status
-# on to the Agent in the other Workspace that waits for you
-for i in 1 2 3 4 5 6; do
-    [[ $(ov | jq -r '[.sections[].cards[] | select(.selected)][0].name') == feed ]] && break
-    key ctrl+shift+space; sleep 1.5
-done
-sleep 2.5
-key enter
-sleep 3
-rec_stop
 echo "shown: $(rade debug state | jq -r '.active_source')"

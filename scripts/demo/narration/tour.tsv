@@ -1,0 +1,15 @@
+# label	caption (on screen; empty = none)	voice (Kokoro reads this)
+intro	Three Workspaces · one window	This is RADE, an agentic development environment for Linux. I have three Workspaces here: my job at Acme, a client called Globex, and my own projects.
+globex	Each Workspace has its own Projects	Each Workspace has its own Projects, its own git identity, and its own agent logins.
+personal	The others keep running	When I switch away, the agents in the other Workspaces keep working.
+needs	A hidden Agent needs you	And when one of them needs me, RADE tells me, wherever I am.
+open	Agent Overview · Ctrl+Shift+Space	Control, Shift, Space opens Agent Overview: every agent, in every Workspace, most urgent first.
+preview	Live Preview	The Preview shows its live screen, so I can read the question without going anywhere.
+next		Move on, and the Preview follows.
+group	Group by Workspace · Alt+G	I can group them by Workspace, too.
+jump	Enter jumps to it	Enter takes me straight there, in whichever Workspace it is.
+answer		I answer, and it carries on.
+click	Ctrl+click a path	Control-click any path an agent prints, and the file opens right beside it.
+tree	Files: what the agent touched	The Files tab shows the Worktree, with every changed file marked.
+readme	Markdown and Mermaid, rendered	And Markdown opens rendered, diagrams included.
+outro		RADE. Free and open source, on GitHub.

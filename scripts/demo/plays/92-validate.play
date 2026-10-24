@@ -1,0 +1,15 @@
+match: Validate guest
+think 2
+tool Bash rg -n "email" src
+out 0 matches
+say No validation yet. Writing small pure checks.
+tool Write src/checkout/validate.ts
+add export const isEmail = (s: string) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(s);
+add export const isPostcode = (s: string) => /^[A-Z0-9 -]{3,10}$/i.test(s);
+sh mkdir -p src/checkout && printf 'export const isEmail = (s: string) => /^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$/.test(s);\nexport const isPostcode = (s: string) => /^[A-Z0-9 -]{3,10}$/i.test(s);\n' > src/checkout/validate.ts
+think 5
+tool Bash npm test -- validate
+out ✓ 9 tests passed
+say Done.
+notify validate: done
+done

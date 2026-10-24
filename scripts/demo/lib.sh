@@ -3,7 +3,9 @@
 # in test mode) plus demo Agents, a demo identity and a frame recorder.
 # Scene files set NAME and source this; output → target/demo/<NAME>/.
 DEMO=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-OUT=${OUT:-$DEMO/../../target/demo/$NAME}
+# NARRATE=1 (youtube.sh): beats last as long as their narration line, out of
+# the way of the docs' recordings.
+OUT=${OUT:-$DEMO/../../target/demo/$NAME${NARRATE:+-narrated}}
 export WESTON_WIDTH=${WESTON_WIDTH:-1440}
 # tests/e2e/lib.sh finds the repository two levels above the calling script.
 source "$DEMO/../../tests/e2e/lib.sh"
@@ -31,6 +33,15 @@ command = "env DEMO_AGENT=claude DEMO_TITLE='Claude Code (demo)' $AGENT"
 command = "env DEMO_AGENT=codex DEMO_TITLE='Codex (demo)' $AGENT"
 C
 
+# `plays_first <play>…` (names without .play): these plays win over every
+# other one whose `match:` would also pick a prompt of this scene.
+plays_first() {
+    local p=$T/plays f i=0
+    mkdir -p "$p" && cp "$DEMO"/plays/*.play "$p/"
+    for f; do cp "$DEMO/plays/$f.play" "$p/00$((i++))-$f.play"; done
+    sed -i "s|DEMO_TITLE='[^']*' |&DEMO_PLAYS=$p |" "$XDG_CONFIG_HOME/rade/config.toml"
+}
+
 id() { jq -r .pane; }
 ui() { rpc debug.ui "{\"op\": \"$1\"${2:+, \"arg\": \"$2\"}}"; }
 pane_status() { rade list --json | jq -r --arg p "$1" '.panes[] | select(.pane==$p) | .status'; }
@@ -40,6 +51,7 @@ dark() { rade debug action color_scheme_dark >/dev/null; sleep 1; }
 notoasts() { rpc debug.ui '{"op":"toasts_clear"}' >/dev/null; sleep 0.6; }
 # `still <name>`: dark and light screenshots → $OUT/<name>-dark.png, -light.png.
 still() {
+    [[ -n ${NARRATE:-} ]] && return
     dark; shot "$1-dark"
     light; shot "$1-light"
     dark
@@ -63,6 +75,28 @@ rec_start() {
       done ) &
     REC_PID=$!
     sleep 0.3
+}
+# `mark <label>`: a narration line starts here (→ $REC/marks.txt, ns timestamps).
+# `beat <label> <s>`: mark, then wait s seconds — with NARRATE=1 also until the
+# voice has read every line so far (cut.py queues a line that comes while the
+# one before is still read; durations from target/demo/narration/<NAME>/).
+NARR_END=0
+mark() {
+    [[ -z $REC ]] && return
+    local now d
+    now=$(date +%s%N)
+    echo "$now $1" >>"$REC/marks.txt"
+    [[ -z ${NARRATE:-} ]] && return
+    d=$(awk -v l="$1" '$1 == l { printf "%d", $2 * 1e9 }' "$DEMO/../../target/demo/narration/$NAME/durations.txt")
+    ((NARR_END = (now > NARR_END + 250000000 ? now : NARR_END + 250000000) + ${d:-0}))
+}
+beat() {
+    mark "$1"
+    sleep "$2"
+    local left
+    [[ -n ${NARRATE:-} ]] && left=$(( (NARR_END + 400000000 - $(date +%s%N)) / 1000000 )) && ((left > 0)) &&
+        sleep "$(awk -v ms="$left" 'BEGIN { print ms / 1000 }')"
+    return 0
 }
 rec_stop() {
     local name=${REC##*/rec-}

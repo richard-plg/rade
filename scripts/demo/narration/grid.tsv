@@ -1,0 +1,9 @@
+# label	caption (on screen; empty = none)	voice (Kokoro reads this)
+intro	One agent…	One Claude Code agent, and a feature with four independent parts.
+spawn	…spawns a team of Subagents	It spawns four Subagents, two Claude Code and two Codex, right beside it, in its Agent Grid.
+parallel	Claude Code and Codex, side by side	They all work at once, on the same Worktree.
+ask	A Subagent needs you	When one of them has a question, it turns amber and waits for me.
+answer		I answer, and it goes on.
+waits	The parent waits for each	The parent waits for each one with rade wait, and reads its answer.
+done	…and sums up	When the whole team is done, it sums up.
+outro		RADE. Free and open source, on GitHub.

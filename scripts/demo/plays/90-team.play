@@ -1,0 +1,39 @@
+match: [Ss]plit .* across
+think 1.5
+say Guest checkout has four independent parts. I'll give each one to its own Subagent.
+tool Bash rade spawn --agent claude --name form "Build the guest checkout form"
+sh rade spawn --agent claude --name form "Build the guest checkout form" >/dev/null
+out form started
+tool Bash rade spawn --agent codex --name validate "Validate guest emails and addresses"
+sh rade spawn --agent codex --name validate "Validate guest emails and addresses" >/dev/null
+out validate started
+tool Bash rade spawn --agent claude --name receipt "Write the guest receipt email"
+sh rade spawn --agent claude --name receipt "Write the guest receipt email" >/dev/null
+out receipt started
+tool Bash rade spawn --agent codex --name tests "Write tests for guest checkout"
+sh rade spawn --agent codex --name tests "Write tests for guest checkout" >/dev/null
+out tests started
+say Waiting for all four.
+tool Bash rade wait form --until done
+sh rade wait form --until done --timeout 300 >/dev/null
+out form done
+tool Bash rade wait receipt --until done
+sh rade wait receipt --until done --timeout 300 >/dev/null
+out receipt done
+tool Bash rade wait validate --until done
+sh rade wait validate --until done --timeout 300 >/dev/null
+out validate done
+tool Bash rade wait tests --until done
+sh rade wait tests --until done --timeout 300 >/dev/null
+out tests done
+tool Bash for a in form validate receipt tests; do rade read $a --lines 20; done
+out 4 reports
+say All four are done:
+out form      GuestForm.tsx: name, email, address, Pay
+out validate  email + postcode checks, 9 cases
+out receipt   guest receipt email with an order link
+out tests     6 specs for guest checkout, all green
+tool Bash npm test
+out ✓ 23 tests passed
+say Guest checkout is ready for you to look over.
+done

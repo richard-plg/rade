@@ -1,0 +1,24 @@
+match: SSO|launch post|invoice totals|cart totals|offline
+think 1.5
+say Reading the code around this first.
+tool Bash rg -n "TODO" src
+out 4 matches
+tool Read src/index.ts
+out Read 42 lines
+think 3
+say Making the change in small steps, running the tests after each.
+tool Edit src/index.ts
+add // step 1: types
+think 4
+tool Bash npm test
+out ✓ 14 passed
+think 3
+tool Edit src/index.ts
+add // step 2: the happy path
+think 5
+tool Bash npm test
+out ✓ 17 passed
+think 4
+tool Edit src/index.ts
+add // step 3: errors and retries
+think 900

@@ -1,0 +1,11 @@
+match: receipt email
+think 1.5
+say A plain template, so it renders the same in every mail client.
+tool Write src/checkout/receiptEmail.ts
+add export const receiptEmail = (o: Order) => `Thanks, ${o.name}! Order ${o.id}: ${o.total}`;
+sh mkdir -p src/checkout && printf 'export const receiptEmail = (o: { id: string; name: string; total: string }) =>\n  `Thanks, ${o.name}! Your order ${o.id} (${o.total}) is on its way.`;\n' > src/checkout/receiptEmail.ts
+think 4
+tool Bash npm run typecheck
+out no errors
+say Receipt email added.
+done

@@ -9,7 +9,7 @@ cd "$ROOT"
 if [[ ${NO_RUN:-} != 1 ]]; then
     [[ ${NO_BUILD:-} == 1 ]] || cargo build --release -q || exit 1
     for s in scripts/demo/*.sh; do
-        case ${s##*/} in lib.sh|world.sh|agent.sh|devserver.sh|collect.sh) continue ;; esac
+        case ${s##*/} in lib.sh|world.sh|agent.sh|devserver.sh|collect.sh|youtube.sh) continue ;; esac
         echo "== ${s##*/}"
         NO_BUILD=1 "$s" >"target/demo-${s##*/}.log" 2>&1 || echo "   failed (target/demo-${s##*/}.log)"
     done
@@ -19,7 +19,12 @@ mapfile -t want < <(grep -rhoE '(\.\./)*(docs/)?images/[A-Za-z0-9._-]+\.(png|gif
     | sed -E 's#.*images/##' | sort -u)
 missing=0
 for f in "${want[@]}"; do
-    src=$(ls -t target/demo/*/"$f" 2>/dev/null | head -1)
+    # The narrated runs (youtube.sh) are slower takes of the same names: only
+    # their youtube-*.png thumbnails go into the docs.
+    case $f in
+        youtube-*) src=$(ls -t target/demo/youtube/"$f" 2>/dev/null | head -1) ;;
+        *) src=$(ls -t target/demo/*/"$f" 2>/dev/null | grep -v -e '-narrated/' -e '/youtube/' | head -1) ;;
+    esac
     if [[ -z $src ]]; then echo "missing: $f"; missing=1; continue; fi
     cp "$src" "docs/images/$f"
 done

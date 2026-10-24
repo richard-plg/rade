@@ -1,0 +1,7 @@
+match: release notes|nvim|Plan the guest
+think 1.5
+tool Bash git log --oneline -8
+out 8 commits
+think 2
+say Done — written up in the notes.
+done

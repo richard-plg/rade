@@ -1,0 +1,18 @@
+match: guest checkout form
+think 1.5
+tool Read src/cart/Cart.tsx
+out Read 14 lines
+say Adding a guest form under the cart, reusing shared-ui's Button.
+tool Write src/checkout/GuestForm.tsx
+add export function GuestForm({ onPay }: { onPay: (g: Guest) => void }) {
+add   const [guest, setGuest] = useState<Guest>(empty);
+add   return <form onSubmit={submit}>…</form>;
+sh mkdir -p src/checkout && printf 'import { useState } from "react";\nimport { Button } from "@acme/shared-ui";\n\nexport type Guest = { name: string; email: string; address: string };\nconst empty: Guest = { name: "", email: "", address: "" };\n\nexport function GuestForm({ onPay }: { onPay: (g: Guest) => void }) {\n  const [guest, setGuest] = useState<Guest>(empty);\n  return (\n    <form onSubmit={(e) => { e.preventDefault(); onPay(guest); }}>\n      <input placeholder="Name" value={guest.name} onChange={(e) => setGuest({ ...guest, name: e.target.value })} />\n      <input placeholder="Email" value={guest.email} onChange={(e) => setGuest({ ...guest, email: e.target.value })} />\n      <input placeholder="Address" value={guest.address} onChange={(e) => setGuest({ ...guest, address: e.target.value })} />\n      <Button>Pay</Button>\n    </form>\n  );\n}\n' > src/checkout/GuestForm.tsx
+think 3
+tool Edit src/cart/Cart.tsx
+add <GuestForm onPay={checkout} />
+tool Bash npm run typecheck
+think 2
+out no errors
+say Form is in place.
+done

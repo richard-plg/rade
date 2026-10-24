@@ -86,3 +86,52 @@ acme_register() {
     rade project add Shop --source shop-web:develop --source shop-api:develop --source shared-ui:develop >/dev/null
     rade project add Billing --source billing:main --source shared-ui:release/2.4 >/dev/null
 }
+
+# more_world / more_register (scenes with three Workspaces): `globex`, a client
+# (Projects Portal: portal-web + portal-api, and Mobile), and `personal`
+# (Projects Blog and Dotfiles), each with its own git email.
+G=$HOME/workspaces/globex P=$HOME/workspaces/personal
+more_world() {
+    repo "$G/portal-web"
+    commit "$G/portal-web" "chore: scaffold the customer portal" \
+        README.md='# portal-web\n\nGlobex customer portal.\n' \
+        src/index.ts='export { App } from "./App";\n' \
+        src/App.tsx='export function App() {\n  return <main>Portal</main>;\n}\n' \
+        src/auth/session.ts='export const session = { user: null as string | null };\n'
+    repo "$G/portal-api"
+    commit "$G/portal-api" "chore: scaffold the portal API" \
+        README.md='# portal-api\n\nThe API behind the Globex portal: invoices, exports, tenants.\n\n```mermaid\nflowchart TD\n  web[portal-web] --> api[portal-api]\n  api --> tenant{requireTenant}\n  tenant --> invoices[(invoices)]\n  tenant --> exports[(exports)]\n```\n\n## Run\n\n```sh\nnpm run dev   # http://localhost:8080\n```\n' \
+        package.json='{\n  "name": "portal-api",\n  "private": true\n}\n' \
+        src/index.ts='import { router } from "./router";\n\nrouter.listen(8080);\n' \
+        src/routes/invoices.ts='import { router, requireTenant } from "../router";\n\nrouter.get("/invoices", requireTenant, listInvoices);\nrouter.get("/invoices/:id/pdf", invoicePdf);\n' \
+        src/routes/exports.ts='import { router } from "../router";\n\nrouter.get("/exports/:id", getExport);\n' \
+        src/router.ts='export const router = createRouter();\n\nexport function requireTenant(req, _res, next) {\n  if (!req.tenant) throw new Error("no tenant");\n  next();\n}\n'
+    repo "$G/mobile"
+    commit "$G/mobile" "chore: scaffold the app" README.md='# mobile\n\nGlobex field app.\n' src/index.ts='export const app = "mobile";\n'
+    repo "$P/blog"
+    commit "$P/blog" "chore: scaffold the blog" README.md='# blog\n\nNotes on Rust, GTK and tooling.\n' \
+        src/index.ts='export const feed = { title: "Sam Rivera", posts: [] as string[] };\n' \
+        posts/2026-10-gtk-tips.md='# GTK tips\n\nSmall things that save time.\n'
+    repo "$P/dotfiles"
+    commit "$P/dotfiles" "chore: shell and editor config" README.md='# dotfiles\n' src/index.ts='// nvim config helpers\n'
+    local r
+    for r in "$G"/*/ "$P"/*/; do git -C "$r" push -qu origin main 2>/dev/null; done
+    for r in "$G"/*/; do git -C "$r" config user.email sam@globex.example; done
+    for r in "$P"/*/; do git -C "$r" config user.email sam.rivera@example.org; done
+    mkdir -p "$G/.rade" "$P/.rade"
+    printf 'name = "globex"\ncolor = "orange"\n[identity]\ngit_email = "sam@globex.example"\n' >"$G/.rade/workspace.toml"
+    printf 'name = "personal"\ncolor = "purple"\n[identity]\ngit_email = "sam.rivera@example.org"\n' >"$P/.rade/workspace.toml"
+}
+more_register() {
+    local r
+    rade workspace add "$G" >/dev/null
+    for r in "$G"/*/; do rade source add "${r%/}" --workspace globex >/dev/null; done
+    rade workspace add "$P" >/dev/null
+    for r in "$P"/*/; do rade source add "${r%/}" --workspace personal >/dev/null; done
+    rade workspace switch globex >/dev/null
+    rade project add Portal --source portal-web:main --source portal-api:main >/dev/null
+    rade project add Mobile --source mobile:main >/dev/null
+    rade workspace switch personal >/dev/null
+    rade project add Blog --source blog:main >/dev/null
+    rade project add Dotfiles --source dotfiles:main >/dev/null
+}
