@@ -634,20 +634,20 @@ mod tests {
                 .insert(w.source(s).unwrap().worktrees[0].id.clone(), b.into());
         }
         for (src, name, branch, p) in [
-            ("globex-web", "beacon-dev", "feat/dev/beacon", Some("beacon")),
-            ("globex-api", "beacon-dev", "feat/dev/beacon", Some("beacon")),
             (
                 "globex-web",
-                "atlas-dev",
-                "feat/atlas-dev",
-                Some("atlas"),
+                "beacon-dev",
+                "feat/dev/beacon",
+                Some("beacon"),
             ),
             (
                 "globex-api",
-                "atlas-dev",
-                "feat/atlas-dev",
-                Some("atlas"),
+                "beacon-dev",
+                "feat/dev/beacon",
+                Some("beacon"),
             ),
+            ("globex-web", "atlas-dev", "feat/atlas-dev", Some("atlas")),
+            ("globex-api", "atlas-dev", "feat/atlas-dev", Some("atlas")),
             ("globex-api", "master", "master", Some("globex-web-main")),
             ("globex-web", "agent-chat", "feat/beacon-agent-chat", None),
             (
@@ -951,10 +951,7 @@ mod tests {
             s("globex-web", "feat/beacon-agent-chat").as_deref(),
             Some("beacon")
         );
-        assert_eq!(
-            s("globex-web", "feat/atlas-dev").as_deref(),
-            Some("atlas")
-        );
+        assert_eq!(s("globex-web", "feat/atlas-dev").as_deref(), Some("atlas"));
         assert_eq!(s("globex-web", "fix/ocr"), None);
         assert_eq!(
             s("globex-billing", "feat/beacon-x"),

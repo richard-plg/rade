@@ -16,7 +16,9 @@ TAG=$(tr -dc a-z0-9 </dev/urandom | head -c6)
 one() {
     local s=$1 c="rade-e2e-$TAG-$1" t0=$SECONDS rc
     # --init: reap the app/weston children; shm: WebKit wants more than 64 MB.
-    docker run --name "$c" --init --shm-size=1g "$IMAGE" "tests/e2e/$s.sh" >"$OUTDIR/$s.log" 2>&1
+    # E2E_SKIP_PERF passes through (tests/e2e/lib.sh perf_check).
+    docker run --name "$c" --init --shm-size=1g -e "E2E_SKIP_PERF=${E2E_SKIP_PERF:-}" \
+        "$IMAGE" "tests/e2e/$s.sh" >"$OUTDIR/$s.log" 2>&1
     rc=$?
     mkdir -p "$OUTDIR/$s"
     docker cp "$c:/src/target/." "$OUTDIR/$s/" >/dev/null 2>&1 || true

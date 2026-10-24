@@ -72,6 +72,13 @@ check() { # name, command...
     local name=$1; shift
     if "$@"; then ok "$name"; else bad "$name"; fi
 }
+# A timing budget (frame / update times in ms): skipped on hardware that
+# can't meet it — E2E_SKIP_PERF=1, set by CI on GitHub-hosted runners
+# (4 vCPUs, llvmpipe; ADR-0042). Local and live runs still enforce it.
+perf_check() { # name, command...
+    if [[ ${E2E_SKIP_PERF:-} == 1 ]]; then echo "  SKIP $1 (E2E_SKIP_PERF=1)"; return 0; fi
+    check "$@"
+}
 # Poll until a command succeeds (terminals start asynchronously).
 eventually() { # timeout_s, command...
     local t=$1; shift

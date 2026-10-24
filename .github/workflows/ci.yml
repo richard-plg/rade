@@ -71,7 +71,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 120
     env:
-      E2E_JOBS: 2 # a hosted runner has 4 vCPUs; some suites assert timings
+      E2E_JOBS: 2 # a hosted runner has 4 vCPUs
+      E2E_SKIP_PERF: 1 # ms budgets need real hardware (tests/e2e/lib.sh perf_check)
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

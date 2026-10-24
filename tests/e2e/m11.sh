@@ -89,7 +89,7 @@ echo "  highlight (slowest file): $(rinfo | jq -r '.highlight_ms | floor') ms"
 rade debug review "$rv" perf >/dev/null
 check "scrolling the whole list (3 s)" eventually 15 bash -c "rade debug review $rv info --json | jq -e '.perf != null' >/dev/null"
 rinfo | jq -c .perf | tee "$OUT/perf.json"
-check "no frame over 50 ms while scrolling" bash -c "jq -e '.max_ms < 50' $OUT/perf.json >/dev/null"
+perf_check "no frame over 50 ms while scrolling" bash -c "jq -e '.max_ms < 50' $OUT/perf.json >/dev/null"
 rade debug review "$rv" select src/big.rs >/dev/null
 
 echo "== M11 re-anchoring Review Comments"

@@ -280,7 +280,7 @@ rade focus "$(rade spawn --source k1 --json | jq -r .pane)" >/dev/null
 r=$(pk '#file 42')
 echo "  k1: $(jq -c '{items, files, walk_ms, rank_ms}' <<<"$r")"
 check "k1: 1,000 files + .gitignore, node_modules ignored" test "$(jq .files <<<"$r")" = 1001
-check "k1: ranking ~1k items < 16 ms" test "$(jq '.rank_ms < 16' <<<"$r")" = true
+perf_check "k1: ranking ~1k items < 16 ms" test "$(jq '.rank_ms < 16' <<<"$r")" = true
 open_pal
 check "UI: files indexed" eventually 10 is "info .files" 1001
 worst=0
@@ -290,7 +290,7 @@ for s in f fi fil file 'file 4' 'file 42' 'file 421'; do
     echo "    k1 '#$s' → $(info .count) rows, update $(printf %.2f "$u") ms (rank $(printf %.2f "$(info .timing.rank_ms)"), apply $(printf %.2f "$(info .timing.apply_ms)"))"
     worst=$(python3 -c "print(max($worst, $u))")
 done
-check "k1: result list updates < 16 ms (worst $(printf %.2f "$worst") ms)" python3 -c "import sys; sys.exit(not $worst < 16)"
+perf_check "k1: result list updates < 16 ms (worst $(printf %.2f "$worst") ms)" python3 -c "import sys; sys.exit(not $worst < 16)"
 pal key escape >/dev/null
 rade focus "$(rade spawn --source k50 --json | jq -r .pane)" >/dev/null
 r=$(pk '#file_49999')
@@ -308,7 +308,7 @@ for s in f fi fil file 'file 4' 'file 49' 'file 4999' 'mod12 file'; do
     echo "    k50 '#$s' → $(info .count) rows, update $(printf %.2f "$u") ms (rank $(printf %.2f "$rk"), apply $(printf %.2f "$(info .timing.apply_ms)"))"
     worst=$(python3 -c "print(max($worst, $u))") worst_rank=$(python3 -c "print(max($worst_rank, $rk))")
 done
-check "k50: every update lands (worst $(printf %.2f "$worst") ms; ranking off the GTK thread, worst $(printf %.2f "$worst_rank") ms)" python3 -c "import sys; sys.exit(not $worst < 100)"
+perf_check "k50: every update lands (worst $(printf %.2f "$worst") ms; ranking off the GTK thread, worst $(printf %.2f "$worst_rank") ms)" python3 -c "import sys; sys.exit(not $worst < 100)"
 # Typing fast: every keystroke re-ranks; stale ones are cancelled. A probe
 # asks the GTK thread for info every 50 ms meanwhile; its slowest answer
 # shows the window never blocked.
