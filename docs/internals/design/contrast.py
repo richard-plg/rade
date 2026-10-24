@@ -16,7 +16,7 @@ import sys
 import tomllib
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-DEFAULT = os.path.join(HERE, "..", "..", "crates", "rade-app", "src", "tokens.toml")
+DEFAULT = os.path.join(HERE, "..", "..", "..", "crates", "rade-app", "src", "tokens.toml")
 NEED = {"text": 4.5, "glyph": 3.0}
 
 
