@@ -1,0 +1,28 @@
+# Opt-in real Agent acceptance
+
+This suite uses authenticated Claude Code (Sonnet), so it consumes provider usage. It requires the normal local `claude` CLI, Python 3, jq and the dependencies used by `tests/e2e/lib.sh`. It creates a private headless RADE instance, throwaway repo, HOME/XDG paths and a copied Claude config. `rade setup` operates on the copy only. It never changes the authenticated source directory, deploys, pushes, or installs dependencies.
+
+```sh
+tests/acceptance/real-agent.sh --self-check
+RADE_REAL_AGENT_CONFIG=/absolute/path/to/authenticated/claude-config NO_BUILD=1 tests/acceptance/real-agent.sh
+```
+
+Set `RADE_REAL_AGENT_SCENARIO=ui`, `bug`, or `resume` to run one independent scenario; the default `all` runs all three. Independent outputs use `target/acceptance-real-agent-<scenario>/`, so a slow UI attempt is not overwritten by bug/resume evidence.
+
+Build the current release binaries first. Run this suite alone, after other E2E suites: its real Agents and browser use the single acceptance slot. The source directory must contain `.credentials.json` and `.claude.json`. The suite grants normal `acceptEdits` and a narrow command allow-list and access to the throwaway temp root (including its General/skills directories) within its isolated config; it does not bypass permission checks. The copied provider config suppresses observed first-use auto-mode notices without changing permission mode. Owner gate clicks wait for a real Stop hook plus a short TUI render settle. Provider permission/auth/rate-limit dialogs are recorded with evidence. The owner may approve an observed, proven fixture-only command once and record that intervention; the harness never grants blanket `/tmp` access or bypasses permissions. Unresolved dialogs remain external gates, never fabricated successes.
+
+The suite runs a smoke turn, then three actual scenarios:
+
+- A UI Initiative submits spec and design, opens its prototype, receives a Browser Annotation through the actual recipient chooser (which must close), completes a new real feedback turn and Stop hook, then receives an owner Request changes, submits a one-milestone plan, implements it through a Batch with a trusted check and a read-only Reviewer, and receives independent acceptance evidence. The owner finishes it only after `Result: PASS`. Browser clicks then check both implementation toggle states and `aria-expanded`.
+- A bug Task deliberately submits broken content once. RADE's owner-confirmed check must fail, send the failure back, and pass after the real Agent fixes it. Both records must appear in the Task Log.
+- A real Agent with a saved session is interrupted by crashing only the isolated app. Restart must preserve its session and report interruption; an explicit continuation must complete the file and emit the Stop hook.
+
+Individual waits are bounded; a watchdog limits `all`, `bug`, and `resume` to 20 minutes. UI-only has a 900-second design wait and 30-minute total to cover real independent design review and recorded owner permission decisions. `RADE_REAL_AGENT_DESIGN_TIMEOUT` (30–900 seconds) and `RADE_REAL_AGENT_TIMEOUT` (60–1800 seconds) can tighten these bounds. Failures preserve redacted terminal transcripts, task/initiative/check records and `outcome.txt` under `target/acceptance-real-agent/`. Copied credential/account files are deleted before cleanup even when `KEEP=1`. Never publish provider session/config files from the temporary directory.
+
+The small Python checks cover known fixture content; behavioral claims also require the actual Browser clicks and independent acceptance records. A self-check proves the fixture checks reject broken/missing results; it does not establish that authenticated scenarios passed. Inspect the recorded evidence, not just the number of terminal turns. Screenshots are headless evidence; this does not verify desktop IME, screen-reader behavior, GPU compatibility, installation/upgrade, costs or external deployment.
+
+The launch profile appends strict fixture instructions: use Edit/Write for file changes, Read/Glob/Grep for inspection, and individual Bash commands with literal absolute paths. This is a configured isolated-profile acceptance, not evidence that an unconfigured/default Agent is frictionless or can run unattended. Normal owner spec/design/plan/milestone approvals are workflow steps; any additional owner permission decisions or corrections are counted separately in each run's `manual-interventions.md`.
+
+An observational `PreToolUse` hook for Bash captures only session ID, cwd and the proposed command into a mode 600 file under the private temporary directory. It preserves existing RADE hooks, emits no stdout, never executes the captured command and never returns a permission decision. It makes clipped pending commands inspectable before an owner allow-once decision. The raw trace is never copied into published artifacts; only validated, sanitized individual command evidence may be preserved. The self-check verifies the hook cannot execute a sample command and the early cleanup removes mock auth/account files while preserving an error exit status.
+
+`RADE_REAL_AGENT_INPUTS=/absolute/directory` may provide four existing **real** artifacts named `spec.md`, `design.md`, `prototype.html`, and `design-review.txt`. They are copied as Initiative inputs to continue earlier expensive design work. The new Agent still submits documents and the owner still performs every approval; no state, review result or gate is seeded. The final implementation must show the requested green-button feedback in its actual DOM in addition to real independent acceptance and behavior checks.

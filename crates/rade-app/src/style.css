@@ -1,0 +1,996 @@
+/* RADE stylesheet (PRD R102, ADR-0036): every color is a design token from
+   tokens.toml (`@bg0` … `@glow`, generated as @define-color by build.rs and
+   loaded before this file; the dark half is added while the style is dark).
+   No raw hex colors here or in rade-app Rust (R102-b, tokens_tests.rs).
+   Status is never the accent; the accent is focus, selection and the one
+   primary button per screen. */
+
+/* libadwaita's own variables follow the tokens. */
+:root {
+  --accent-bg-color: @acc; --accent-fg-color: @acc-fg; --accent-color: @acc;
+  --window-bg-color: @bg1; --window-fg-color: @fg;
+  --view-bg-color: @bg0; --view-fg-color: @fg;
+  --headerbar-bg-color: @bg1; --headerbar-fg-color: @fg; --headerbar-border-color: @line;
+  --sidebar-bg-color: @bg1; --sidebar-fg-color: @fg; --secondary-sidebar-bg-color: @bg1;
+  --popover-bg-color: @bg2; --popover-fg-color: @fg;
+  --dialog-bg-color: @bg2; --dialog-fg-color: @fg;
+  --card-bg-color: @bg2; --card-fg-color: @fg;
+  --border-color: @line2;
+  --success-color: @ok; --warning-color: @wait; --error-color: @err;
+  --success-bg-color: @ok; --warning-bg-color: @wait; --error-bg-color: @err;
+}
+window { font-family: "Inter", sans-serif; font-size: 13px; background-color: @bg1; }
+.rade-mono { font-family: "JetBrains Mono", monospace; font-feature-settings: "tnum"; }
+
+/* ---- Status glyphs (R20.2) ---------------------------------------------- */
+.rade-glyph { min-width: 14px; min-height: 14px; }
+.rade-st-running { color: @run; }
+.rade-st-waiting { color: @wait; }
+.rade-st-done { color: @ok; }
+.rade-st-error { color: @err; }
+.rade-st-interrupted { color: @wt; }
+.rade-st-exited, .rade-st-none { color: @fg3; }
+
+.rade-chip { font-size: 11px; font-weight: 600; padding: 0 7px; border-radius: 99px; min-height: 18px; }
+.rade-chip-running { color: @run; background: alpha(@run, 0.14); }
+.rade-chip-waiting { color: @wait; background: @wait-dim; }
+.rade-chip-done { color: @ok; background: alpha(@ok, 0.14); }
+.rade-chip-error { color: @err; background: alpha(@err, 0.14); }
+.rade-chip-interrupted { color: @wt; background: alpha(@wt, 0.14); }
+.rade-chip-exited { color: @fg3; background: alpha(currentColor, 0.08); }
+
+.rade-dim { color: @fg3; }
+.rade-meta { font-size: 11.5px; color: @fg3; font-feature-settings: "tnum"; }
+/* A neutral count (Unread): never the accent, never a status color. */
+.rade-count { font-size: 11px; font-weight: 600; padding: 0 6px; min-width: 8px; border-radius: 99px;
+  background: alpha(currentColor, 0.1); font-feature-settings: "tnum"; }
+.rade-add { color: @add; }
+.rade-del { color: @del; }
+
+/* ---- Panes (R103.3, spec A.45–A.52), dimming; no Attention Ring (ADR-0036) --- */
+.panes { padding: 6px; background: @bg1; }
+.panes paned > separator { min-width: 6px; min-height: 6px; background: none; box-shadow: none; }
+.pane { border: 1px solid @line; border-radius: 6px; background: @bg0; }
+/* The 1 px ring is the border: a GtkPaned clips its children's outset shadows at its edges. */
+.pane.focused { border-color: @acc-line; box-shadow: 0 0 18px @glow; }
+.terminal { margin: 10px 12px; }
+.pane-header, .rade-caption { min-height: 25px; padding: 0 8px; background: @bg1; border-bottom: 1px solid @line;
+  font-family: "JetBrains Mono", monospace; font-feature-settings: "tnum"; font-size: 11.5px; color: @fg3; }
+.pane-name { color: @fg; font-weight: 500; }
+.pane-meta, .pane-title, .pane-unread { color: @fg3; }
+.pane-status { margin-left: 8px; color: @fg3; }
+.pane-status-running { color: @run; }
+.pane-status-waiting { color: @wait; }
+.pane-status-done { color: @ok; }
+.pane-status-error { color: @err; }
+.pane-status-interrupted { color: @wt; }
+.pane-status-icon { color: @wait; -gtk-icon-size: 13px; margin-left: 8px; }
+.pane-header button { min-height: 20px; min-width: 20px; padding: 0; margin: 0 0 0 2px; border-radius: 4px; color: @fg3; }
+.pane-header button image { -gtk-icon-size: 14px; }
+.rade-title-bar { padding: 0; border-radius: 0; border-top: 1px solid @line; }
+.rade-title-bar .rade-caption { border-bottom: none; }
+.rade-unfocused-pane { background: alpha(@bg0, 0.3); }
+.rade-pane-badge { margin: 6px 16px; }
+
+/* ---- Flat tabs (R103.2, spec A.39–A.44) ------------------------------------------ */
+.tab-strip { min-height: 33px; background: @bg1; border-bottom: 1px solid @line; padding-left: 4px; }
+.tab { padding: 0 12px; border-right: 1px solid @line; font-size: 12.5px; color: @fg2; transition: color 120ms ease-out; }
+.tab:hover { color: @fg; }
+.tab.active { background: @bg0; color: @fg; }
+.tab-activebar { min-height: 2px; background: transparent; }
+.tab-activebar.active { background: @acc; }
+.tab-count { font-family: "JetBrains Mono", monospace; font-feature-settings: "tnum"; font-size: 11px; color: @fg3; }
+.tab-icon { color: @fg3; -gtk-icon-size: 13px; }
+.tab-close { min-width: 16px; min-height: 16px; padding: 0; border-radius: 4px; color: @fg3; }
+.tab-close image { -gtk-icon-size: 12px; }
+.tab-add { min-width: 34px; min-height: 33px; padding: 0; border-radius: 0; color: @fg3; }
+.tab-add image { -gtk-icon-size: 16px; }
+
+/* ---- Sidebar (R20.6) ------------------------------------------------------- */
+.rade-section { font-size: 12px; font-weight: 700; color: @fg3; margin: 8px 6px 2px 16px; }
+.rade-section button { min-height: 24px; min-width: 24px; padding: 0; }
+/* Workspace switcher (R23.5): dot + name as the section heading; "!" = a
+   hidden Workspace's Agent needs input (the one amber signal, R20.3). */
+.rade-ws-badge { margin-left: 2px; }
+.rade-ws-popover contents { min-width: 280px; padding: 6px; }
+.rade-ws-list > row { min-height: 32px; padding: 0 8px; border-radius: 7px; }
+.rade-ws-active { font-weight: 700; }
+.rade-sidebar > row { min-height: 0; padding: 0 8px 0 6px; margin: 0 6px 1px; border-radius: 7px;
+  transition: background-color 150ms ease-out; }
+.rade-sidebar > row.rade-row-source { min-height: 32px; }
+.rade-sidebar > row.rade-row-worktree { min-height: 30px; padding-left: 22px; }
+.rade-sidebar > row.rade-row-agent { min-height: 26px; padding-left: 42px; font-size: 12.5px; }
+.rade-sidebar > row.rade-row-agent.flat { padding-left: 26px; }
+.rade-row-source .rade-row-title { font-weight: 700; }
+.rade-row-agent.waiting .rade-row-title { color: @wait; font-weight: 600; }
+.rade-chevron { min-height: 20px; min-width: 20px; padding: 0; margin: 0; color: @fg3; }
+.rade-branch { color: @fg3; }
+.rade-worktree-missing { opacity: 0.5; }
+.rade-paused > box { opacity: 0.55; }
+.rade-sidebar > row.rade-row-checkout.rade-paused > box { opacity: 1; }
+.rade-row-checkout.rade-paused .rade-row-title { color: @fg3; }
+/* Projects (R30): a header per Project, its Sources indented under it. */
+.rade-sidebar > row.rade-row-project { min-height: 32px; }
+.rade-sidebar > row.rade-row-project:not(:first-child) { margin-top: 6px; }
+.rade-row-project .rade-row-title { font-weight: 800; font-size: 14px; }
+.rade-project-icon { color: @fg3; }
+.rade-project-error .rade-row-title { color: @err; }
+.rade-sidebar > row.rade-nested { margin-left: 14px; }
+.rade-sidebar > row.rade-row-source.rade-nested .rade-row-title { font-weight: 600; }
+.rade-sources-heading { margin-top: 14px; padding-top: 8px; border-top: 1px solid alpha(currentColor, 0.12); }
+.rade-source-note { margin-left: 4px; }
+
+/* Source chips. */
+.rade-source-chip { border-radius: 99px; padding: 2px 12px; min-height: 24px; font-size: 12.5px; }
+.rade-source-chip:checked { background: alpha(currentColor, 0.2); font-weight: 700; box-shadow: inset 0 0 0 1px alpha(currentColor, 0.35); }
+
+/* ---- Inbox (R3.2) ------------------------------------------------------------ */
+.rade-inbox-head { padding: 6px 6px 2px 8px; }
+.rade-inbox-title { font-size: 12px; font-weight: 700; color: @fg3; }
+.rade-inbox-head button { min-height: 24px; padding: 0 6px; font-size: 12px; }
+.rade-link { color: var(--accent-color); font-weight: 600; }
+.rade-inbox > row { padding: 5px 8px 5px 8px; margin: 0 6px; border-radius: 7px; min-height: 0; }
+.rade-notif-text { font-size: 12.5px; }
+.rade-notif-unread .rade-notif-text { font-weight: 700; }
+.rade-notif-path { font-size: 11px; color: @fg3; }
+.rade-notif-time { font-size: 11px; color: @fg3; font-feature-settings: "tnum"; }
+.rade-unread-dot { min-width: 7px; min-height: 7px; border-radius: 99px; background: @run; }
+.rade-notif-gone { opacity: 0.5; }
+
+/* ---- Key caps (spec A.13) ----------------------------------------------------- */
+.kbd, .rade-kbd { font-family: "JetBrains Mono", monospace; font-feature-settings: "tnum"; font-size: 10.5px;
+  font-weight: 500; color: @fg2; padding: 1px 5px; border-radius: 4px; background: @bg2;
+  border: 1px solid @line2; border-bottom-width: 2px; }
+
+/* ---- Inspector (R103.4, spec A.53–A.57), file tree (R8) ----------------------- */
+.inspector { background: @bg1; border-left: 1px solid @line; }
+.inspector-tabs { min-height: 33px; border-bottom: 1px solid @line; }
+.inspector-tab { min-height: 33px; padding: 0 12px; border-radius: 0; background: none; box-shadow: none;
+  font-family: "JetBrains Mono", monospace; font-feature-settings: "tnum"; font-size: 11px; font-weight: 500;
+  letter-spacing: 0.66px; color: @fg3; transition: color 120ms ease-out; }
+.inspector-tab:hover { color: @fg2; background: none; }
+.inspector-tab.active { color: @fg; }
+.inspector-tab-label { text-transform: uppercase; }
+.inspector-tab-icon, .inspector-tab image { -gtk-icon-size: 14px; }
+.inspector-tab-count { font-family: "JetBrains Mono", monospace; font-feature-settings: "tnum"; font-size: 10px;
+  letter-spacing: 0; color: @acc; }
+.inspector-tab-bar { min-height: 2px; background: transparent; }
+.inspector-tab-bar.active { background: @acc; }
+.inspector-activity { padding: 0 10px; }
+
+/* Empty states (R103.6): one mono line and key hints, never a warning icon. */
+.empty-state { padding: 18px 14px; }
+.empty-line { font-family: "JetBrains Mono", monospace; font-feature-settings: "tnum"; font-size: 12px; color: @fg3; }
+.empty-hint-words { font-family: "JetBrains Mono", monospace; font-size: 11px; color: @fg3; }
+.commit-button { min-height: 26px; padding: 0 12px; border-radius: 6px; font-weight: 600; }
+.rade-code-modes button { min-height: 24px; padding: 0 8px; font-size: 12px; }
+.rade-code-textmatch { font-size: 10.5px; padding: 0 5px; border-radius: 99px; color: @fg3; border: 1px solid alpha(currentColor, 0.2); }
+.rade-code-hint { font-size: 12px; padding: 6px 8px; border-radius: 6px; background-color: alpha(currentColor, 0.06); }
+/* Hover / peek popovers (R90). */
+.rade-code-pop > contents { padding: 8px 10px; }
+.rade-code-pop .rade-meta { margin-bottom: 2px; }
+.rade-code-pop-body { font-size: 13px; }
+.rade-code-pop .rade-code-hint { margin-top: 2px; }
+/* The Review's Impact section (R88.2). */
+.rade-impact { padding: 8px 10px; background: @bg1; border-left: 1px solid @line; }
+.rade-impact-summary { font-weight: 600; font-size: 12.5px; }
+.rade-impact-list { background: none; }
+.rade-impact-list > row { min-height: 26px; padding: 1px 4px; }
+.rade-impact .rade-git-mark { font-size: 13px; min-width: 12px; font-family: "JetBrains Mono", monospace; font-feature-settings: "tnum"; }
+.rade-impact-warn { color: @err; background: alpha(@err, 0.14); }
+.rade-impact-toggle:checked { background: var(--accent-bg-color); color: var(--accent-fg-color); }
+.rade-files-header { padding: 4px 6px 4px 12px; }
+.rade-files listview row { padding-top: 1px; padding-bottom: 1px; min-height: 26px; }
+.rade-git-mark { font-size: 11px; font-weight: bold; margin-right: 6px; min-width: 10px; }
+.rade-git-modified { color: @wait; }
+.rade-git-added { color: @add; }
+.rade-git-untracked { color: @add; }
+.rade-git-deleted { color: @del; }
+.rade-git-conflicted { color: @wt; }
+
+/* ---- Viewer, Browser ----------------------------------------------------------- */
+/* Viewer (R7, R112.5): a Pane header over a bg0 body, like a Terminal Pane. */
+.rade-viewer, .rade-viewer textview, .rade-viewer textview text { background: @bg0; }
+.rade-viewer textview border.left, .rade-viewer textview gutter { background: @bg0; }
+.rade-viewer-header { min-height: 25px; padding: 0 4px 0 10px; background: @bg1; border-bottom: 1px solid @line; }
+.rade-viewer-icon { -gtk-icon-size: 14px; color: @fg3; }
+.rade-viewer-title { font-family: "JetBrains Mono", monospace; font-feature-settings: "tnum"; font-size: 11.5px;
+  color: @fg; margin-left: 6px; }
+.rade-viewer-header button { min-width: 22px; min-height: 22px; padding: 2px; color: @fg3; background: none; box-shadow: none; }
+.rade-viewer-header button:hover { color: @fg; background: @bg3; }
+.rade-viewer-header button image { -gtk-icon-size: 14px; }
+.rade-viewer-header button:disabled { opacity: 0.35; }
+
+.rade-browser-url { min-height: 26px; margin: 0 4px; font-size: 13px; }
+
+/* ---- Review (R13) ------------------------------------------------------------- */
+.rade-review-files row { padding-top: 2px; padding-bottom: 2px; min-height: 0; }
+.rade-review-list { background: transparent; }
+.rade-review-list > row { padding: 0; min-height: 0; }
+.rade-diff-row { padding: 0 6px 0 0; }
+.rade-diff-num { color: alpha(currentColor, 0.5); padding: 0 4px; font-size: 0.92em; }
+.rade-diff-sign { color: alpha(currentColor, 0.6); }
+.rade-diff-marked { color: var(--accent-color); }
+.rade-diff-added { background-color: alpha(@add, 0.18); }
+.rade-diff-removed { background-color: alpha(@del, 0.18); }
+.rade-diff-hunk { background-color: alpha(@run, 0.13); font-weight: 600; }
+.rade-diff-file { background-color: @bg2; border-top: 1px solid @line2; border-bottom: 1px solid @line;
+  padding-top: 0; padding-bottom: 0; min-height: 28px; font-family: sans-serif; }
+.rade-diff-file .review-viewed-check { min-height: 0; padding: 0; }
+.rade-diff-file .review-viewed-check check { min-width: 14px; min-height: 14px; margin: 0 6px 0 0; }
+.rade-diff-binary { font-family: sans-serif; }
+.rade-review-list > row:selected .rade-diff-row { box-shadow: inset 3px 0 var(--accent-color); }
+
+/* ---- Review Loop (R118, spec H) ---------------------------------------------- */
+.review-head { background: @bg1; border-bottom: 1px solid @line; padding: 0 8px 0 12px; }
+.review-head1, .review-head2 { min-height: 30px; }
+.review-branch-icon { -gtk-icon-size: 13px; color: @fg3; }
+.review-branch { font-weight: 600; font-size: 12.5px; color: @fg; }
+.review-base, .review-agent-more, .review-commits, .review-viewed, .review-sep {
+  font-family: "JetBrains Mono", monospace; font-feature-settings: "tnum"; font-size: 11px; color: @fg3; }
+.review-viewed { color: @fg2; }
+.review-agent-name { font-size: 12.5px; color: @fg; }
+.review-task { font-size: 12.5px; color: @fg2; margin-left: 4px; }
+.review-commits { min-height: 24px; padding: 0 6px; }
+.review-commits button { min-height: 22px; padding: 0 6px; color: @fg3; font-size: 11px; }
+.review-commit-list { padding: 4px; }
+.review-commit { padding: 3px 6px; }
+.review-commit-sha, .review-commit-age { font-family: "JetBrains Mono", monospace; font-size: 11px; color: @fg3; }
+.review-commit-subject { font-size: 12.5px; color: @fg; }
+.review-scope button { min-height: 22px; padding: 0 10px; border-radius: 6px; border: 1px solid @line2;
+  background: none; box-shadow: none; color: @fg2; font-size: 12px; }
+.review-scope button:checked { background: @acc-dim; color: @acc; }
+levelbar.review-progress { min-width: 64px; }
+levelbar.review-progress trough { min-height: 4px; min-width: 64px; border-radius: 2px; background: @bg4; padding: 0; border: none; }
+levelbar.review-progress block.filled { background: @acc; border-radius: 2px; min-height: 4px; }
+levelbar.review-progress block.empty { background: none; }
+.review-head2 button, .review-head2 menubutton > button { min-width: 24px; min-height: 24px; padding: 2px; color: @fg3;
+  background: none; box-shadow: none; }
+.review-head2 button:hover, .review-head2 menubutton > button:hover { color: @fg; background: @bg3; }
+.review-head2 button image, .review-head2 menubutton image { -gtk-icon-size: 14px; }
+.review-head2 .review-scope button { color: @fg2; padding: 0 10px; min-height: 22px; }
+.review-head2 .review-scope button:checked { background: @acc-dim; color: @acc; }
+.review-head2 .rade-impact-toggle { padding: 0 8px; font-size: 12px; }
+.review-head2 .rade-impact-toggle:checked { background: @acc-dim; color: @acc; }
+.review-options { padding: 6px 8px; }
+
+.review-files { background: @bg1; border-right: 1px solid @line; }
+.review-rail-top { margin: 8px; }
+entry.review-filter { min-height: 24px; padding-top: 0; padding-bottom: 0; }
+.review-filter { min-height: 24px; background: @bg0; border: 1px solid @line2; border-radius: 6px; font-size: 12px; }
+.review-hide-viewed { min-width: 24px; min-height: 24px; padding: 0; color: @fg3; }
+.review-hide-viewed:checked { color: @acc; background: @acc-dim; }
+.rade-review-files { background: none; }
+.rade-review-files > row { min-height: 26px; padding: 0 8px; border-radius: 4px; margin: 0 4px; }
+.rade-review-files > row.review-folder { min-height: 24px; }
+.review-caret { -gtk-icon-size: 10px; color: @fg3; }
+.review-folder-name { font-size: 12px; color: @fg3; }
+.review-file-name { font-size: 12.5px; color: @fg; }
+.review-file.viewed .review-file-name { color: @fg3; }
+.review-viewed-tick { -gtk-icon-size: 12px; color: @ok; }
+.review-unread-dot { min-width: 5px; min-height: 5px; border-radius: 3px; background: @acc; }
+.review-comment-count { font-family: "JetBrains Mono", monospace; font-size: 10.5px; color: @fg2; background: @bg3;
+  border-radius: 8px; padding: 0 5px; }
+.review-generated .review-folder-name { font-style: italic; }
+
+.rade-diff-file .review-viewed-check { font-family: "Inter", sans-serif; font-size: 12px; color: @fg2; margin-right: 6px; }
+.review-card-row { background: none; }
+.review-card-slot { margin: 4px 12px 6px 0; }
+.review-card { background: @bg2; border: 1px solid @line2; border-radius: 6px; padding: 8px 10px; }
+.review-card.draft { border-color: @acc-line; }
+.review-card-head { font-family: "Inter", sans-serif; font-weight: 600; font-size: 11.5px; color: @fg2; }
+.review-card-text { font-family: "Inter", sans-serif; font-size: 13px; color: @fg; }
+.review-chip { font-family: "JetBrains Mono", monospace; font-size: 10.5px; border-radius: 4px; padding: 0 5px;
+  border: 1px solid @line2; color: @fg3; }
+.review-chip.chip-draft { color: @acc; border-color: @acc-line; }
+.review-chip.chip-outdated { color: @wait; border-color: @wait-line; }
+.review-card-action { min-height: 20px; padding: 0 6px; font-family: "Inter", sans-serif; font-size: 11.5px; color: @fg2; }
+.review-composer { border-color: @acc-line; }
+.review-composer-text, .review-composer-text text { background: @bg0; font-family: "JetBrains Mono", monospace;
+  font-size: 12.5px; color: @fg; }
+.review-composer-text { border: 1px solid @acc-line; border-radius: 4px; padding: 6px 8px; }
+.review-hint { font-family: "JetBrains Mono", monospace; font-size: 11px; color: @fg3; }
+
+.review-round { font-family: "JetBrains Mono", monospace; font-size: 11px; color: @fg3; border: 1px solid @line2;
+  border-radius: 4px; padding: 1px 6px; }
+.review-round.state-requested { color: @wait; border-color: @wait-line; }
+.review-round.state-approved { color: @ok; border-color: @ok-line; }
+.review-round.state-changed { color: @wt; border-color: alpha(@wt, 0.45); }
+.review-summary { font-size: 12.5px; color: @fg2; padding: 2px 0 6px 19px; }
+.review-chip.chip-sent { color: @fg3; }
+.review-chip.chip-changed { color: @run; border-color: @run-line; }
+.review-chip.chip-untouched { color: @wait; border-color: @wait-line; }
+.review-chip.chip-resolved { color: @ok; border-color: @ok-line; }
+.review-card.resolved { opacity: 0.55; padding-top: 4px; padding-bottom: 4px; }
+.review-approve-list { padding: 4px; }
+.nav-review { font-family: "JetBrains Mono", monospace; font-size: 10.5px; color: @wait; border: 1px solid @wait-line;
+  border-radius: 4px; padding: 0 4px; }
+.nav-review.approved { color: @ok; border-color: @ok-line; }
+.nav-review.changed { color: @wt; border-color: alpha(@wt, 0.45); }
+.review-approve-item { min-height: 28px; padding: 0 10px; font-size: 13px; }
+.review-footer { min-height: 40px; padding: 0 8px 0 12px; background: @bg1; border-top: 1px solid @line; }
+.review-note { font-size: 12px; color: @fg2; margin-left: 8px; }
+.review-drafts { font-family: "JetBrains Mono", monospace; font-size: 11px; color: @fg2; }
+.review-footer button { min-height: 26px; padding: 0 12px; }
+.review-discard { color: @fg2; }
+
+/* ---- Browser Annotations (R71): the panel under the page ------------------- */
+.rade-browser-annotations { padding: 6px 10px 8px; border-top: 1px solid alpha(currentColor, 0.12); }
+.rade-annotation-list { background: transparent; }
+.rade-annotation-row { padding: 4px 0; }
+.rade-annotation-n { min-width: 20px; min-height: 20px; border-radius: 10px; font-weight: 700; font-size: 0.85em;
+  background: @acc; color: @acc-fg; }
+.rade-browser-annotate:checked { background: var(--accent-bg-color); color: var(--accent-fg-color); }
+.rade-annotation-thumb { border-radius: 4px; border: 1px solid alpha(currentColor, 0.15); }
+
+/* ---- Command palette (R14, R107.3, spec D) ----------------------------------- */
+.palette-scrim { background: @scrim; }
+.rade-palette.palette { background: @bg2; color: @fg; border-radius: 10px; border: 1px solid @line2;
+  box-shadow: 0 20px 60px @shadow; padding: 0; }
+.palette-entry-row { min-height: 45px; padding: 0 14px; border-bottom: 1px solid @line; }
+.palette-entry-icon { -gtk-icon-size: 18px; color: @acc; }
+.palette-entry { background: none; border: none; box-shadow: none; outline: none; padding: 0; margin: 0;
+  font-family: "Inter", sans-serif; font-size: 14px; color: @fg; min-height: 0; }
+.palette-entry > image { opacity: 0; min-width: 0; margin: 0; padding: 0; -gtk-icon-size: 0; }
+.palette-entry > text { color: @fg; }
+.palette-entry > text > placeholder { color: @fg3; }
+.palette-scopes { padding: 8px 12px; border-bottom: 1px solid @line; }
+.palette-scope { font-family: "JetBrains Mono", monospace; font-feature-settings: "tnum"; font-weight: 500;
+  font-size: 11px; color: @fg3; padding: 2px 8px; border-radius: 4px; min-height: 0; min-width: 0;
+  background: none; box-shadow: none; transition: none; }
+.palette-scope:hover { color: @fg2; background: none; }
+.palette-scope.active { background: @acc-dim; color: @acc; }
+.palette-scope-hint, .palette-footer, .palette-footer label { font-family: "Inter", sans-serif; font-size: 11.5px; color: @fg3; }
+.palette-list { background: transparent; }
+.palette-list > row { padding: 0; margin: 0; min-height: 0; border-radius: 0; background: none; }
+.palette-list > row:selected { background: none; }
+.palette-item { min-height: 32px; padding: 0 14px 0 0; font-family: "Inter", sans-serif; font-size: 13px; color: @fg; }
+.palette-item:hover { background: @bg3; }
+.palette-item.selected { background: @acc-dim; }
+.palette-item-selbar { min-width: 2px; margin-right: 2px; background: transparent; }
+.palette-item.selected .palette-item-selbar { background: @acc; }
+.palette-item-icon { -gtk-icon-size: 16px; color: @fg3; min-width: 18px; }
+.palette-item-icon.wt { color: @wt; }
+.palette-item.selected .palette-item-icon { color: @acc; }
+.palette-item-title { color: @fg; }
+.palette-item-detail { font-family: "JetBrains Mono", monospace; font-feature-settings: "tnum"; font-size: 11.5px; color: @fg3; }
+.palette-item-hint-text { font-family: "JetBrains Mono", monospace; font-size: 11px; color: @fg3; }
+.palette-section { padding: 8px 14px 4px 14px; min-height: 0; }
+.palette-section-label { font-family: "JetBrains Mono", monospace; font-feature-settings: "tnum"; font-weight: 600;
+  font-size: 10.5px; letter-spacing: 1.26px; color: @fg3; }
+.palette-footer { padding: 8px 14px; border-top: 1px solid @line; }
+.palette-form { padding: 10px 6px; }
+.rade-palette-chip-on { font-weight: 600; }
+
+/* ---- The + menu (R108.6, spec F.1–F.14) ------------------------------------- */
+.new-menu-scrim { background: none; }
+.new-menu { background: @bg2; color: @fg; border: 1px solid @line2; border-radius: 8px;
+  box-shadow: 0 20px 60px @shadow; padding: 6px 0; }
+.new-menu-header { font-family: "JetBrains Mono", monospace; font-feature-settings: "tnum"; font-size: 11px;
+  color: @fg3; padding: 4px 14px 8px 14px; border-bottom: 1px solid @line; margin-bottom: 4px; }
+.new-menu-section { padding: 8px 14px 2px 14px; }
+.new-menu-item { min-height: 30px; padding: 0 14px; margin: 0; border-radius: 0; background: none; box-shadow: none;
+  font-family: "Inter", sans-serif; font-size: 13px; font-weight: 400; color: @fg; transition: none; }
+.new-menu-item:hover { background: @bg3; }
+.new-menu-item.selected { background: @acc-dim; box-shadow: inset 2px 0 @acc; }
+.new-menu-item:disabled { filter: none; color: @fg; }
+.new-menu-item:disabled label { color: inherit; }
+.new-menu-item-name { color: @fg; }
+.new-menu-item-detail { font-family: "JetBrains Mono", monospace; font-feature-settings: "tnum"; font-size: 11.5px; color: @fg3; }
+.new-menu-icon { -gtk-icon-size: 16px; color: @fg3; min-width: 18px; }
+.new-menu-item.selected .new-menu-icon { color: @acc; }
+.new-menu-default { -gtk-icon-size: 16px; color: @acc; }
+.new-menu-lock { -gtk-icon-size: 16px; color: @fg3; }
+.agent-badge { min-width: 18px; min-height: 18px; border-radius: 4px; font-family: "JetBrains Mono", monospace;
+  font-weight: 600; font-size: 10px; }
+.agent-badge-claude { color: @agent-claude; background: @agent-claude-bg; }
+.agent-badge-codex { color: @agent-codex; background: @bg4; }
+.tb-button.open { background: @bg3; color: @acc; }
+
+/* ---- Dialogs: New Project / Add Source / Change base / settings (R106, spec C) --- */
+.dialog-scrim { background: @scrim; }
+.new-project-dialog { background: @bg2; border: 1px solid @line2; border-radius: 10px; box-shadow: 0 20px 60px @shadow; }
+.dialog-header { padding: 14px 18px; border-bottom: 1px solid @line; }
+.dialog-icon { -gtk-icon-size: 20px; color: @acc; }
+.dialog-title { font-family: "Inter", sans-serif; font-size: 15px; font-weight: 600; color: @fg; }
+.dialog-context { font-family: "JetBrains Mono", monospace; font-feature-settings: "tnum"; font-size: 11.5px; color: @fg3; }
+.dialog-close, .dialog-menu { min-width: 0; min-height: 0; padding: 2px; color: @fg3; background: none; box-shadow: none; }
+.dialog-close image, .dialog-menu image { -gtk-icon-size: 16px; }
+.dialog-body { padding: 16px 18px; }
+.field-label { font-family: "Inter", sans-serif; font-size: 12px; color: @fg2; margin-bottom: 6px; }
+.field-row { margin-top: 14px; }
+.field-hint { font-family: "Inter", sans-serif; font-size: 11.5px; color: @fg3; margin-bottom: 6px; }
+.field-error { font-family: "Inter", sans-serif; font-size: 11.5px; color: @err; margin-top: 4px; }
+.project-name-entry { min-height: 28px; border-radius: 6px; border: 1px solid @line2; background: @bg0; padding: 0 10px;
+  font-family: "Inter", sans-serif; font-size: 13px; color: @fg; box-shadow: none; outline: none; }
+.project-name-entry:hover { border-color: @acc-line; }
+.project-name-entry:focus-within { border-color: transparent; box-shadow: 0 0 0 1px @acc-line, 0 0 18px @glow; }
+.link-editor { border: 1px solid @line; border-radius: 6px; }
+.link-editor-row { padding: 8px 10px; border-bottom: 1px solid @line; font-family: "Inter", sans-serif; font-size: 12.5px; }
+.link-check { min-width: 22px; min-height: 0; padding: 0; background: none; box-shadow: none; color: @fg3; }
+.link-check image { -gtk-icon-size: 17px; }
+.link-check.checked { color: @acc; }
+.link-source { font-family: "JetBrains Mono", monospace; font-feature-settings: "tnum"; font-size: 12.5px; color: @fg; }
+.link-plan, .link-plan label { font-family: "Inter", sans-serif; font-size: 11.5px; color: @fg3; }
+.link-plan .link-plan-kind { color: @fg2; font-weight: 500; }
+.link-plan .link-plan-detail { line-height: 1.18; }
+.link-plan .link-plan-detail.refused { color: @err; }
+.link-base { min-width: 190px; }
+.link-base > button { min-height: 24px; border-radius: 5px; border: 1px solid @line2; background: @bg0; padding: 0 8px;
+  font-family: "JetBrains Mono", monospace; font-feature-settings: "tnum"; font-size: 12px; color: @fg; box-shadow: none; }
+.link-base > button:hover { border-color: @acc-line; }
+.link-base:disabled { opacity: 0.45; }
+.link-remove { min-width: 24px; min-height: 0; padding: 0; background: none; box-shadow: none; color: @fg3; }
+.link-remove image { -gtk-icon-size: 16px; }
+.link-add-row { min-height: 33px; padding: 0 10px; border-radius: 0; background: none; box-shadow: none; color: @fg3;
+  font-family: "Inter", sans-serif; font-size: 12.5px; font-weight: normal; }
+.link-add-row:hover { background: @bg3; }
+.link-add-icon { -gtk-icon-size: 15px; }
+.link-add-hint { color: @fg3; font-size: 11.5px; }
+.dialog-footer { padding: 12px 18px; border-top: 1px solid @line; background: @bg1; border-radius: 0 0 10px 10px; }
+.dialog-note, .dialog-note label { font-family: "Inter", sans-serif; font-size: 11.5px; color: @fg3; }
+.dialog-note-icon { -gtk-icon-size: 14px; color: @fg3; }
+.dialog-primary, .dialog-cancel { min-height: 26px; border-radius: 6px; padding: 0 12px; }
+.dialog-primary { font-weight: 600; }
+
+/* ---- Fan-out bar (R15) ----------------------------------------------------------- */
+.rade-fanout-bar { padding: 6px 10px; border-bottom: 1px solid alpha(currentColor, 0.12); background: @bg1; }
+.rade-fanout-title { font-size: 13px; }
+.rade-fanout-progress { font-size: 12px; font-weight: bold; padding: 1px 8px; border-radius: 99px;
+  background: alpha(currentColor, 0.09); }
+.rade-fanout-verdict { font-size: 12px; padding: 1px 8px; border-radius: 99px; background: alpha(currentColor, 0.09); }
+.rade-fanout-chip { padding: 0 2px 0 6px; border-radius: 8px; border: 1px solid alpha(currentColor, 0.14); }
+.rade-fanout-chip button { min-height: 22px; padding: 0 8px; font-size: 12px; }
+.rade-fanout-name { font-size: 12px; font-weight: bold; }
+.rade-fanout-stats { font-size: 11px; font-family: "JetBrains Mono", monospace; font-feature-settings: "tnum"; opacity: 0.75; }
+.rade-fanout-picked { border-color: var(--accent-color); box-shadow: inset 0 0 0 1px var(--accent-color); }
+.rade-fanout-winner { border-color: @ok; background: alpha(@ok, 0.14); }
+
+/* ---- Terminal search (R19.5) ------------------------------------------------------ */
+.rade-search { padding: 4px 4px 4px 6px; }
+.rade-search-count { font-family: "JetBrains Mono", monospace; font-feature-settings: "tnum"; font-size: 12px; min-width: 5em; }
+/* Right Panel: Changes (R21) and Search (R22) */
+.rade-scm-top, .rade-search-top { padding: 8px 8px 6px 8px; }
+.rade-scm-bar { min-height: 28px; }
+.rade-commit-box { border: 1px solid alpha(currentColor, 0.15); border-radius: 8px; background-color: var(--view-bg-color); }
+.rade-commit-msg, .rade-commit-msg text { background-color: transparent; font-size: 13px; }
+.rade-scm-error { color: @err; font-size: 12px; }
+.rade-scm-section { font-size: 11.5px; font-weight: 700; color: @fg3; }
+.rade-scm-list > row.rade-scm-head { min-height: 28px; padding: 4px 4px 0 10px; }
+.rade-scm-list > row.rade-scm-file { min-height: 28px; padding: 0 4px 0 6px; }
+.rade-scm-list > row.rade-scm-diffrow { padding: 0; margin: 0 6px 4px 22px; }
+.rade-scm-act { min-height: 24px; min-width: 24px; padding: 0; }
+.rade-scm-mono { font-family: "JetBrains Mono", monospace; font-feature-settings: "tnum"; font-size: 11.5px; padding: 0 6px; }
+.rade-scm-diff { padding: 0 0 6px 0; border-radius: 6px; background-color: alpha(currentColor, 0.03); }
+.rade-scm-small { font-size: 11.5px; font-weight: normal; min-height: 24px; padding: 0 6px; }
+.rade-strike { text-decoration: line-through; }
+.rade-search-opt { min-width: 26px; padding: 0 4px; font-family: "JetBrains Mono", monospace; font-feature-settings: "tnum"; font-size: 12px; }
+.rade-search-glob { font-size: 12px; min-height: 28px; }
+.rade-search-list > row { min-height: 24px; padding: 0 6px; }
+.rade-search-hit { padding-left: 14px; }
+.rade-search-count-pill { font-size: 11px; padding: 0 6px; border-radius: 99px; background-color: alpha(currentColor, 0.1); font-feature-settings: "tnum"; }
+
+/* M26 Simplify (R30, R38, R55, R80, R81; v0.7.1:docs/design/simplify-proposal.md A). */
+.rade-sidebar > row.rade-row-checkout { min-height: 26px; padding-left: 10px; }
+.rade-source-chip-label { font-size: 11px; padding: 0 6px; border-radius: 99px; color: @fg3;
+  background: alpha(currentColor, 0.07); }
+.rade-suggest { font-size: 11.5px; font-weight: 700; color: mix(var(--accent-color), currentColor, 0.3); min-height: 20px;
+  padding: 0 6px; margin: 0; }
+/* 0.7.1 call hierarchy: a small Go to button, shown on the row under the pointer. */
+.rade-code-goto { min-height: 20px; min-width: 20px; padding: 2px; }
+.rade-search-list > row:not(:hover):not(:selected) .rade-code-goto { opacity: 0; }
+
+
+/* Toasts: raised, outlined, with the one shadow chrome may cast (ADR-0036 §6). */
+toast { background-color: @bg2; color: @fg; border: 1px solid @line2; box-shadow: 0 20px 60px @shadow;
+  border-radius: 8px; padding: 10px 14px; border-spacing: 12px; margin-bottom: 18px;
+  font-family: "Inter", sans-serif; font-size: 12.5px; }
+toast > widget { margin: 0; }
+toast > button:not(.circular) { min-height: 24px; padding: 0 10px; border-radius: 6px; border: 1px solid @line2;
+  background: @bg2; color: @fg; font-size: 12.5px; font-weight: normal; box-shadow: none; }
+toast > button:not(.circular):hover { background: @bg3; }
+toast > button.circular { min-width: 20px; min-height: 20px; padding: 0; color: @fg3; background: none; }
+toast > button.circular:hover { color: @fg; }
+toast > button.circular image { -gtk-icon-size: 16px; }
+
+/* ---- Window chrome (R103, spec a-workspace.md) -------------------------------- */
+/* GTK's min-height is the content box: a spec height that includes a 1 px border
+   is written as min-height = height − border (titlebar 39 + 1 = 40). */
+/* Titlebar 40 px (A.2–A.16). */
+.titlebar { min-height: 39px; background: @bg1; border-bottom: 1px solid @line; padding: 0 8px 0 10px; }
+.ws-button { min-height: 28px; border-radius: 6px; padding: 0 8px 0 4px; }
+.ws-button > button { min-height: 0; min-width: 0; padding: 0; margin: 0; background: none; box-shadow: none; }
+.ws-button:hover { background: @bg3; }
+.ws-mark { min-width: 20px; min-height: 20px; border-radius: 5px; background: @acc; color: @acc-fg;
+  font-family: "JetBrains Mono", monospace; font-feature-settings: "tnum"; font-weight: 600; font-size: 11px; }
+.ws-name { font-family: "Inter", sans-serif; font-size: 13px; font-weight: 600; color: @fg; }
+.ws-caret { color: @fg3; -gtk-icon-size: 12px; }
+.crumbs { font-size: 12.5px; color: @fg2; }
+.crumb { color: @fg2; }
+.crumb-sep { color: @fg3; }
+.crumb-current { color: @fg; font-weight: 500; }
+.crumb-branch { font-family: "JetBrains Mono", monospace; font-feature-settings: "tnum"; font-size: 11.5px; color: @fg2; }
+.crumb-branch-icon { color: @wt; -gtk-icon-size: 13px; }
+.crumb-base { font-family: "JetBrains Mono", monospace; font-feature-settings: "tnum"; font-size: 11px; color: @fg3; }
+.command-field { min-height: 24px; padding: 0 4px 0 10px; border-radius: 6px; border: 1px solid @line2;
+  background: @bg0; font-weight: normal; box-shadow: none; transition: border-color 120ms ease-out; }
+.command-field:hover { border-color: @acc-line; background: @bg0; }
+.command-icon { color: @fg3; -gtk-icon-size: 14px; }
+.command-placeholder { font-size: 12.5px; color: @fg3; }
+.tb-button { min-width: 28px; min-height: 28px; padding: 0; border-radius: 6px; color: @fg2; }
+.tb-button image { -gtk-icon-size: 16px; }
+.tb-button:hover { background: @bg3; color: @fg; }
+.tb-button:checked { background: @bg3; color: @acc; }
+.inspector-toggle image { -gtk-icon-transform: scaleX(-1); }
+.review-button { min-height: 24px; padding: 0 10px; border-radius: 6px; border: 1px solid @line2; background: @bg2;
+  box-shadow: none; font-weight: normal; }
+.review-button:hover { background: @bg3; }
+.review-label { font-size: 12.5px; color: @fg; }
+.review-icon { color: @fg2; -gtk-icon-size: 14px; }
+.review-count { font-family: "JetBrains Mono", monospace; font-feature-settings: "tnum"; font-size: 11px; color: @fg3; }
+.window-controls { border-left: 1px solid @line; padding-left: 8px; }
+.window-controls .tb-button { min-width: 26px; min-height: 26px; }
+
+/* Statusline 26 px (A.70–A.77). */
+.statusline { min-height: 25px; background: @bg1; border-top: 1px solid @line;
+  font-family: "JetBrains Mono", monospace; font-feature-settings: "tnum"; font-size: 11px; color: @fg2; }
+.status-cell { padding: 0 10px; border-right: 1px solid @line; }
+.status-cell image { -gtk-icon-size: 12px; }
+.status-cell-ws { background: @acc; color: @acc-fg; font-weight: 600; border-radius: 0; }
+.status-cell-hints { border-left: 1px solid @line; border-right: none; padding-right: 4px; }
+.status-hint, .status-port { min-height: 20px; padding: 0 4px; font-weight: normal; border-radius: 4px; }
+.status-hint:hover, .status-port:hover { background: @bg3; }
+.status-count-waiting { color: @wait; }
+.status-count-running { color: @run; }
+.status-count-done { color: @ok; }
+.status-count-error { color: @err; }
+.status-count-interrupted { color: @wt; }
+.status-count-exited { color: @fg3; }
+
+/* Status LED (A.29–A.31): CSS, never an icon. */
+@keyframes led-pulse { 0% { opacity: 1; } 50% { opacity: 0.45; } 100% { opacity: 1; } }
+.led { min-width: 5px; min-height: 5px; border-radius: 2px; background: transparent; border: 1px solid @fg3; }
+.led-running { background: @run; border-color: @run; box-shadow: 0 0 6px @run; animation: led-pulse 1.6s ease-in-out infinite; }
+.led-waiting { background: @wait; border-color: @wait; box-shadow: 0 0 6px @wait; }
+.led-done { background: @ok; border-color: @ok; }
+.led-error { background: @err; border-color: @err; }
+.led-interrupted { background: @wt; border-color: @wt; }
+/* Agent glyphs (R115, ADR-0038): the LED's colours on each agent's own icon. */
+.agent-glyph { -gtk-icon-size: 14px; min-width: 14px; min-height: 14px; color: @fg3; }
+.agent-glyph.glyph-running { color: @run; animation: led-pulse 1.6s ease-in-out infinite; }
+.agent-glyph.glyph-waiting { color: @wait; -gtk-icon-shadow: 0 0 6px @wait; }
+.agent-glyph.glyph-done { color: @ok; }
+.agent-glyph.glyph-error { color: @err; }
+.agent-glyph.glyph-interrupted { color: @wt; }
+.agent-glyph.glyph-plain { color: @fg2; }
+/* A Preset's own icon (R115.5): its colours; the status as a small LED. */
+.glyph-dot { min-width: 5px; min-height: 5px; margin: -1px; border-radius: 2px; }
+.pane-glyph { margin-right: 6px; }
+.new-menu-glyph { min-width: 18px; }
+.new-menu-item.selected .new-menu-glyph { color: @acc; }
+
+/* ---- Navigator (R104, spec A.17–A.38) ---------------------------------------- */
+.navigator { background: @bg1; border-right: 1px solid @line; }
+.section-label { font-family: "JetBrains Mono", monospace; font-feature-settings: "tnum"; font-weight: 600;
+  font-size: 10.5px; letter-spacing: 1.26px; color: @fg3; }
+.nav-header { padding: 12px 12px 6px 14px; }
+.nav-header.nav-header-scratch { padding: 2px 12px 6px 14px; }
+.nav-header .tb-button { min-width: 22px; min-height: 22px; color: @fg3; }
+.nav-header .tb-button image { -gtk-icon-size: 14px; }
+.nav-tree { background: none; padding: 0 6px; }
+.nav-tree > row { padding: 0; margin: 0; background: none; min-height: 0; }
+.nav-tree > row.nav-row { min-height: 26px; border-radius: 5px; transition: background-color 120ms ease-out; }
+.nav-row-inner { padding-right: 8px; }
+.nav-row-inner.depth-0 { padding-left: 6px; }
+.nav-row-inner.depth-1 { padding-left: 20px; }
+.nav-row-inner.depth-2 { padding-left: 34px; }
+.nav-row-inner.depth-3 { padding-left: 48px; }
+.nav-row-inner.depth-4 { padding-left: 62px; }
+.nav-tree > row.nav-row:hover { background: @bg3; }
+.nav-tree > row.nav-row.selected { background: @acc-dim; }
+.nav-tree > row.nav-section:hover, .nav-tree > row.nav-section { background: none; }
+.nav-row-title { font-family: "Inter", sans-serif; font-size: 13px; color: @fg; }
+.nav-project .nav-row-title { font-weight: 600; }
+.nav-row.dim .nav-row-title, .nav-empty { color: @fg2; }
+.nav-row-meta { font-family: "JetBrains Mono", monospace; font-feature-settings: "tnum"; font-size: 11px; color: @fg3; }
+.nav-row-meta.warn { color: @wait; }
+.nav-chevron { min-width: 12px; }
+.nav-chevron-button { min-width: 12px; min-height: 12px; padding: 0; margin: 0; color: @fg3; background: none; box-shadow: none; }
+.nav-chevron-button image { -gtk-icon-size: 11px; }
+.nav-row-icon { -gtk-icon-size: 15px; color: @fg3; }
+.nav-row-icon.nav-wt { color: @wt; }
+.nav-row-icon.proj-1 { color: @proj-1; }
+.nav-row-icon.proj-2 { color: @proj-2; }
+.nav-row-icon.proj-3 { color: @proj-3; }
+.nav-row-selbar { min-width: 2px; min-height: 16px; border-radius: 2px; background: @acc; }
+.nav-drift { -gtk-icon-size: 12px; color: @wait; }
+.nav-also-in { -gtk-icon-size: 12px; color: @run; }
+.nav-badge { font-family: "JetBrains Mono", monospace; font-feature-settings: "tnum"; font-weight: 600; font-size: 10.5px;
+  color: @wait; background: @wait-dim; padding: 0 5px; border-radius: 4px; min-height: 16px; }
+.nav-suggest { font-size: 11.5px; font-weight: 600; color: @acc; min-height: 20px; padding: 0 6px; margin: 0; }
+.nav-sep { min-height: 1px; background: @line; margin: 8px 12px; }
+.nav-footer { border-top: 1px solid @line; padding: 8px 10px; }
+.nav-footer .tb-button { color: @fg3; }
+.inbox-pill { min-height: 28px; padding: 0 8px; border-radius: 6px; background: @wait-dim; color: @wait;
+  font-size: 12px; font-weight: normal; box-shadow: none; }
+.inbox-pill:hover { background: @wait-dim; }
+.inbox-pill-name { color: @fg; }
+.inbox-pill-words { color: @wait; }
+.inbox-popover > contents { padding: 0; min-width: 320px; }
+
+/* ---- Project home (R105, spec B) ---------------------------------------------- */
+.project-home-scroll { background: @bg0; }
+.project-home { padding: 22px 28px; background: @bg0; }
+.home-icon { -gtk-icon-size: 26px; }
+.home-icon.proj-1 { color: @proj-1; }
+.home-icon.proj-2 { color: @proj-2; }
+.home-icon.proj-3 { color: @proj-3; }
+.home-title { font-family: "Inter", sans-serif; font-size: 20px; font-weight: 600; letter-spacing: -0.2px; color: @fg; }
+.home-sub { font-family: "JetBrains Mono", monospace; font-feature-settings: "tnum"; font-size: 12px; color: @fg3; }
+.secondary-button { min-height: 24px; padding: 0 10px; border-radius: 6px; border: 1px solid @line2; background: @bg2;
+  font-size: 12.5px; font-weight: normal; color: @fg; box-shadow: none; }
+.secondary-button:hover { background: @bg3; }
+.secondary-button .btn-icon, .home-open-terminal .btn-icon { -gtk-icon-size: 14px; }
+.secondary-button .btn-icon { color: @fg2; }
+.home-open-terminal { min-height: 26px; border-radius: 6px; padding: 0 10px; font-weight: 600; }
+.home-kpis { margin: 18px 0 22px 0; }
+.kpi { border: 1px solid @line; border-radius: 8px; padding: 10px 12px; background: @bg1; }
+.kpi-value { font-family: "JetBrains Mono", monospace; font-feature-settings: "tnum"; font-size: 18px; font-weight: 600; color: @fg; }
+.kpi-detail { font-size: 12px; color: @fg3; }
+.home-section { margin: 6px 0 8px 0; }
+.link-table { border: 1px solid @line; border-radius: 8px; background: @bg1; }
+.link-table-head { padding: 6px 0; border-bottom: 1px solid @line; }
+.link-table-col { font-family: "JetBrains Mono", monospace; font-weight: 600; font-size: 10.5px; letter-spacing: 1.05px;
+  color: @fg3; padding: 0 10px; }
+.link-row { border-bottom: 1px solid @line; min-height: 38px; }
+.link-row:last-child { border-bottom: none; }
+.link-row:hover { background: @bg1; }
+.link-cell { padding: 0 10px; font-size: 12.5px; color: @fg2; }
+.link-cell-source { color: @fg; font-weight: 500; }
+.link-cell-mono, .link-cell-mono label { font-family: "JetBrains Mono", monospace; font-feature-settings: "tnum"; font-size: 12px; }
+.link-cell-head.drift { color: @wait; }
+.link-cell-path { color: @fg3; }
+.link-row-icon { -gtk-icon-size: 16px; color: @fg3; }
+.link-row-action { min-width: 0; min-height: 0; padding: 0 4px; color: @fg3; }
+.link-row-action image { -gtk-icon-size: 15px; }
+.chip { font-family: "JetBrains Mono", monospace; font-feature-settings: "tnum"; font-size: 11px; padding: 1px 6px;
+  border-radius: 4px; border: 1px solid transparent; }
+.chip-icon { -gtk-icon-size: 12px; }
+.chip.chip-ok { color: @ok; border-color: @ok-line; }
+.chip.chip-warn { color: @wait; border-color: @wait-line; background: @wait-dim; }
+.chip.chip-info { color: @run; border-color: @run-line; }
+.home-lower { margin-top: 22px; }
+.home-card { border: 1px solid @line; border-radius: 8px; background: @bg1; }
+.home-card-row { min-height: 30px; padding: 0 12px; border-bottom: 1px solid @line; }
+.home-card-row:last-child { border-bottom: none; }
+.home-card-row:hover { background: @bg3; }
+.home-wt-icon { -gtk-icon-size: 15px; color: @wt; }
+.home-wt-name, .activity-actor { color: @fg; }
+.home-wt-sub, .home-wt-meta, .activity-time { font-family: "JetBrains Mono", monospace; font-feature-settings: "tnum";
+  font-size: 11px; color: @fg3; }
+.home-empty, .activity-text { color: @fg3; font-size: 12.5px; }
+.home-link-button { min-height: 0; padding: 0 2px; color: @acc; }
+
+/* ---- Activity (R107.2) ---------------------------------------------------------- */
+.activity-row { min-height: 30px; padding: 0 12px; border-bottom: 1px solid @line; }
+.activity-icon { -gtk-icon-size: 13px; }
+.activity-pr { color: @ok; }
+.activity-commit { color: @wt; }
+.activity-limit { color: @wait; }
+
+/* ---- Changes by Project (R107.1, spec A.58–A.69) -------------------------------- */
+.changes-project { background: @bg1; }
+.changes-header { padding: 0 12px 8px 12px; }
+.changes-project { padding-top: 10px; }
+.changes-total-add, .changes-total-del { font-family: "JetBrains Mono", monospace; font-feature-settings: "tnum"; font-size: 11px; }
+.changes-total-add { color: @add; }
+.changes-total-del { color: @del; }
+.changes-identity { margin: 0 8px 10px 8px; font-family: "Inter", sans-serif; font-size: 11.5px; color: @wait; }
+.changes-group { margin: 0 8px 10px 8px; border: 1px solid @line; border-radius: 6px; background: @bg2; }
+.changes-group-header { padding: 7px 10px; border-bottom: 1px solid @line; font-family: "Inter", sans-serif; font-size: 12px; }
+.changes-group.clean .changes-group-header { border-bottom: none; }
+.changes-group-title { font-weight: 600; color: @fg; }
+.changes-group-label, .changes-group-meta { font-family: "JetBrains Mono", monospace; font-feature-settings: "tnum"; font-size: 11px; color: @fg3; }
+.file-row { min-height: 24px; padding: 0 10px; font-family: "JetBrains Mono", monospace; font-feature-settings: "tnum";
+  font-size: 12px; border-radius: 0; background: none; box-shadow: none; font-weight: normal; }
+.file-row:hover { background: @bg3; }
+.file-row-dir { color: @fg3; }
+.file-row-name { color: @fg; }
+.file-row.staged .file-row-name { font-weight: 600; }
+.file-status { min-width: 12px; font-weight: 600; }
+.file-status.st-M, .file-status.st-R { color: @wait; }
+.file-status.st-A { color: @add; }
+.file-status.st-D { color: @del; }
+.file-stat { font-family: "JetBrains Mono", monospace; font-feature-settings: "tnum"; font-size: 11px; }
+.file-stat .add, .file-stat-add { color: @add; }
+.file-stat .del, .file-stat-del { color: @del; }
+.commit-row { padding: 8px 10px; border-top: 1px solid @line; }
+.commit-entry { min-height: 24px; border-radius: 5px; border: 1px solid @line2; background: @bg0; font-size: 12px;
+  color: @fg; padding: 0 8px; box-shadow: none; outline: none; }
+.commit-entry > text > placeholder { color: @fg3; }
+.draft-button { min-height: 24px; min-width: 24px; padding: 0 6px; border-radius: 6px; border: 1px solid @line2; background: @bg2; box-shadow: none; }
+.draft-button image { -gtk-icon-size: 14px; color: @fg2; }
+.drift-card { margin: 0 8px 10px 8px; padding: 8px 10px; border: 1px solid @wait-line; background: @wait-dim; border-radius: 6px;
+  font-family: "Inter", sans-serif; font-size: 12px; color: @fg; }
+.drift-icon { -gtk-icon-size: 15px; color: @wait; }
+.drift-text { color: @fg; }
+.drift-sub { font-size: 11.5px; color: @fg2; margin-top: 2px; }
+.drift-actions { margin-top: 6px; }
+.drift-card .btn { min-height: 20px; padding: 0 8px; border-radius: 5px; border: 1px solid @line2; background: @bg2;
+  font-size: 11.5px; font-weight: normal; color: @fg; box-shadow: none; }
+.drift-card .btn:hover { background: @bg3; }
+.changes-empty { margin: 0 12px 10px 12px; font-family: "Inter", sans-serif; font-size: 12px; color: @fg3; }
+.changes-details { min-height: 0; min-width: 0; padding: 2px 4px; color: @fg3; background: none; box-shadow: none; }
+.status-cell-identity.wait, .status-cell-identity.wait label, .status-cell-identity.wait image { color: @wait; }
+
+/* ---- Usage (R110, spec E, A.74, F.8–F.10, F.15–F.18) --------------------------- */
+.tb-button.tb-button-usage.on { background: @bg3; color: @acc; }
+.status-cell-usage { padding: 0 6px; }
+/* System monitor (R116): mono figures, tabular; wait / err when high. */
+.status-cell-monitor { padding: 0 6px; }
+.status-sysmon { min-height: 20px; padding: 0 4px; font-weight: normal; border-radius: 4px; }
+.status-sysmon:hover { background: @bg3; }
+.sysmon-text { font-family: "JetBrains Mono", monospace; font-feature-settings: "tnum"; }
+.sysmon-icon { -gtk-icon-size: 13px; color: @fg3; }
+.sysmon-figure .sysmon-value { color: @fg2; }
+.sysmon-icon.wait, .sysmon-figure .sysmon-value.wait { color: @wait; }
+.sysmon-icon.err, .sysmon-figure .sysmon-value.err { color: @err; }
+.sysmon-popover > contents { padding: 8px 4px; min-width: 340px; }
+.sysmon-mono { font-family: "JetBrains Mono", monospace; font-feature-settings: "tnum"; font-size: 11.5px; }
+.sysmon-head { color: @fg3; letter-spacing: 0.06em; padding: 4px 10px; }
+.sysmon-section { margin-top: 6px; border-top: 1px solid @line; padding-top: 8px; }
+.sysmon-row { padding: 2px 10px; }
+.sysmon-key { color: @fg3; }
+.sysmon-value { color: @fg2; }
+.sysmon-value.wait { color: @wait; }
+.sysmon-value.err { color: @err; }
+.sysmon-dim { color: @fg3; padding: 4px 10px; }
+.sysmon-pane { min-height: 24px; padding: 0 10px; border-radius: 4px; font-weight: normal; }
+.sysmon-pane:hover { background: @bg3; }
+.status-usage { min-height: 20px; padding: 0 4px; font-weight: normal; border-radius: 4px; }
+.status-usage:hover { background: @bg3; }
+.usage-meter { min-width: 0; min-height: 5px; border-radius: 3px; background: @bg4; }
+.usage-meter-fill { min-height: 5px; border-radius: 3px; background: @acc; }
+.hot .usage-meter-fill { background: @wait; }
+.new-menu-item-detail.hot { color: @wait; }
+.new-menu-hot { -gtk-icon-size: 11px; color: @wait; min-width: 0; }
+.forecast-toast { font-family: "Inter", sans-serif; font-size: 12.5px; color: @fg; }
+.forecast-toast .toast-icon { -gtk-icon-size: 16px; color: @wait; }
+.toast-sub { font-family: "JetBrains Mono", monospace; font-feature-settings: "tnum"; font-size: 11px; color: @fg3; }
+.usage-scroll { background: @bg0; }
+.usage-page { padding: 18px 24px; background: @bg0; }
+.usage-icon { -gtk-icon-size: 24px; color: @acc; }
+.usage-title { font-family: "Inter", sans-serif; font-size: 20px; font-weight: 600; letter-spacing: -0.2px; color: @fg; }
+.usage-sub { font-family: "JetBrains Mono", monospace; font-feature-settings: "tnum"; font-size: 12px; color: @fg3; }
+.usage-period { min-height: 24px; border: 1px solid @line2; border-radius: 6px; }
+.usage-period-seg { min-height: 24px; min-width: 0; padding: 0 10px; margin: 0; border-radius: 0; background: none; box-shadow: none;
+  border-top: none; border-bottom: none; border-right: none;
+  border-left: 1px solid @line; font-family: "JetBrains Mono", monospace; font-feature-settings: "tnum";
+  font-size: 11.5px; font-weight: normal; color: @fg2; }
+.usage-period-seg:first-child { border-left: none; border-radius: 5px 0 0 5px; }
+.usage-period-seg:last-child { border-radius: 0 5px 5px 0; }
+.usage-period-seg:hover { color: @fg; background: none; }
+.usage-period-seg.active { background: @acc-dim; color: @acc; }
+.btn-caret { -gtk-icon-size: 11px; color: @fg2; }
+.usage-grid { margin-top: 16px; }
+.usage-accounts-card { border: 1px solid @line; border-radius: 8px; background: @bg1; }
+.usage-table-head { padding: 6px 0; border-bottom: 1px solid @line; }
+.usage-col { font-family: "JetBrains Mono", monospace; font-weight: 600; font-size: 10.5px; letter-spacing: 1.05px;
+  color: @fg3; padding: 0 10px; }
+.usage-row { border-bottom: 1px solid @line; }
+.usage-row:last-child { border-bottom: none; }
+.usage-row:hover { background: @bg3; }
+.usage-row.selected { background: @acc-dim; }
+.usage-row.selected .usage-cell-account { box-shadow: inset 2px 0 @acc; }
+.usage-cell { padding: 8px 10px; min-height: 22px; font-family: "Inter", sans-serif; font-size: 12px; color: @fg2; }
+.usage-account-name { font-family: "Inter", sans-serif; font-size: 12.5px; font-weight: 500; color: @fg; }
+.usage-ws-chip { font-family: "JetBrains Mono", monospace; font-feature-settings: "tnum"; font-size: 10.5px;
+  padding: 0 5px; border-radius: 4px; border: 1px solid @line2; color: @fg2; margin-left: 4px; }
+.usage-lock { -gtk-icon-size: 12px; color: @fg3; }
+.usage-plan label { font-family: "Inter", sans-serif; font-size: 12px; color: @fg2; }
+.usage-tightest-box { min-width: 34px; }
+.usage-tightest-value { font-family: "JetBrains Mono", monospace; font-feature-settings: "tnum"; font-size: 12px;
+  font-weight: 600; color: @fg; }
+.usage-tightest.hot .usage-tightest-value { color: @wait; }
+.usage-hot-icon { -gtk-icon-size: 11px; color: @wait; }
+.usage-tightest-name { font-family: "Inter", sans-serif; font-size: 12px; color: @fg2; }
+.usage-tightest-none { font-family: "Inter", sans-serif; font-size: 12px; color: @fg3; }
+.usage-tokens, .usage-updated { font-family: "JetBrains Mono", monospace; font-feature-settings: "tnum"; font-size: 12px; color: @fg2; }
+.usage-empty { padding: 14px 12px; font-family: "Inter", sans-serif; font-size: 12.5px; color: @fg3; }
+.usage-resets-header { margin: 16px 0 8px 0; }
+.usage-resets-note { font-family: "JetBrains Mono", monospace; font-feature-settings: "tnum"; font-size: 11px; color: @fg3; }
+.usage-resets { border: 1px solid @line; border-radius: 8px; background: @bg1; }
+.usage-reset-row { min-height: 31px; padding: 0 12px; border-bottom: 1px solid @line;
+  font-family: "Inter", sans-serif; font-size: 12px; color: @fg2; }
+.usage-reset-row:last-child { border-bottom: none; min-height: 32px; }
+.usage-reset-row:hover { background: @bg3; }
+.usage-reset-time { font-family: "JetBrains Mono", monospace; font-feature-settings: "tnum"; font-size: 12px; color: @fg2; }
+.usage-reset-time.soon { color: @acc; }
+.usage-reset-account { font-weight: 500; color: @fg; }
+.usage-reset-what { color: @fg2; }
+.usage-reset-forecast { font-family: "JetBrains Mono", monospace; font-feature-settings: "tnum"; font-size: 11px; color: @fg3; }
+.usage-detail { padding: 14px 16px 10px 16px; border: 1px solid @line; border-radius: 8px; background: @bg1; }
+.usage-detail-badge { min-width: 24px; min-height: 24px; border-radius: 6px; font-size: 12px; }
+.usage-detail-name { font-family: "Inter", sans-serif; font-size: 13px; font-weight: 600; color: @fg; }
+.usage-detail-sub { font-family: "JetBrains Mono", monospace; font-feature-settings: "tnum"; font-size: 11px; color: @fg3; }
+.usage-detail-empty { margin-top: 12px; font-family: "Inter", sans-serif; font-size: 12.5px; color: @fg3; }
+.usage-detail-how { margin-top: 4px; font-family: "JetBrains Mono", monospace; font-size: 11px; color: @fg3; }
+.usage-limit-group { margin: 12px 0 4px 0; }
+.usage-limit-row { min-height: 24px; font-family: "Inter", sans-serif; font-size: 12px; color: @fg2; }
+.usage-limit-name { color: @fg2; }
+.usage-limit-bar { min-height: 6px; border-radius: 3px; background: @bg4; }
+.usage-limit-bar-fill { min-height: 6px; border-radius: 3px; background: @acc; }
+.usage-limit-row.hot .usage-limit-bar-fill { background: @wait; }
+.usage-limit-value { font-family: "JetBrains Mono", monospace; font-feature-settings: "tnum"; font-size: 12px;
+  font-weight: 600; color: @fg; }
+.usage-limit-reset { font-family: "JetBrains Mono", monospace; font-feature-settings: "tnum"; font-size: 11px; color: @fg3; }
+.usage-detailed-note { font-family: "JetBrains Mono", monospace; font-size: 11px; color: @fg3; }
+.usage-chart-note { font-family: "JetBrains Mono", monospace; font-feature-settings: "tnum"; font-size: 10.5px; color: @fg3; }
+.usage-chart { min-height: 92px; padding-top: 18px; }
+.usage-chart-values { padding-top: 0; }
+.usage-chart-bar { border-radius: 4px 4px 0 0; background: @acc-bar; }
+.usage-chart-bar.today { background: @acc; }
+.usage-chart-col:hover .usage-chart-bar { background: @acc; }
+.usage-chart-value { font-family: "JetBrains Mono", monospace; font-feature-settings: "tnum"; font-size: 10.5px;
+  font-weight: 500; color: @fg2; }
+.usage-chart-days { margin-top: 6px; }
+.usage-chart-day { font-family: "JetBrains Mono", monospace; font-feature-settings: "tnum"; font-size: 10.5px; color: @fg3; }
+.usage-detail-footer { margin-top: 10px; padding-top: 8px; border-top: 1px solid @line; }
+.usage-footer-item { font-family: "JetBrains Mono", monospace; font-feature-settings: "tnum"; font-size: 11px; color: @fg3; }
+
+/* R111: narrow windows and large text (spec `## 1280 px`, `## Text scale 200 %`). */
+/* The floating Inspector: 340 px, bg1, left border line2, the overlay shadow. */
+.inspector.inspector-overlay { background: @bg1; border-left: 1px solid @line2; box-shadow: 0 20px 60px @shadow; }
+.navigator.navigator-overlay { box-shadow: 0 20px 60px @shadow; }
+/* The 48 px icon rail: Project cubes, Scratch, bell. */
+.nav-rail { background: @bg1; border-right: 1px solid @line; padding: 10px 0; }
+.nav-rail-button { min-width: 32px; min-height: 32px; padding: 0; border-radius: 6px; color: @fg3; background: none; box-shadow: none; }
+.nav-rail-button:hover { background: @bg3; color: @fg; }
+.nav-rail-button image { -gtk-icon-size: 18px; }
+.nav-rail-button.proj-1 { color: @proj-1; }
+.nav-rail-button.proj-2 { color: @proj-2; }
+.nav-rail-button.proj-3 { color: @proj-3; }
+/* B "Text scale 200 %": rows = text height + 18 px (9 above, 9 under the second line). */
+.link-row-two-line { padding-top: 9px; }
+/* Second lines of table rows at large text (mono, fg3). */
+.link-row-second { font-family: "JetBrains Mono", monospace; font-feature-settings: "tnum"; font-size: 12px; color: @fg3; padding: 0 12px 9px 36px; }
+.usage-row-second { font-family: "JetBrains Mono", monospace; font-feature-settings: "tnum"; font-size: 11px; color: @fg3; padding: 0 12px 8px 40px; }
+.palette-detail-second { padding-left: 0; }
+.usage-header-controls { margin-left: 44px; }
+/* The forecast Toast's action under its text at large text (F "Text scale 200 %"). */
+.toast-action-under { min-height: 24px; padding: 0 10px; border-radius: 6px; border: 1px solid @line2;
+  background: @bg2; color: @fg; font-size: 12.5px; font-weight: normal; box-shadow: none; }
+.toast-action-under:hover { background: @bg3; }
+
+/* ---- Settings (R112, ADR-0037): VS Code-like, over a scrim ------------------ */
+.settings-page { background: @bg2; border: 1px solid @line2; border-radius: 10px; box-shadow: 0 20px 60px @shadow; }
+.settings-search-bar { padding: 10px 18px; border-bottom: 1px solid @line; }
+.settings-search { min-height: 30px; background: @bg0; border: 1px solid @line2; border-radius: 6px; }
+.settings-search:focus-within { border-color: @acc-line; }
+.settings-modified { font-family: "JetBrains Mono", monospace; font-feature-settings: "tnum"; font-size: 11px; color: @acc; }
+.settings-error { margin: 8px 18px 0; padding: 8px 10px; border: 1px solid @wait-line; border-radius: 6px;
+  background: @wait-dim; color: @wait; font-family: "JetBrains Mono", monospace; font-size: 11.5px; }
+.settings-categories { background: @bg1; border-right: 1px solid @line; padding: 10px 6px; min-width: 180px;
+  border-radius: 0 0 0 10px; }
+.settings-categories row { border-radius: 4px; padding: 6px 10px; margin-bottom: 1px; }
+.settings-categories row:hover { background: @bg3; }
+.settings-categories row:selected { background: @acc-dim; }
+.settings-categories row:selected .settings-category { color: @fg; }
+.settings-category { font-size: 13px; color: @fg2; }
+.settings-category-dot { font-size: 8px; color: @acc; }
+.settings-rows { padding: 4px 22px 24px 14px; }
+.settings-section { margin: 18px 0 6px 10px; }
+.settings-row { padding: 10px 8px 10px 10px; border-left: 2px solid transparent; border-radius: 0 4px 4px 0; }
+.settings-row:hover { background: @bg1; }
+.settings-row.modified { border-left-color: @acc; }
+.settings-label { font-size: 13px; font-weight: 600; color: @fg; }
+.settings-key { font-family: "JetBrains Mono", monospace; font-size: 11px; color: @fg3; }
+.settings-description { font-size: 12px; color: @fg2; font-feature-settings: "calt" 0; }
+.settings-drop, .settings-spin { min-width: 200px; }
+.settings-drop > button, .settings-spin { background: @bg0; border: 1px solid @line2; border-radius: 6px; min-height: 28px; }
+.settings-spin { font-family: "JetBrains Mono", monospace; font-feature-settings: "tnum"; }
+.settings-switch:checked { background: @acc; }
+.settings-reset { min-width: 0; min-height: 0; padding: 4px; color: @fg3; }
+.settings-reset:hover { color: @acc; }
+.settings-reset image { -gtk-icon-size: 14px; }
+.settings-preview { margin: 10px 8px 0 10px; border: 1px solid @line; border-radius: 6px; background: @bg0; }
+.settings-preview-label { padding: 8px 12px 0; }
+.settings-preview-terminal { margin: 6px 12px 10px; }
+.settings-none { margin: 24px 10px; }
+.settings-code-sample { padding: 6px 12px 12px; color: @term-fg; }
+
+/* Agent Overview (R117, spec G, ADR-0039). The window behind shrinks and
+   the layer fades in; cards rise 6 px, 15 ms apart. GTK skips transitions
+   and animations when gtk-enable-animations is off (Reduce Animation). */
+.ov-behind { transition: transform 200ms ease-out; transform-origin: center; }
+.ov-behind.ov-open { transform: scale(0.94); }
+@keyframes ov-fade-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes ov-fade-out { from { opacity: 1; } to { opacity: 0; } }
+@keyframes ov-rise { from { opacity: 0; transform: translateY(6px) scale(0.97); } to { opacity: 1; transform: none; } }
+.overview { background: alpha(@bg0, 0.93); }
+.overview.ov-in { animation: ov-fade-in 200ms ease-out; }
+.overview.ov-out { animation: ov-fade-out 140ms ease-in forwards; }
+.overview.ov-out-jump { animation: ov-fade-out 220ms ease-out forwards; }
+.ov-rise-0 { animation: ov-rise 200ms ease-out both; }
+.ov-rise-1 { animation: ov-rise 200ms ease-out 15ms both; }
+.ov-rise-2 { animation: ov-rise 200ms ease-out 30ms both; }
+.ov-rise-3 { animation: ov-rise 200ms ease-out 45ms both; }
+.ov-rise-4 { animation: ov-rise 200ms ease-out 60ms both; }
+.ov-rise-5 { animation: ov-rise 200ms ease-out 75ms both; }
+.ov-rise-6 { animation: ov-rise 200ms ease-out 90ms both; }
+.ov-rise-7 { animation: ov-rise 200ms ease-out 105ms both; }
+.ov-rise-8 { animation: ov-rise 200ms ease-out 120ms both; }
+.ov-rise-9 { animation: ov-rise 200ms ease-out 135ms both; }
+.ov-rise-10 { animation: ov-rise 200ms ease-out 150ms both; }
+.ov-rise-11 { animation: ov-rise 200ms ease-out 165ms both; }
+.overview-content { padding: 28px 40px 0 40px; }
+.overview-head { min-height: 32px; }
+.overview-title { font-weight: 600; font-size: 15px; color: @fg; }
+.overview-count, .overview-band-count { font-family: "JetBrains Mono", monospace; font-feature-settings: "tnum"; font-size: 11.5px; color: @fg3; }
+.overview-band-count { color: @fg2; font-size: 11px; }
+.overview-filter { min-height: 32px; min-width: 360px; background: @bg0; border: 1px solid @acc-line; border-radius: 6px; color: @fg; box-shadow: none; }
+.overview-filter image { color: @fg3; }
+.overview-group { border: 1px solid @line2; border-radius: 5px; }
+.overview-seg { font-family: "JetBrains Mono", monospace; font-size: 11.5px; padding: 3px 9px; color: @fg2; }
+.overview-seg.on { background: @acc-dim; color: @acc; }
+.overview-key { font-family: "JetBrains Mono", monospace; font-size: 10.5px; color: @fg3; border: 1px solid @line2; border-radius: 3px; padding: 0 4px; background: @bg2; }
+.overview-chips { margin-top: 14px; }
+.overview-chips flowboxchild { padding: 0; min-height: 0; }
+.overview-chip { font-family: "JetBrains Mono", monospace; font-feature-settings: "tnum"; font-size: 11.5px; padding: 2px 8px; border-radius: 4px; border: 1px solid @line2; color: @fg2; background: @bg1; }
+.overview-chip.on { border-color: @acc-line; color: @acc; background: @acc-dim; }
+.overview-chip .led { min-width: 7px; min-height: 7px; }
+.overview-body { margin-top: 18px; margin-bottom: 18px; }
+.overview-band-title { font-weight: 600; font-size: 10.5px; letter-spacing: 0.08em; color: @fg3; }
+.overview-more { font-family: "JetBrains Mono", monospace; font-size: 11px; color: @fg3; }
+.overview-more-tile { border: 1px dashed @line2; border-radius: 6px; padding: 7px 10px; }
+.overview-more-tile:hover { background: @bg3; }
+.overview-more-tile:hover .overview-more { color: @fg; }
+.overview-more:hover { color: @fg; }
+.overview-card { background: @bg2; border: 1px solid @line; border-radius: 6px; padding: 9px 11px; }
+.overview-card:hover { background: @bg3; }
+.overview-card.compact { padding: 7px 10px; }
+.overview-card.selected { border-color: @acc-line; box-shadow: 0 0 18px @glow; }
+.overview-card .led { min-width: 7px; min-height: 7px; }
+.overview-card-name { font-weight: 600; color: @fg; }
+.overview-card .agent-badge { min-width: 16px; min-height: 16px; font-size: 10px; }
+.overview-card-model, .overview-card-foot, .overview-card-foot label { font-family: "JetBrains Mono", monospace; font-size: 11px; color: @fg3; }
+.overview-card-status { font-family: "JetBrains Mono", monospace; font-size: 11px; color: @fg3; }
+.overview-card-status.st-waiting { color: @wait; }
+.overview-card-status.st-error { color: @err; }
+.overview-card-status.st-running { color: @run; }
+.overview-card-status.st-done { color: @ok; }
+.overview-card-status.st-interrupted { color: @wt; }
+.overview-card-where { font-family: "JetBrains Mono", monospace; font-size: 11px; color: @fg2; }
+.overview-card-ws { color: @fg; }
+.overview-card-place { color: @fg2; }
+.overview-card-tail { background: @bg0; border: 1px solid @line; border-radius: 4px; padding: 5px 7px; font-family: "JetBrains Mono", monospace; font-size: 10.5px; color: @term-fg; }
+.overview-card-tail-line { font-family: "JetBrains Mono", monospace; font-size: 10.5px; color: @term-fg; }
+.overview-card-kids { font-family: "JetBrains Mono", monospace; font-size: 11px; color: @fg2; }
+.overview-card-foot .overview-card-note { color: @fg2; }
+.overview-card-foot .overview-card-jump { color: @acc; }
+.overview-col { background: @bg1; border: 1px solid @line; border-radius: 6px; padding: 10px; }
+.overview-col-title { font-weight: 600; color: @fg; }
+.overview-empty { font-family: "JetBrains Mono", monospace; font-size: 12px; color: @fg3; }
+.overview-hints { min-height: 40px; padding: 0 40px; background: @bg1; border-top: 1px solid @line; }
+.overview-hints flowboxchild { padding: 0; min-height: 40px; }
+.overview-hints flowbox { background: none; }
+.overview-hint { font-family: "JetBrains Mono", monospace; font-size: 11px; color: @fg3; }
+.overview-preview { background: @bg2; border: 1px solid @line2; border-radius: 8px; box-shadow: 0 20px 60px @shadow; }
+.overview-preview-head { padding: 10px 12px 8px 12px; border-bottom: 1px solid @line; }
+.overview-preview-head .overview-card-name { font-size: 13.5px; }
+.overview-preview-body { background: @bg0; padding: 10px 12px; }
+.overview-preview-line { font-family: "JetBrains Mono", monospace; font-size: 11.5px; line-height: 1.12; color: @term-fg; }
+.overview-preview-member { font-family: "JetBrains Mono", monospace; font-size: 11px; font-weight: 600; color: @fg2; margin-top: 4px; }
+.overview-preview-empty { font-family: "JetBrains Mono", monospace; font-size: 11.5px; color: @fg3; }
+.overview-preview-foot { padding: 8px 12px; border-top: 1px solid @line; }
+.overview-preview-foot label { font-family: "JetBrains Mono", monospace; font-size: 11px; color: @fg3; }
+.overview-preview-foot .overview-card-note { color: @fg2; }
+.overview-preview-foot .overview-card-jump { color: @acc; }
+@keyframes pv-right { from { opacity: 0; transform: translateX(-4px); } to { opacity: 1; transform: none; } }
+@keyframes pv-left { from { opacity: 0; transform: translateX(4px); } to { opacity: 1; transform: none; } }
+@keyframes pv-below { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+@keyframes pv-above { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+.overview-preview.pv-right { animation: pv-right 120ms ease-out; }
+.overview-preview.pv-left { animation: pv-left 120ms ease-out; }
+.overview-preview.pv-below { animation: pv-below 120ms ease-out; }
+.overview-preview.pv-above { animation: pv-above 120ms ease-out; }

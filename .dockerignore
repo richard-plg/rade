@@ -1,0 +1,10 @@
+# Build context for ci/Dockerfile. Only heavy or regenerated things: tests
+# read the rest. .git is out: the version comes in as a build-arg.
+.git
+target
+ghostty/.git
+ghostty/.zig-cache
+ghostty/zig-out
+ghostty/zig-pkg
+.claude
+.Rhistory

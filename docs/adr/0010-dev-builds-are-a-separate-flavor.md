@@ -1,0 +1,5 @@
+# Dev builds are a separate RADE flavor, chosen by where the binary lives
+
+A `rade-app` or `rade` running from inside a Cargo target dir (an ancestor holds Cargo's `CACHEDIR.TAG`: `target/release`, `target/debug`, test binaries) is the **Devel** flavor: app id `dev.rade.App.Devel`, socket `$XDG_RUNTIME_DIR/rade/rade-dev.sock`, data `~/.local/share/rade-dev` (state, Worktrees, Fan-out files), title "RADE (dev)". Anything else (the .deb in `/usr/lib/rade`, `cargo install`, a copied binary) is **Installed**: `dev.rade.App`, `rade.sock`, `~/.local/share/rade`. Config (`~/.config/rade/config.toml`) and the paste cache are shared. `RADE_SOCKET` still overrides the socket for both, and Panes always get it, so a CLI inside a Pane talks to its own app.
+
+Why runtime detection, not a cargo feature or `debug_assertions`: the owner's dev builds and all E2E tests are release builds, and a feature would need a second build of `rade-app` for the package and a flag on `cargo install` to get the right identity. The cost: a dev binary copied out of `target/` (the live harness does this) runs as Installed; it is isolated by its own `RADE_SOCKET` and `XDG_*` dirs anyway.

@@ -1,0 +1,355 @@
+{
+  "version": 2,
+  "workspaces": [
+    {
+      "id": "default",
+      "name": "default",
+      "root": "@ROOT@/home"
+    },
+    {
+      "id": "acme",
+      "name": "Acme",
+      "root": "@ROOT@/acme"
+    }
+  ],
+  "sources": [
+    {
+      "id": "shop-api",
+      "name": "shop-api",
+      "path": "@ROOT@/acme/shop-api",
+      "workspace": "acme",
+      "worktrees": [
+        {
+          "id": "w_3",
+          "name": "main",
+          "path": "@ROOT@/acme/shop-api",
+          "tabs": [],
+          "active_tab": null
+        },
+        {
+          "id": "w_7",
+          "name": "otp",
+          "path": "@ROOT@/acme/.worktrees/shop-api/otp",
+          "tabs": [
+            {
+              "id": "t_11",
+              "name": "Tab 1",
+              "layout": {
+                "type": "split",
+                "dir": "right",
+                "ratio": 0.5,
+                "a": {
+                  "type": "leaf",
+                  "pane": {
+                    "id": "p_10",
+                    "kind": {
+                      "type": "terminal",
+                      "cwd": "@ROOT@/acme/.worktrees/shop-api/otp",
+                      "command": "claude"
+                    }
+                  }
+                },
+                "b": {
+                  "type": "split",
+                  "dir": "down",
+                  "ratio": 0.5,
+                  "a": {
+                    "type": "leaf",
+                    "pane": {
+                      "id": "p_12",
+                      "kind": {
+                        "type": "terminal",
+                        "cwd": "@ROOT@/acme/.worktrees/shop-api/otp",
+                        "command": "codex"
+                      }
+                    }
+                  },
+                  "b": {
+                    "type": "leaf",
+                    "pane": {
+                      "id": "p_13",
+                      "kind": {
+                        "type": "terminal",
+                        "cwd": "@ROOT@/acme/.worktrees/shop-api/otp",
+                        "command": "bash"
+                      }
+                    }
+                  }
+                }
+              },
+              "focused": "p_13",
+              "zoomed": null,
+              "task": "shop/T-1"
+            }
+          ],
+          "active_tab": "t_11"
+        },
+        {
+          "id": "w_8",
+          "name": "cart",
+          "path": "@ROOT@/acme/.worktrees/shop-api/cart",
+          "tabs": [
+            {
+              "id": "t_15",
+              "name": "Tab 1",
+              "layout": {
+                "type": "split",
+                "dir": "right",
+                "ratio": 0.5,
+                "a": {
+                  "type": "leaf",
+                  "pane": {
+                    "id": "p_14",
+                    "kind": {
+                      "type": "terminal",
+                      "cwd": "@ROOT@/acme/.worktrees/shop-api/cart",
+                      "command": "bash"
+                    }
+                  }
+                },
+                "b": {
+                  "type": "leaf",
+                  "pane": {
+                    "id": "p_16",
+                    "kind": {
+                      "type": "terminal",
+                      "cwd": "@ROOT@/acme/.worktrees/shop-api/cart",
+                      "command": "bash"
+                    }
+                  }
+                }
+              },
+              "focused": "p_16",
+              "zoomed": null,
+              "initiative": "shop/I-1"
+            }
+          ],
+          "active_tab": "t_15"
+        }
+      ],
+      "active_worktree": "w_3"
+    },
+    {
+      "id": "shop-web",
+      "name": "shop-web",
+      "path": "@ROOT@/acme/shop-web",
+      "workspace": "acme",
+      "worktrees": [
+        {
+          "id": "w_4",
+          "name": "main",
+          "path": "@ROOT@/acme/shop-web",
+          "tabs": [],
+          "active_tab": null
+        },
+        {
+          "id": "w_9",
+          "name": "checkout",
+          "path": "@ROOT@/acme/.worktrees/shop-web/checkout",
+          "tabs": [
+            {
+              "id": "t_18",
+              "name": "Tab 1",
+              "layout": {
+                "type": "split",
+                "dir": "right",
+                "ratio": 0.5,
+                "a": {
+                  "type": "leaf",
+                  "pane": {
+                    "id": "p_17",
+                    "kind": {
+                      "type": "terminal",
+                      "cwd": "@ROOT@/acme/.worktrees/shop-web/checkout",
+                      "command": "bash"
+                    }
+                  }
+                },
+                "b": {
+                  "type": "leaf",
+                  "pane": {
+                    "id": "p_19",
+                    "kind": {
+                      "type": "terminal",
+                      "cwd": "@ROOT@/acme/.worktrees/shop-web/checkout",
+                      "command": "bash"
+                    }
+                  }
+                }
+              },
+              "focused": "p_19",
+              "zoomed": null
+            }
+          ],
+          "active_tab": "t_18"
+        }
+      ],
+      "active_worktree": "w_4"
+    },
+    {
+      "id": "notes",
+      "name": "notes",
+      "path": "@ROOT@/home/notes",
+      "workspace": "default",
+      "worktrees": [
+        {
+          "id": "w_5",
+          "name": "main",
+          "path": "@ROOT@/home/notes",
+          "tabs": [
+            {
+              "id": "t_21",
+              "name": "Tab 1",
+              "layout": {
+                "type": "leaf",
+                "pane": {
+                  "id": "p_20",
+                  "kind": {
+                    "type": "terminal",
+                    "cwd": "@ROOT@/home/notes",
+                    "command": "bash"
+                  }
+                }
+              },
+              "focused": "p_20",
+              "zoomed": null
+            }
+          ],
+          "active_tab": "t_21"
+        }
+      ],
+      "active_worktree": "w_5"
+    },
+    {
+      "id": "tools",
+      "name": "tools",
+      "path": "@ROOT@/home/tools",
+      "workspace": "default",
+      "worktrees": [
+        {
+          "id": "w_6",
+          "name": "main",
+          "path": "@ROOT@/home/tools",
+          "tabs": [
+            {
+              "id": "t_23",
+              "name": "Tab 1",
+              "layout": {
+                "type": "leaf",
+                "pane": {
+                  "id": "p_22",
+                  "kind": {
+                    "type": "terminal",
+                    "cwd": "@ROOT@/home/tools",
+                    "command": "bash"
+                  }
+                }
+              },
+              "focused": "p_22",
+              "zoomed": null
+            }
+          ],
+          "active_tab": "t_23"
+        }
+      ],
+      "active_worktree": "w_6"
+    },
+    {
+      "id": "general",
+      "name": "General",
+      "path": "@ROOT@/home",
+      "workspace": "default",
+      "worktrees": [
+        {
+          "id": "w_1",
+          "name": "main",
+          "path": "@ROOT@/home",
+          "tabs": [],
+          "active_tab": null
+        }
+      ],
+      "active_worktree": "w_1"
+    },
+    {
+      "id": "general@acme",
+      "name": "General",
+      "path": "@ROOT@/acme",
+      "workspace": "acme",
+      "worktrees": [
+        {
+          "id": "w_2",
+          "name": "main",
+          "path": "@ROOT@/acme",
+          "tabs": [],
+          "active_tab": null
+        }
+      ],
+      "active_worktree": "w_2"
+    }
+  ],
+  "active_source": "general",
+  "next_id": 23,
+  "tasks_page": "acme/shop",
+  "batches": [
+    {
+      "id": 1,
+      "project": "shop",
+      "workspace": "acme",
+      "file": "@ROOT@/acme/.rade/projects/shop/batches/B-1-x.md",
+      "title": "x",
+      "status": "paused",
+      "policy": {
+        "parallel": 2,
+        "review": "human",
+        "max_rounds": 2,
+        "merge": "never",
+        "push": "never",
+        "stop_on": 1,
+        "plan": "auto"
+      },
+      "items": [
+        {
+          "task": "shop/T-1",
+          "title": "OTP",
+          "state": "running",
+          "round": 0,
+          "started": 1760000000
+        }
+      ],
+      "baseline": 0
+    }
+  ],
+  "plan_gates": {
+    "shop/T-1": {
+      "phase": "planning",
+      "round": 0
+    }
+  },
+  "verify_confirmed": {
+    "shop/shop-api": "make test"
+  },
+  "initiatives": [
+    {
+      "project": "shop",
+      "workspace": "acme",
+      "id": 1,
+      "dir": "@ROOT@/acme/.rade/projects/shop/initiatives/I-1-checkout",
+      "title": "Checkout",
+      "kind": "backend",
+      "priority": 2,
+      "phase": "spec",
+      "gate": {
+        "phase": "planning",
+        "round": 0
+      },
+      "flow": 2
+    }
+  ],
+  "sidebar_rule": 2,
+  "start_here_dismissed": [
+    "acme/shop"
+  ],
+  "reports_page": "acme/shop",
+  "batch_page": "shop/B-1",
+  "initiative_page": "shop/I-1"
+}

@@ -1,0 +1,4 @@
+[submodule "ghostty"]
+	path = ghostty
+	url = https://github.com/richard-plg/ghostty.git
+	branch = rade

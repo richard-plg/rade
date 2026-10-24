@@ -1,0 +1,13 @@
+youtube https://www.youtube.com/watch?v=aqz-KE-bpKQ 12
+hlsjs https://hlsjs.video-dev.org/demo/ 12
+webrtc https://webrtc.github.io/samples/src/content/getusermedia/gum/ 4
+webgl https://get.webgl.org/ 4
+webgpu https://webgpu.github.io/webgpu-samples/?sample=helloTriangle 8
+google_sso https://accounts.google.com/ 6
+ms_sso https://login.microsoftonline.com/ 6
+github_login https://github.com/login 5
+fsa https://googlechromelabs.github.io/text-editor/ 5
+excalidraw https://excalidraw.com/ 10
+squoosh https://squoosh.app/ 8
+tldraw https://www.tldraw.com/ 10
+react https://react.dev/ 6

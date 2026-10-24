@@ -1,0 +1,24 @@
+[package]
+name = "rade-app"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+gtk4 = { version = "0.11", features = ["v4_12"] }
+libadwaita = { version = "0.9", features = ["v1_7"] }
+# add_font_file (Pango 1.56): the bundled Inter / JetBrains Mono (R102.3).
+pango = { version = "0.22", features = ["v1_56"] }
+rade-core = { path = "../rade-core" }
+rade-ghostty-sys = { path = "../rade-ghostty-sys" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+shell-quote = { version = "0.7.2", default-features = false, features = ["bash"] }
+sourceview5 = "0.11"
+# Settings values (R112), as rade-core writes them.
+toml = "0.8"
+webkit6 = { version = "0.6", features = ["v2_52"] }
+
+[build-dependencies]
+cc = "1"

@@ -1,0 +1,17 @@
+[package]
+name = "rade-cli"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "rade"
+path = "src/main.rs"
+
+[dependencies]
+rade-core = { path = "../rade-core" }
+serde_json.workspace = true
+clap = { version = "4", features = ["derive"] }
+libc = "0.2"
+base64 = "0.23"

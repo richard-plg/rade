@@ -1,0 +1,6 @@
+/* RADE's dark-only rules, loaded with the dark half of tokens.css while the
+   style is dark (main.rs follows AdwStyleManager:dark). The tokens already
+   switch every color, so only rules whose shape differs in dark live here. */
+
+/* The 10 % outer halo of `glow` (transparent in light) needs nothing extra;
+   this file stays as the place for dark-only shape changes. */

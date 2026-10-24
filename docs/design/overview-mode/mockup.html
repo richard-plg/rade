@@ -1,0 +1,295 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agent Overview mockup</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/regular/style.css">
+<link rel="stylesheet" href="../redesign-2026-10-23/tokens.css">
+<style>
+/* Proposal mockup only (docs/design/overview-mode-proposal.md). Hash: #a | #b | #c, add -light. */
+* { box-sizing: border-box; margin: 0; }
+body { background: var(--bg0); color: var(--fg); font: 13px/1.4 Inter, sans-serif; font-feature-settings: "tnum"; }
+.mono { font-family: "JetBrains Mono", monospace; }
+.frame { width: 1440px; height: 900px; position: relative; overflow: hidden; display: none; }
+.frame.on { display: block; }
+
+/* the window behind, shrunk and dimmed (zoom-out start state) */
+.behind { position: absolute; inset: 0; transform: scale(.94); filter: blur(6px) saturate(.7); opacity: .55; }
+.behind .tb { height: 40px; background: var(--bg1); border-bottom: 1px solid var(--line); }
+.behind .nav { position: absolute; top: 40px; left: 0; bottom: 26px; width: 260px; background: var(--bg1); border-right: 1px solid var(--line); }
+.behind .insp { position: absolute; top: 40px; right: 0; bottom: 26px; width: 340px; background: var(--bg1); border-left: 1px solid var(--line); }
+.behind .term { position: absolute; top: 76px; left: 266px; right: 346px; bottom: 32px; background: var(--bg0); border: 1px solid var(--line); }
+.behind .sl { position: absolute; bottom: 0; left: 0; right: 0; height: 26px; background: var(--bg1); border-top: 1px solid var(--line); }
+.scrim2 { position: absolute; inset: 0; background: var(--scrim); }
+body.light .scrim2 { background: rgba(20,26,34,.28); }
+
+.ov { position: absolute; inset: 0; display: flex; flex-direction: column; padding: 28px 40px 0; }
+.ov-head { display: flex; align-items: center; gap: 12px; }
+.ov-title { font-weight: 600; font-size: 15px; }
+.search { flex: 0 0 360px; height: 32px; display: flex; align-items: center; gap: 8px; padding: 0 10px; background: var(--bg0); border: 1px solid var(--acc-line); border-radius: 6px; color: var(--fg3); }
+.search .caret { width: 1px; height: 15px; background: var(--acc); }
+.sp { flex: 1; }
+.seg { display: flex; border: 1px solid var(--line2); border-radius: 5px; overflow: hidden; }
+.seg span { font: 11.5px "JetBrains Mono"; padding: 3px 9px; color: var(--fg2); }
+.seg span.on { background: var(--acc-dim); color: var(--acc); }
+.counts { display: flex; gap: 6px; margin-top: 14px; flex-wrap: wrap; }
+.cnt { display: inline-flex; align-items: center; gap: 6px; font: 11.5px "JetBrains Mono"; padding: 2px 8px; border-radius: 4px; border: 1px solid var(--line2); color: var(--fg2); background: var(--bg1); }
+.cnt.ws .dot { width: 8px; height: 8px; border-radius: 2px; }
+.cnt kbd, .hint kbd { font: 10.5px "JetBrains Mono"; color: var(--fg3); border: 1px solid var(--line2); border-radius: 3px; padding: 0 4px; background: var(--bg2); }
+.cnt.sel { border-color: var(--acc-line); color: var(--acc); background: var(--acc-dim); }
+
+.led { width: 7px; height: 7px; border-radius: 2px; flex: none; }
+.led.run { background: var(--run); box-shadow: 0 0 6px var(--run); }
+.led.wait { background: var(--wait); box-shadow: 0 0 6px var(--wait); }
+.led.done { background: var(--ok); }
+.led.err { background: var(--err); }
+.led.intr { background: var(--wt); }
+.led.idle { background: transparent; border: 1px solid var(--fg3); }
+
+.bands { flex: 1; overflow: hidden; margin-top: 18px; display: flex; flex-direction: column; gap: 18px; }
+.band-h { display: flex; align-items: center; gap: 8px; font: 600 10.5px Inter; letter-spacing: .08em; text-transform: uppercase; color: var(--fg3); margin-bottom: 8px; }
+.band-h .n { font: 11px "JetBrains Mono"; color: var(--fg2); letter-spacing: 0; text-transform: none; }
+.band-h .more { margin-left: auto; font: 11px "JetBrains Mono"; letter-spacing: 0; text-transform: none; color: var(--fg3); }
+.grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+
+.card { background: var(--bg2); border: 1px solid var(--line); border-radius: 6px; padding: 9px 11px 9px; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.card.selected { border-color: var(--acc-line); box-shadow: var(--glow); }
+.card .r1 { display: flex; align-items: center; gap: 7px; min-width: 0; }
+.card .name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ab { font: 600 10px "JetBrains Mono"; width: 16px; height: 16px; border-radius: 4px; display: grid; place-items: center; flex: none; }
+.ab.c { background: var(--agent-claude-bg); color: var(--agent-claude); }
+.ab.x { background: var(--bg4); color: var(--agent-codex); }
+.model { font: 11px "JetBrains Mono"; color: var(--fg3); white-space: nowrap; }
+.st { margin-left: auto; font: 11px "JetBrains Mono"; white-space: nowrap; color: var(--fg3); }
+.st.wait { color: var(--wait); } .st.err { color: var(--err); } .st.run { color: var(--run); } .st.done { color: var(--ok); } .st.intr { color: var(--wt); }
+.where { display: flex; align-items: center; gap: 6px; font: 11px "JetBrains Mono"; color: var(--fg2); white-space: nowrap; overflow: hidden; }
+.where .wsd { width: 7px; height: 7px; border-radius: 2px; flex: none; }
+.where .ws { color: var(--fg); }
+.where .ph { color: var(--wt); font-size: 12px; }
+.tail { background: var(--bg0); border: 1px solid var(--line); border-radius: 4px; padding: 5px 7px; font: 10.5px/1.45 "JetBrains Mono"; color: var(--term-fg); white-space: pre; overflow: hidden; }
+.tail .q { color: var(--wait); } .tail .e { color: var(--err); } .tail .d { color: var(--fg3); } .tail .g { color: var(--ok); }
+.foot { display: flex; gap: 10px; font: 11px "JetBrains Mono"; color: var(--fg3); white-space: nowrap; overflow: hidden; }
+.foot .msg { color: var(--fg2); overflow: hidden; text-overflow: ellipsis; }
+.foot .k { margin-left: auto; color: var(--acc); }
+.card.compact { flex-direction: row; align-items: center; padding: 7px 10px; gap: 8px; }
+.card.compact .where { flex: 1; }
+.fan .kids { display: flex; flex-direction: column; gap: 3px; font: 11px "JetBrains Mono"; color: var(--fg2); }
+.fan .kids div { display: flex; align-items: center; gap: 7px; }
+
+.hint { height: 40px; display: flex; align-items: center; gap: 16px; font: 11px "JetBrains Mono"; color: var(--fg3); border-top: 1px solid var(--line); margin: 0 -40px; padding: 0 40px; background: var(--bg1); }
+
+/* concept B: columns by Workspace */
+.cols { flex: 1; margin-top: 18px; display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; overflow: hidden; }
+.col { background: var(--bg1); border: 1px solid var(--line); border-radius: 6px; padding: 10px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.col-h { display: flex; align-items: center; gap: 7px; font-weight: 600; }
+.col-h .m { margin-left: auto; font: 11px "JetBrains Mono"; color: var(--fg3); font-weight: 400; }
+
+/* concept C: Cmd+Tab HUD */
+.hud { position: absolute; left: 50%; top: 50%; transform: translate(-50%,-50%); background: var(--bg2); border: 1px solid var(--line2); border-radius: 10px; box-shadow: var(--shadow); padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+.hud-row { display: flex; gap: 8px; }
+.tile { width: 132px; height: 96px; border-radius: 6px; border: 1px solid var(--line); background: var(--bg1); padding: 9px; display: flex; flex-direction: column; gap: 5px; }
+.tile.selected { border-color: var(--acc-line); box-shadow: var(--glow); background: var(--bg3); }
+.tile .name { font-weight: 600; font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tile .s { font: 10.5px "JetBrains Mono"; color: var(--fg3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hud-sub { font: 11.5px "JetBrains Mono"; color: var(--fg2); text-align: center; }
+
+/* Preview (#p): the hovered / selected card's screen, beside it, over the grid. */
+.pv { position: absolute; width: 600px; background: var(--bg2); border: 1px solid var(--line2); border-radius: 8px; box-shadow: var(--shadow); display: flex; flex-direction: column; overflow: hidden; z-index: 5; }
+.pv-h { display: flex; align-items: center; gap: 8px; padding: 10px 12px 8px; border-bottom: 1px solid var(--line); }
+.pv-h .name { font-weight: 600; }
+.pv-h .st { margin-left: auto; font: 11px "JetBrains Mono"; }
+.pv-w { padding: 0 12px 8px; font: 11px "JetBrains Mono"; color: var(--fg2); display: flex; gap: 6px; align-items: center; border-bottom: 1px solid var(--line); padding-top: 0; }
+.pv-b { background: var(--bg0); padding: 10px 12px; font: 11.5px/1.5 "JetBrains Mono"; color: var(--term-fg); white-space: pre; overflow: hidden; }
+.pv-b .d { color: var(--fg3); } .pv-b .q { color: var(--wait); } .pv-b .g { color: var(--ok); } .pv-b .b { color: var(--run); }
+.pv-f { display: flex; gap: 12px; padding: 8px 12px; font: 11px "JetBrains Mono"; color: var(--fg3); border-top: 1px solid var(--line); }
+.pv-f .k { margin-left: auto; color: var(--acc); }
+.pv-arrow { position: absolute; left: -6px; top: 18px; width: 10px; height: 10px; background: var(--bg2); border-left: 1px solid var(--line2); border-bottom: 1px solid var(--line2); transform: rotate(45deg); }
+</style>
+</head>
+<body>
+
+<div class="frame" id="a">
+  <div class="behind"><div class="tb"></div><div class="nav"></div><div class="term"></div><div class="insp"></div><div class="sl"></div></div>
+  <div class="scrim2"></div>
+  <div class="ov">
+    <div class="ov-head">
+      <span class="ov-title">Agents</span>
+      <span class="mono" style="color:var(--fg3);font-size:11.5px">16 in 5 Workspaces</span>
+      <div class="search"><i class="ph ph-magnifying-glass"></i><span class="caret"></span><span>Filter by name, Project, branch, status…</span></div>
+      <span class="sp"></span>
+      <div class="seg"><span class="on">by status</span><span>by Workspace</span></div>
+      <span class="hint" style="all:unset"><kbd>Alt</kbd> <kbd>G</kbd></span>
+    </div>
+    <div class="counts">
+      <span class="cnt"><span class="led wait"></span>2 need input</span>
+      <span class="cnt"><span class="led err"></span>1 error</span>
+      <span class="cnt"><span class="led intr"></span>1 interrupted</span>
+      <span class="cnt"><span class="led done"></span>2 finished, unseen</span>
+      <span class="cnt"><span class="led run"></span>6 running</span>
+      <span class="cnt"><span class="led idle"></span>4 quiet</span>
+      <span class="sp"></span>
+      <span class="cnt ws"><span class="dot" style="background:var(--acc)"></span>ACME 7 <kbd>⌃⌥1</kbd></span>
+      <span class="cnt ws"><span class="dot" style="background:var(--proj-2)"></span>globex 4 <kbd>⌃⌥2</kbd></span>
+      <span class="cnt ws"><span class="dot" style="background:var(--proj-3)"></span>personal 3 <kbd>⌃⌥3</kbd></span>
+      <span class="cnt ws"><span class="dot" style="background:var(--run)"></span>oss 1 <kbd>⌃⌥4</kbd></span>
+      <span class="cnt ws"><span class="dot" style="background:var(--fg3)"></span>default 1 <kbd>⌃⌥5</kbd></span>
+    </div>
+    <div class="bands" id="bands"></div>
+    <div class="hint">
+      <span><kbd>←</kbd><kbd>↑</kbd><kbd>↓</kbd><kbd>→</kbd> move</span>
+      <span><kbd>Tab</kbd> next group</span>
+      <span><kbd>↵</kbd> jump</span>
+      <span><kbd>⇧</kbd><kbd>↵</kbd> jump + Zoom</span>
+      <span><kbd>⌃⌥1..9</kbd> one Workspace</span>
+      <span><kbd>Alt</kbd><kbd>G</kbd> group</span>
+      <span class="sp"></span>
+      <span><kbd>Esc</kbd> back to where you were</span>
+    </div>
+  </div>
+</div>
+
+<div class="frame" id="b">
+  <div class="behind"><div class="tb"></div><div class="nav"></div><div class="term"></div><div class="insp"></div><div class="sl"></div></div>
+  <div class="scrim2"></div>
+  <div class="ov">
+    <div class="ov-head">
+      <span class="ov-title">Agents</span>
+      <span class="mono" style="color:var(--fg3);font-size:11.5px">16 in 5 Workspaces</span>
+      <div class="search"><i class="ph ph-magnifying-glass"></i><span class="caret"></span><span>Filter by name, Project, branch, status…</span></div>
+      <span class="sp"></span>
+      <div class="seg"><span>by status</span><span class="on">by Workspace</span></div>
+    </div>
+    <div class="cols" id="cols"></div>
+    <div class="hint">
+      <span><kbd>←</kbd><kbd>→</kbd> Workspace</span><span><kbd>↑</kbd><kbd>↓</kbd> Agent</span><span><kbd>↵</kbd> jump</span><span><kbd>Alt</kbd><kbd>G</kbd> group</span><span class="sp"></span><span><kbd>Esc</kbd> close</span>
+    </div>
+  </div>
+</div>
+
+<div class="frame" id="c">
+  <div class="behind" style="transform:none;filter:none;opacity:1"><div class="tb"></div><div class="nav"></div><div class="term"></div><div class="insp"></div><div class="sl"></div></div>
+  <div class="scrim2" style="opacity:.5"></div>
+  <div class="hud">
+    <div class="hud-row" id="hud"></div>
+    <div class="hud-sub">tests · ACME · Shop / shop-web / checkout-v2 · needs input 4m — release <kbd style="font:10.5px 'JetBrains Mono';border:1px solid var(--line2);border-radius:3px;padding:0 4px">Ctrl</kbd> to jump</div>
+  </div>
+</div>
+
+<script>
+const WS = { ACME: "var(--acc)", globex: "var(--proj-2)", personal: "var(--proj-3)", oss: "var(--run)", default: "var(--fg3)" };
+const A = [
+  // band, name, agent, model, status class, status text, ws, path, tail, foot msg, foot meta
+  ["need", "tests", "x", "gpt-5", "wait", "needs input · 4m", "ACME", "Shop / shop-web / checkout-v2", '<span class="d">… 3 fixtures match "totals"</span>\n<span class="q">? Which fixture set should the checkout</span>\n<span class="q">  totals tests use?  1) eu  2) us  3) both</span>', "asked which fixtures", "↑3 · 4 changed"],
+  ["need", "migrate", "c", "opus-5.5", "err", "error · 12m", "globex", "Fleet / api / pg17-upgrade", '<span class="d">test result: FAILED. 41 passed; 3 failed</span>\n<span class="e">error: test failed, to rerun pass --lib</span>\n<span class="d">✻ Stopped after the failing run</span>', "cargo test failed · 3 failures", "↑7 · 12 changed"],
+  ["need", "approve-deps", "c", "sonnet-5.5", "wait", "needs input · 3m", "personal", "Blog / site", '<span class="d">Bash(npm install astro@6)</span>\n<span class="q">Do you want to proceed?</span>\n<span class="q">❯ 1. Yes   2. Yes, and don\'t ask   3. No</span>', "permission: Bash", "main · 1 changed"],
+  ["need", "docs-bot", "c", "sonnet-5.5", "intr", "interrupted · 1h", "personal", "Notes / Scratch", '<span class="d">Session Restore resumed this Agent idle.</span>\n<span class="d">Its turn was cut off by a RADE quit.</span>\n<span class="d">&gt; </span>', "needs a prompt to go on", "~/workspaces/personal"],
+  ["unseen", "planner", "c", "opus-5.5", "done", "done · 2m", "ACME", "Shop / shop-web / checkout-v2", '<span class="g">✓ 24 tests passed</span>\n<span class="d">Summary: totals split by region; 2 files</span>\n<span class="d">changed. Ready for review.</span>', "finished · 24 tests passed", "R 4 files"],
+  ["unseen", "judge", "c", "opus-5.5", "done", "done · 9m", "ACME", "Shop / shop-web · Fan-out img-lazy", '<span class="d">Verdict: Winner = img-lazy-2</span>\n<span class="d">  smallest diff, passes perf budget</span>\n<span class="d">  (img-lazy-1 breaks SSR)</span>', "verdict ready · choose a Winner", "Fan-out · 3"],
+  ["run", "perf-img", "x", "gpt-5", "run", "running · 6m", "ACME", "Shop / shop-web / perf-img", '<span class="d">• Running pnpm build --filter web</span>\n<span class="d">  dist/assets/hero-…avif  48.1 kB</span>', "", "↑2 · 3 changed"],
+  ["run", "indexer", "c", "sonnet-5.5", "run", "running · 22m", "globex", "Fleet / ingest / batch-v3", '<span class="d">Edit(src/ingest/batch.rs)</span>\n<span class="d">  +41 −12 lines</span>', "", "↑1 · 5 changed"],
+  ["run", "api-review", "x", "gpt-5", "run", "running · 3m", "globex", "Fleet / api / main", '<span class="d">Reading crates/api/src/auth.rs</span>\n<span class="d">  (420 lines)</span>', "", "main"],
+  ["run", "lsp-fix", "c", "opus-5.5", "run", "running · quiet 14m", "oss", "rust-analyzer / hover-fix", '<span class="d">Bash(cargo test -p ide)</span>\n<span class="d">  no output for 14m</span>', "", "↑4 · 2 changed"],
+  ["run", "copy-edit", "c", "haiku-5.5", "run", "running · 1m", "personal", "Blog / site / oct-post", '<span class="d">Edit(content/oct.md)</span>\n<span class="d">  +8 −3 lines</span>', "", "↑1 · 1 changed"],
+];
+const QUIET = [
+  ["seed-data", "c", "done", "done · 1h", "ACME", "Shop / shop-api / main"],
+  ["dev-server", "x", "done", "done · 2h", "ACME", "Shop / shop-web / main"],
+  ["etl-dry", "c", "done", "done · 3h", "globex", "Fleet / ingest / main"],
+  ["scratch", "c", "idle", "exited · 5h", "default", "Scratch / ~"],
+];
+const ab = a => `<span class="ab ${a}">${a === "c" ? "C" : "X"}</span>`;
+const where = (ws, p, fan) => `<div class="where"><span class="wsd" style="background:${WS[ws]}"></span><span class="ws">${ws}</span><span>·</span>${fan ? '' : '<i class="ph ph-git-branch"></i>'}<span>${p}</span></div>`;
+function card(r, sel) {
+  const [, n, a, m, s, st, ws, p, tail, msg, meta] = r;
+  return `<div class="card${sel ? " selected" : ""}">
+    <div class="r1"><span class="led ${s}"></span><span class="name">${n}</span>${ab(a)}<span class="model">${m}</span><span class="st ${s}">${st}</span></div>
+    ${where(ws, p)}
+    <div class="tail">${tail}</div>
+    <div class="foot">${msg ? `<span class="msg">${msg}</span>` : ""}<span>${meta}</span>${sel ? '<span class="k">↵ jump</span>' : ""}</div>
+  </div>`;
+}
+function fan() {
+  return `<div class="card fan">
+    <div class="r1"><span class="led run"></span><span class="name">Fan-out checkout-api</span><span class="model">3 Agents</span><span class="st run">2 running · 1 done</span></div>
+    ${where("ACME", "Shop / shop-api", true)}
+    <div class="kids"><div><span class="led run"></span>checkout-api-1 · running 8m</div><div><span class="led run"></span>checkout-api-2 · running 8m</div><div><span class="led done"></span>checkout-api-3 · done 1m</div></div>
+    <div class="foot"><span>Judge after all finish</span></div></div>`;
+}
+const bands = [
+  ["need", "Needs you", "4 · longest-waiting first within each status"],
+  ["unseen", "Finished, not seen", "2"],
+  ["run", "Running", "6 · newest activity first"],
+];
+let h = "";
+for (const [k, label, n] of bands) {
+  const rows = A.filter(r => r[0] === k);
+  h += `<section><div class="band-h">${label}<span class="n">${n}</span></div><div class="grid">`;
+  h += rows.map((r, i) => card(r, k === "need" && i === 0)).join("");
+  if (k === "run") h += fan();
+  h += `</div></section>`;
+}
+h += `<section><div class="band-h">Quiet<span class="n">4 · done and seen, exited</span><span class="more">fold ▾</span></div><div class="grid">` +
+  QUIET.map(([n, a, s, st, ws, p]) => `<div class="card compact"><span class="led ${s}"></span><span class="name">${n}</span>${ab(a)}${where(ws, p)}<span class="st">${st}</span></div>`).join("") +
+  `</div></section>`;
+document.getElementById("bands").innerHTML = h;
+
+// concept B
+const order = ["ACME", "globex", "personal", "oss", "default"];
+const rank = { wait: 0, err: 1, intr: 2, done: 3, run: 4, idle: 5 };
+let c = "";
+for (const ws of order) {
+  const rows = A.filter(r => r[6] === ws).sort((x, y) => rank[x[4]] - rank[y[4]]);
+  const q = QUIET.filter(r => r[4] === ws);
+  const need = rows.filter(r => ["wait", "err", "intr"].includes(r[4])).length;
+  c += `<div class="col"><div class="col-h"><span class="led" style="background:${WS[ws]};box-shadow:none"></span>${ws}<span class="m">${need ? `<span style="color:var(--wait)">${need} need you</span> · ` : ""}${rows.length + q.length}</span></div>`;
+  c += rows.map(r => `<div class="card" style="gap:4px${ws === "ACME" && r[1] === "tests" ? ";border-color:var(--acc-line);box-shadow:var(--glow)" : ""}"><div class="r1"><span class="led ${r[4]}"></span><span class="name">${r[1]}</span>${ab(r[2])}<span class="st ${r[4]}">${r[5].split(" · ")[0]}</span></div><div class="where"><span>${r[7]}</span></div>${r[9] ? `<div class="foot"><span class="msg">${r[9]}</span></div>` : ""}</div>`).join("");
+  c += q.map(r => `<div class="card compact"><span class="led ${r[2]}"></span><span class="name">${r[0]}</span><span class="st">${r[3]}</span></div>`).join("");
+  c += `</div>`;
+}
+document.getElementById("cols").innerHTML = c;
+
+// concept C
+const hudRows = A.slice(0, 7);
+document.getElementById("hud").innerHTML = hudRows.map((r, i) => `<div class="tile${i === 0 ? " selected" : ""}"><div class="r1" style="display:flex;gap:6px;align-items:center"><span class="led ${r[4]}"></span><span class="name">${r[1]}</span></div><div class="s">${r[6]}</div><div class="s">${r[7].split(" / ").slice(-1)[0]}</div><div class="s" style="color:var(--${{wait:"wait",err:"err",run:"run",done:"ok",intr:"wt"}[r[4]]})">${r[5]}</div></div>`).join("");
+
+const hash = (location.hash || "#a").slice(1);
+const [f, theme] = hash.split("-");
+
+if (f === "p") {
+  document.getElementById("a").classList.add("on");
+  requestAnimationFrame(() => {
+    const card = document.querySelector("#a .card.selected");
+    const fr = document.getElementById("a").getBoundingClientRect();
+    const r = card.getBoundingClientRect();
+    const pv = document.createElement("div");
+    pv.className = "pv";
+    pv.style.left = (r.right - fr.left + 12) + "px";
+    pv.style.top = (r.top - fr.top) + "px";
+    pv.innerHTML = `<div class="pv-arrow"></div>
+      <div class="pv-h"><span class="led wait"></span><span class="name">tests</span><span class="ab x">X</span><span class="model">gpt-5</span><span class="st" style="color:var(--wait)">needs input · 4m</span></div>
+      <div class="pv-w" style="padding-top:6px"><span class="wsd" style="width:7px;height:7px;border-radius:2px;background:var(--acc)"></span><span style="color:var(--fg)">ACME</span>·<span>Shop / shop-web / checkout-v2</span><span style="margin-left:auto">↳ planner</span></div>
+      <div class="pv-b"><span class="d">• Ran pnpm test --filter checkout</span>
+<span class="d">  └ 41 passed, 3 skipped (fixtures: eu, us)</span>
+
+<span class="b">• Explored</span>
+<span class="d">  └ Read totals.ts, totals.test.ts, fixtures/index.ts</span>
+
+The totals tests compute VAT per region. Two fixture sets exist:
+  - <b>eu</b>  — 19 % VAT, prices incl. tax
+  - <b>us</b>  — sales tax per state, prices excl. tax
+The current snapshot mixes both, which is why 3 tests are skipped.
+
+<span class="q">? Which fixture set should the checkout totals tests use?</span>
+<span class="q">  1) eu    2) us    3) both (parametrize per region)</span></div>
+      <div class="pv-f"><span>asked which fixtures</span><span>↑3 · 4 changed</span><span class="k">↵ jump · Alt+P hide</span></div>`;
+    document.getElementById("a").appendChild(pv);
+  });
+} else
+document.getElementById(f || "a").classList.add("on");
+if (theme === "light") document.body.classList.add("light");
+</script>
+</body>
+</html>

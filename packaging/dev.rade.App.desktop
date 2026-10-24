@@ -1,0 +1,14 @@
+[Desktop Entry]
+Type=Application
+Name=RADE
+GenericName=Agentic Development Environment
+Comment=Run and drive coding agents side by side in GPU terminals
+Exec=/usr/bin/rade-app
+Icon=dev.rade.App
+Terminal=false
+StartupNotify=true
+StartupWMClass=dev.rade.App
+SingleMainWindow=true
+X-GNOME-UsesNotifications=true
+Categories=Development;IDE;GTK;
+Keywords=terminal;agent;claude;codex;ghostty;

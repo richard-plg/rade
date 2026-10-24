@@ -1,0 +1,21 @@
+# Browser Pane: WebKitGTK 6, driven through the socket by an isolated-world script
+
+ADR-0001 kept WebKitGTK to Viewer Panes. M12 adds a second kind of web Pane, the **Browser Pane** (PRD R18), so Agents can check their own web changes; it is the same WebKitGTK 6 already linked for Markdown — no second engine, no Chromium. Agents drive it like Playwright / agent-browser (the "snapshot → refs → act" loop coding agents already know): `rade browser snapshot` returns the page as indented ARIA-ish text with refs (`[ref=e3] button "Save"`), then `click e3`, `fill e2 "…"`, `press Enter`, `eval`, `screenshot`, `console`, `wait`. There is no CDP: WebKitGTK has no DevTools-protocol endpoint for embedders, so the snapshot and actions are a small JavaScript library (`assets/browser.js`) that RADE evaluates through `webkit_web_view_call_async_javascript_function` in a **named script world** (`rade`), registered as a user script of that world so WebKit keeps the world — and its ref table — alive between calls. Page scripts share the DOM but not that world's globals or prototypes, so a page can't fake a snapshot, read the ref table or replace `click()` / value setters; results are serialized by JavaScriptCore, not the page's `JSON.stringify`. Library errors come back as values, never thrown into the page. `eval` deliberately runs in the page's world (that is what an Agent wants to inspect). The control path stays ADR-0006's: the same-UID socket and the `rade` CLI, no extra port or protocol.
+
+## Considered Options
+
+- **Chromium/CDP (agent-browser, Playwright) in a separate window**: trusted input events and the full accessibility tree, but a second browser engine to ship or require, a window outside RADE's layout, and a CDP port any local process could use. Rejected; an Agent that needs it can still run Playwright itself.
+- **WebKitGTK web process extension** (`WebKitWebPage` console signal, DOM in C): exact console capture and real accessibility data, but a separately built `.so` loaded into the web process and a second IPC. Rejected for M12; the isolated-world script covers the agent loop.
+- **Inject into the page's own world** (limux's approach for its editable-state probe): simplest, but any page can tamper with the snapshot and refs. Rejected (R18.5).
+
+## Consequences
+
+- Input is synthetic (`isTrusted` false): `click()` and `fill` (native value setter + `input`/`change`) work with plain DOM and React/Vue-style apps; `press` emulates only the defaults an Agent needs (typing, Backspace/Delete, Enter submit/activate, Space, Tab). Pages that demand trusted events (file pickers, fullscreen, some anti-bot checks) won't respond; a human uses the Pane for those.
+- The snapshot is built from DOM + ARIA rules in JS, not the platform accessibility tree: no iframe contents (listed only), no closed shadow roots, roles approximate.
+- Console capture needs the page's world (console methods live there), via a document-start user script posting to a `radeConsole` message handler: a page can hide or fake its own console lines, nothing more (the handler is visible in subframes too, so a third-party iframe could also add fake lines); muted cross-origin "Script error." reports are dropped.
+- Snapshot text is escaped: page-controlled roles that aren't a plain word print as `generic`, names / text / `href` can't break a line, so a page can't forge `[ref=…]` entries for the Agent to act on.
+- A JS dialog (`confirm()`, `alert()`, `beforeunload`) blocks its page until answered. During an Agent's action (10 s window) RADE accepts it and logs it to `console`; otherwise WebKit shows it to the user. No `dialog dismiss` command yet: add one when an Agent needs to test the "Cancel" path.
+- Website data is one persistent NetworkSession per flavor (ADR-0010): cookies (explicit SQLite storage), local storage and cache under `rade[-dev]/browser`, ITP off, no keyring password storage. Dev builds never see the daily app's logins.
+- Revisit with a new ADR if Agents need trusted input or cross-origin iframes (then: a web process extension, or CDP to an external Chromium).
+
+Revisited by ADR-0026 (M24): the Browser Pane stays WebKitGTK; a real Chromium is an external engine of `rade browser` (`--engine chromium`, CDP over a pipe, no port), and both engines run the same page library.

@@ -1,0 +1,129 @@
+# CI for RADE (ADR-0012, ADR-0042). Public repo → GitHub-hosted runners
+# (ubuntu-latest), never a self-hosted one: a pull request from a fork must
+# not run code on the owner's machine. Every build and test runs inside
+# ci/Dockerfile via the runner's Docker daemon. Nothing is bind-mounted; the
+# repo goes in as the build context and results come out with `docker cp`.
+# Hosted runners start empty, so every job builds the image cold.
+#
+# Also called by release.yml on a v* tag, so a release passes the same gates.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+  workflow_call:
+
+# A newer push to the same PR cancels the old run; runs on main all finish.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+env:
+  # Zig's resolver can't parse a scoped IPv6 nameserver Docker may copy into
+  # bridge-network build containers; see ci/Dockerfile.
+  BUILD: docker build --network=host --progress=plain -f ci/Dockerfile
+
+jobs:
+  commits:
+    name: commit messages
+    # Not for tags (release.yml calls this on the tag push): main already ran it.
+    if: (github.event_name == 'push' || github.event_name == 'pull_request') && !startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Conventional Commits with R-IDs (scripts/lint-commits.sh)
+        env:
+          BEFORE: ${{ github.event.before }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          from=${BASE:-$BEFORE}
+          if [[ -z $from || $from =~ ^0+$ ]] || ! git cat-file -e "$from^{commit}" 2>/dev/null; then
+            range="$HEAD -1"   # new branch or force push: the head commit only
+          else
+            range="$from..$HEAD"
+          fi
+          echo "range: $range"
+          scripts/lint-commits.sh $range
+
+  check:
+    name: fmt + clippy + unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: recursive
+      - run: $BUILD --target check -t "rade-ci:check-$GITHUB_RUN_ID" .
+      - if: always()
+        run: docker image rm "rade-ci:check-$GITHUB_RUN_ID" >/dev/null 2>&1 || true
+
+  e2e:
+    name: E2E (headless Weston)
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      E2E_JOBS: 2 # a hosted runner has 4 vCPUs; some suites assert timings
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: recursive
+      - run: $BUILD --target e2e -t "rade-ci:e2e-$GITHUB_RUN_ID" .
+      - name: Suites (each in a fresh container; ci/e2e.sh)
+        run: ci/e2e.sh "rade-ci:e2e-$GITHUB_RUN_ID" run m2 m3 m4 m5 m6 m7 m8 m9 m11 m12 m13 m14 m14b m15 m15b m16 m24 m26 m28 m29 m30 m31 m34 m36 m37 m38 m39 titles product-recovery settings
+      - if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: e2e-output
+          path: ci-out/
+          retention-days: 7
+          if-no-files-found: ignore
+      - if: always()
+        run: docker image rm "rade-ci:e2e-$GITHUB_RUN_ID" >/dev/null 2>&1 || true
+
+  package:
+    name: .deb + package E2E (m10)
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: recursive
+      - name: Build the .deb (scripts/package-deb.sh in the CI image)
+        run: |
+          set -euo pipefail
+          # Version from git here: .git is not in the build context.
+          version=$(scripts/version.sh)
+          echo "version: $version"
+          $BUILD --target deb -t "rade-ci:deb-$GITHUB_RUN_ID" \
+            --build-arg "RADE_VERSION=$version" \
+            --build-arg "SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)" .
+          c=$(docker create "rade-ci:deb-$GITHUB_RUN_ID")
+          mkdir -p dist && docker cp "$c:/src/target/debian/." dist/ && docker rm "$c" >/dev/null
+          ls -l dist
+          test "$(ls dist/*.deb)" = "dist/rade_${version}_amd64.deb"
+      - name: Package E2E (tests/e2e/m10.sh)
+        run: ci/e2e.sh "rade-ci:deb-$GITHUB_RUN_ID" m10
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: rade-deb
+          path: dist/*.deb
+          retention-days: 30
+          if-no-files-found: error
+      - if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: m10-output
+          path: ci-out/
+          retention-days: 7
+          if-no-files-found: ignore
+      - if: always()
+        run: docker image rm "rade-ci:deb-$GITHUB_RUN_ID" >/dev/null 2>&1 || true

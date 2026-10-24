@@ -1,0 +1,39 @@
+# Source links with one base; Project checkouts; Base drift; Scratch
+
+Status: accepted 2026-10-23 (M33, PRD R97–R100, R104). Supersedes the Named Bases part of ADR-0017 (decision 3 and the 0.3.1 follow-up's branch matching). Amends ADR-0028: its sidebar rules (decisions 1–3) become the Navigator's (Project → Source link → Worktree → Agent), and No Project / General become Scratch. Owner decisions 1 and 2 in docs/design/redesign-2026-10-23.md §9.
+
+A Project today is a set of Sources plus Named Bases (`dev`, `prod`), each mapping to a branch per Source. The run of 2026-10-23 showed what that model cannot say: a Worktree made on `shop-web` (in Shop) lands in No Project (N2); its Review diffs against `main` while Shop's base is `develop` (N3); `shared-ui`, in Shop at `develop` and in Billing at `release/2.4`, shows as one `shared-ui main` row (N4); `shop-api` switched to `feat/checkout-v2` is off its base with no warning (N5). One folder can only be on one branch, so a Source used by two Projects at two bases needs two checkouts, and RADE must say which one a Project uses.
+
+## Decision
+
+1. **A Source link = Project × Source × exactly one base.** Named Bases go. A Project that needs prod is a second Project (`Shop · prod`). `project.toml` v2:
+   ```toml
+   name = "Shop"
+   [[source]]
+   id = "shared-ui"
+   base = "develop"      # absent = the Source's main branch
+   checkout = "auto"     # auto | main | "<path>"; default auto
+   ```
+   Top-level `bases` and a table-valued `base` mark a v1 file.
+2. **Migration from Named Bases.** A v1 file is rewritten once: each Source's base = its branch for the first Named Base (the default), `project.toml.v1.bak` written first, the new file written atomically (temp + rename), comments outside the replaced keys kept (`toml_edit`). Running the migration again on its output is byte-identical. A Source with no branch for the first Named Base gets no `base` (its main branch) and a warning in `rade project show`.
+3. **Checkout rule** (pure, `rade-core/src/checkout.rs`, `resolve_checkout`): with `checkout = "auto"` a link uses the Source's **main checkout** when it is on the link's base and no other link of the Workspace needs the main checkout at a different base; otherwise it uses a **Project checkout**, a durable git worktree at `<root>/.worktrees/.projects/<project>/<source>` on the base (`.worktrees-dev` for a dev build). Source ids are slugs, so `.projects` never meets an ordinary Worktree's `<source>/<name>` folder, even when a Project and a Source share an id; Project checkouts are never imported as Worktrees. Git refuses one branch in two worktrees, so links with the same Source and the same base **share** one checkout, labelled `shared` (`shared_with`). The Navigator's `link-simple` marker and Project home's chip show something else, **also in** (`also_in`): every other Project that links the Source at any base (tooltip "Also in Billing @ release/2.4"; Billing's `release/2.4` link has its own checkout). `checkout = "main"` forces the main checkout (refused with `USAGE` when another link holds it at another base, and, while unrecorded, when the main checkout is not on the base: never switched, clean or dirty); `"<path>"` uses an existing checkout of that Source on the base. A Source folder that is not a git checkout refuses only its own link; checkouts are compared by `realpath`, so a symlink to a checkout is that checkout. The choice is made **once**: the checkout a link first resolves to is recorded in `state.json` (`link_checkouts`) and kept whatever its HEAD later is (that is Base drift, decision 6), and resolved afresh only when the link's `base` or `checkout` key changes, the link is removed, or the checkout is gone; `resolve_checkout` takes the records as input. A recorded checkout that is off its base is never shared with a new link.
+4. **RADE never moves a checkout under the user.** No `git switch`, `stash`, `reset` or `checkout` on a checkout with uncommitted changes, ever; a plan that would need one is refused with what to do. A Project checkout is created only when the user opens a terminal (or an Agent, a Worktree) on the link, with a notice; `rade project plan` and the New Project dialog show the plan before anything is written. Properties tested as invariants: two links with different bases never share a checkout; same Source + same base → same checkout; no command touches a dirty checkout; resolving twice gives the same plan.
+5. **Worktrees belong to a link.** A Worktree records its `project` (and through it its link). `rade worktree add <source> <name> [--project <p>] [--base <ref>]`: without `--project` RADE takes the only link holding the Source, else answers `USAGE` listing the Projects; without `--base` it cuts from the link's base. Review, Changes, the `+/−` counts and Create PR compare against the **Worktree's recorded base**, which is the link's base unless `--base` named another ref; changing the link's base never rewrites it (a Worktree with nothing recorded uses the link's base). Cutting from the link's base by default fixes N2, N3.
+6. **Base drift** (pure, `rade-core/src/drift.rs`): a link's checkout whose HEAD is not its base is drifted. It shows as `warning-diamond` on the Navigator row, a chip on Project home and a card in Changes. Actions: **Back to base** (only when the checkout is clean; `rade project link to-base` refuses with `USAGE` when dirty or when the base is checked out in another checkout), **Keep** (hide the warning until HEAD changes again), **Move to Worktree…** (when clean: switch the checkout back to the base first, then `git worktree add` the drifted branch on the link, one confirmation naming both steps, because git refuses one branch in two worktrees; when dirty: runs nothing and says to commit first; PRD R100.2).
+7. **Scratch replaces General and No Project**: one per Workspace, rooted at the Workspace root, for terminals that belong to no Project. Linked Worktrees with no recorded `project` show there with their suggestion (ADR-0028 decision 1 still holds: never placed by branch).
+8. **The Navigator** shows Project → link (name + base in mono, drift / also-in markers) → Worktree → Agent; main checkouts are no longer a pinned section of their own, they appear under each link that uses them. `link.rs` keeps Ctrl+click link parsing; the new code lives in `checkout.rs` and `drift.rs`.
+
+## Considered Options
+
+- **Keep Named Bases, add a per-Project "current base"**: still two names for one thing and N3 stays possible. Rejected (owner decision 1).
+- **Switch the main checkout to whichever Project is shown**: a `git switch` under a running Agent or a dirty tree. Rejected.
+- **A Project checkout for every link**: doubles disk use and setup time for the common case where the main checkout is already on the base. Rejected for the main-checkout-first rule (owner decision 2).
+- **One checkout per link even with the same base**: git refuses the same branch twice; a detached HEAD would hide commits. Rejected for sharing.
+- **Create Project checkouts when a Project is created**: surprise worktrees on disk for links never opened. Rejected for on-first-use.
+
+## Consequences
+
+- `rade project add --source <src>=<base>` and `--base <named>` stop working; the error names the new form `--source <src>[:<branch>]`. New commands: `rade project plan`, `rade project link add|remove|set-base|to-base`.
+- `<root>/.worktrees/` gains a `.projects/<project>/<source>` folder for Project checkouts, apart from ordinary Worktrees' `<source>/<name>` (ADR-0014); they are not imported as Worktrees and never pruned automatically while a link uses them.
+- Older RADE cannot read a v2 `project.toml`'s meaning; `project.toml.v1.bak` restores it.
+- The m16 and m26 suites change expectations; a new suite reproduces N1–N5 red first, then green.

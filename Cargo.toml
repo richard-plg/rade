@@ -1,0 +1,13 @@
+[workspace]
+members = ["crates/rade-ghostty-sys", "crates/rade-core", "crates/rade-cli", "crates/rade-app"]
+resolver = "2"
+
+[workspace.package]
+version = "0.7.1"
+edition = "2021"
+authors = ["RADE contributors"]
+license = "MIT"
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }

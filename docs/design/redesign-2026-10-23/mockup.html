@@ -1,0 +1,690 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RADE Redesign Mockup</title>
+<!-- Mockup only (docs/design/redesign-2026-10-23.md). Open with #a-dark, #b-light, … ; keys 1-4 = screen, t = theme. -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/regular/style.css">
+<link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/fill/style.css">
+<style>
+:root {
+  --bg0:#07090b; --bg1:#0c0e11; --bg2:#12151a; --bg3:#191d23; --bg4:#21262d;
+  --line:rgba(255,255,255,.07); --line2:rgba(255,255,255,.12);
+  --fg:#e6e9ed; --fg2:#9aa3ae; --fg3:#5e6773;
+  --acc:#4fe3c8; --acc-dim:rgba(79,227,200,.12); --acc-line:rgba(79,227,200,.45); --acc-fg:#04110e;
+  --wait:#f5b84b; --wait-dim:rgba(245,184,75,.13);
+  --err:#ff6b6b; --ok:#7bd88f; --run:#6cb6ff; --wt:#c4a7ff;
+  --add:#7bd88f; --del:#ff7b7b;
+  --glow:0 0 0 1px var(--acc-line), 0 0 18px rgba(79,227,200,.10);
+  --shadow:0 20px 60px rgba(0,0,0,.55);
+  --term-fg:#cfd6de;
+}
+body.light {
+  --bg0:#fcfcfb; --bg1:#f3f4f5; --bg2:#ffffff; --bg3:#eceef0; --bg4:#e2e5e8;
+  --line:rgba(16,22,30,.08); --line2:rgba(16,22,30,.14);
+  --fg:#14181d; --fg2:#525c67; --fg3:#89919b;
+  --acc:#0b8f7b; --acc-dim:rgba(11,143,123,.10); --acc-line:rgba(11,143,123,.5); --acc-fg:#ffffff;
+  --wait:#a8690b; --wait-dim:rgba(196,128,20,.12);
+  --err:#cf3d3d; --ok:#25844a; --run:#2a6fc0; --wt:#7a55d6;
+  --add:#25844a; --del:#cf3d3d;
+  --glow:0 0 0 1px var(--acc-line);
+  --shadow:0 20px 60px rgba(20,30,40,.18);
+  --term-fg:#2a3038;
+}
+* { box-sizing:border-box; margin:0; padding:0; }
+html,body { height:100%; }
+body { background:var(--bg1); color:var(--fg); font:13px/1.4 Inter, system-ui, sans-serif; overflow:hidden; -webkit-font-smoothing:antialiased; }
+.mono { font-family:"JetBrains Mono", ui-monospace, monospace; font-feature-settings:"tnum"; }
+.ph, .ph-fill { font-size:16px; line-height:1; }
+.app { width:1440px; height:900px; display:grid; grid-template-rows:40px 1fr 26px; position:relative; background:var(--bg1); }
+.screen { display:none; } .screen.on { display:grid; }
+
+/* title bar */
+.titlebar { display:flex; align-items:center; gap:10px; padding:0 8px 0 10px; border-bottom:1px solid var(--line); background:var(--bg1); }
+.ws { display:flex; align-items:center; gap:8px; height:28px; padding:0 8px 0 4px; border-radius:6px; }
+.ws:hover { background:var(--bg3); }
+.ws-mark { width:20px; height:20px; border-radius:5px; background:linear-gradient(135deg,var(--acc),#3aa0ff); color:var(--acc-fg); font:600 11px/20px "JetBrains Mono"; text-align:center; }
+.ws-name { font-weight:600; letter-spacing:.01em; }
+.ws-id { color:var(--fg3); font-size:11px; }
+.crumbs { display:flex; align-items:center; gap:6px; color:var(--fg2); font-size:12.5px; margin-left:4px; }
+.crumbs .sep { color:var(--fg3); }
+.crumbs b { color:var(--fg); font-weight:500; }
+.branch { display:inline-flex; align-items:center; gap:4px; font:11.5px "JetBrains Mono"; color:var(--fg2); }
+.branch .ph { font-size:13px; color:var(--wt); }
+.cmd { margin:0 auto; width:440px; height:26px; display:flex; align-items:center; gap:8px; padding:0 8px; border:1px solid var(--line2); border-radius:6px; background:var(--bg0); color:var(--fg3); font-size:12.5px; }
+.cmd .grow { flex:1; }
+kbd { font:500 10.5px "JetBrains Mono"; color:var(--fg2); padding:1px 5px; border:1px solid var(--line2); border-bottom-width:2px; border-radius:4px; background:var(--bg2); }
+.tb-btn { width:28px; height:28px; display:grid; place-items:center; border-radius:6px; color:var(--fg2); }
+.tb-btn:hover, .tb-btn.on { background:var(--bg3); color:var(--fg); }
+.tb-btn.on { color:var(--acc); }
+.wctl { display:flex; gap:2px; margin-left:6px; padding-left:8px; border-left:1px solid var(--line); }
+.wctl .tb-btn { width:26px; height:26px; }
+.btn-txt { white-space:nowrap; display:inline-flex; align-items:center; gap:6px; height:26px; padding:0 10px; border-radius:6px; border:1px solid var(--line2); color:var(--fg); font-size:12.5px; background:var(--bg2); }
+.btn-txt .ph { font-size:14px; color:var(--fg2); }
+.btn-pri { background:var(--acc); color:var(--acc-fg); border-color:transparent; font-weight:600; }
+.btn-pri .ph { color:var(--acc-fg); }
+
+/* body grid */
+.body { display:grid; grid-template-columns:268px 1fr 340px; min-height:0; }
+.body.nopanel { grid-template-columns:268px 1fr; }
+
+/* navigator */
+.nav { border-right:1px solid var(--line); display:flex; flex-direction:column; min-height:0; background:var(--bg1); }
+.nav-h { display:flex; align-items:center; justify-content:space-between; padding:12px 12px 6px 14px; }
+.label { font:600 10.5px "JetBrains Mono"; letter-spacing:.12em; text-transform:uppercase; color:var(--fg3); }
+.nav-h .acts { display:flex; gap:2px; color:var(--fg3); }
+.nav-h .acts .tb-btn { width:22px; height:22px; }
+.tree { padding:0 6px; overflow:hidden; flex:1; }
+.row { position:relative; display:flex; align-items:center; gap:6px; height:26px; padding:0 8px 0 calc(6px + var(--d,0) * 14px); border-radius:5px; color:var(--fg2); white-space:nowrap; }
+.row:hover { background:var(--bg3); }
+.row.sel { background:var(--acc-dim); color:var(--fg); }
+.row.sel::before { content:""; position:absolute; left:0; top:5px; bottom:5px; width:2px; border-radius:2px; background:var(--acc); }
+.row .chev { width:12px; font-size:11px; color:var(--fg3); }
+.row .ic { font-size:15px; color:var(--fg3); }
+.row .t { color:var(--fg); overflow:hidden; text-overflow:ellipsis; }
+.row.proj .t { font-weight:600; }
+.row .meta { margin-left:auto; display:flex; align-items:center; gap:6px; font:11px "JetBrains Mono"; color:var(--fg3); }
+.row .meta .warn { color:var(--wait); }
+.row .meta .shared { color:var(--run); }
+.row.dim .t { color:var(--fg2); }
+.led { width:7px; height:7px; border-radius:2px; flex:none; }
+.led.run { background:var(--run); box-shadow:0 0 6px var(--run); animation:pulse 1.6s ease-in-out infinite; }
+.led.wait { background:var(--wait); box-shadow:0 0 6px var(--wait); }
+.led.done { background:var(--ok); }
+.led.idle { background:transparent; border:1px solid var(--fg3); }
+.led.err { background:var(--err); }
+@keyframes pulse { 50% { opacity:.45; } }
+.badge { font:600 10.5px "JetBrains Mono"; padding:0 5px; border-radius:4px; background:var(--wait-dim); color:var(--wait); line-height:16px; }
+.nav-sep { height:1px; background:var(--line); margin:8px 12px; }
+.nav-foot { border-top:1px solid var(--line); padding:8px 10px; display:flex; align-items:center; gap:8px; }
+.inbox-pill { display:flex; align-items:center; gap:8px; flex:1; height:28px; padding:0 8px; border-radius:6px; background:var(--wait-dim); color:var(--wait); font-size:12px; }
+.inbox-pill .t { color:var(--fg); }
+.inbox-pill kbd { margin-left:auto; }
+
+/* center */
+.center { display:grid; grid-template-rows:34px 1fr; min-width:0; min-height:0; background:var(--bg0); }
+.tabs { display:flex; align-items:stretch; border-bottom:1px solid var(--line); background:var(--bg1); padding-left:4px; }
+.tab { display:flex; align-items:center; gap:8px; padding:0 12px; font-size:12.5px; color:var(--fg2); border-right:1px solid var(--line); position:relative; }
+.tab.on { background:var(--bg0); color:var(--fg); }
+.tab.on::after { content:""; position:absolute; left:0; right:0; top:0; height:2px; background:var(--acc); }
+.tab .src { font:11px "JetBrains Mono"; color:var(--fg3); }
+.tab .x { font-size:12px; color:var(--fg3); }
+.tab-add { display:grid; place-items:center; width:34px; color:var(--fg3); }
+.tabs .right { margin-left:auto; display:flex; align-items:center; gap:2px; padding-right:6px; }
+.panes { display:grid; grid-template-columns:1fr 1fr; gap:6px; padding:6px; min-height:0; }
+.pane { display:grid; grid-template-rows:26px 1fr; border:1px solid var(--line); border-radius:6px; overflow:hidden; background:var(--bg0); min-height:0; }
+.pane.focus { box-shadow:var(--glow); border-color:transparent; }
+.pane-h { display:flex; align-items:center; gap:8px; padding:0 8px; border-bottom:1px solid var(--line); background:var(--bg1); font:11.5px "JetBrains Mono"; color:var(--fg3); }
+.pane-h .n { color:var(--fg); font-weight:500; }
+.pane-h .st { margin-left:auto; display:flex; align-items:center; gap:6px; }
+.pane-h .st.wait { color:var(--wait); }
+.pane-h .ph { font-size:13px; }
+.term { padding:10px 12px; font:12.5px/1.55 "JetBrains Mono"; color:var(--term-fg); white-space:pre; overflow:hidden; }
+.term .c1 { color:var(--acc); } .term .c2 { color:var(--fg3); } .term .c3 { color:var(--wait); } .term .c4 { color:var(--run); } .term .c5 { color:var(--ok); } .term .c6 { color:var(--del); }
+.term .box { display:inline-block; border:1px solid var(--line2); border-radius:6px; padding:6px 10px; margin:4px 0; white-space:pre; }
+.cursor { display:inline-block; width:8px; height:15px; background:var(--acc); vertical-align:-3px; }
+
+/* inspector */
+.insp { border-left:1px solid var(--line); display:grid; grid-template-rows:34px 1fr; min-height:0; background:var(--bg1); }
+.insp-tabs { display:flex; border-bottom:1px solid var(--line); }
+.itab { display:flex; align-items:center; gap:6px; padding:0 12px; font:500 11px "JetBrains Mono"; letter-spacing:.06em; text-transform:uppercase; color:var(--fg3); position:relative; }
+.itab .ph { font-size:14px; }
+.itab.on { color:var(--fg); }
+.itab.on::after { content:""; position:absolute; left:10px; right:10px; bottom:-1px; height:2px; background:var(--acc); }
+.itab .n { font-size:10px; color:var(--acc); }
+.insp-body { overflow:hidden; padding:8px 0; }
+.grp { margin:0 8px 10px; border:1px solid var(--line); border-radius:6px; background:var(--bg2); overflow:hidden; }
+.grp-h { display:flex; align-items:center; gap:6px; padding:7px 10px; border-bottom:1px solid var(--line); font-size:12px; }
+.grp-h .t { font-weight:600; }
+.grp-h .meta { margin-left:auto; font:11px "JetBrains Mono"; color:var(--fg3); display:flex; gap:8px; }
+.file { display:flex; align-items:center; gap:8px; height:24px; padding:0 10px; font:12px "JetBrains Mono"; color:var(--fg2); }
+.file:hover { background:var(--bg3); }
+.file .st { width:12px; font-weight:600; }
+.file .st.M { color:var(--wait); } .file .st.A { color:var(--add); } .file .st.D { color:var(--del); }
+.file .p { color:var(--fg3); }
+.file .f { color:var(--fg); }
+.file .ad { margin-left:auto; font-size:11px; } .ad .a { color:var(--add); } .ad .d { color:var(--del); }
+.commit { padding:8px 10px; border-top:1px solid var(--line); display:flex; gap:6px; }
+.commit .in { flex:1; height:26px; border:1px solid var(--line2); border-radius:5px; background:var(--bg0); padding:0 8px; display:flex; align-items:center; color:var(--fg3); font-size:12px; }
+.drift { margin:0 8px 10px; padding:8px 10px; border:1px solid color-mix(in srgb, var(--wait) 40%, transparent); background:var(--wait-dim); border-radius:6px; font-size:12px; color:var(--fg); display:flex; gap:8px; }
+.drift .ph { color:var(--wait); font-size:15px; margin-top:1px; }
+.drift .sub { color:var(--fg2); font-size:11.5px; margin-top:2px; }
+.drift .a { margin-top:6px; display:flex; gap:6px; }
+.drift .btn-txt { height:22px; font-size:11.5px; }
+
+/* statusline */
+.status { display:flex; align-items:stretch; border-top:1px solid var(--line); background:var(--bg1); font:11px "JetBrains Mono"; color:var(--fg2); }
+.seg { display:flex; align-items:center; gap:6px; padding:0 10px; border-right:1px solid var(--line); }
+.seg .ph { font-size:12px; }
+.seg.ws { background:var(--acc); color:var(--acc-fg); font-weight:600; border-radius:0; height:auto; }
+.seg.r { margin-left:auto; border-right:0; border-left:1px solid var(--line); }
+.seg .w { color:var(--wait); } .seg .ru { color:var(--run); } .seg .ok { color:var(--ok); }
+
+/* project home */
+.home { padding:22px 28px; overflow:hidden; display:block; background:var(--bg0); }
+.home-h { display:flex; align-items:center; gap:12px; }
+.home-h h1 { font-size:20px; font-weight:600; letter-spacing:-.01em; }
+.home-h .sub { color:var(--fg3); font:12px "JetBrains Mono"; }
+.home-h .acts { margin-left:auto; display:flex; gap:8px; }
+.kpis { display:flex; gap:10px; margin:18px 0 22px; }
+.kpi { flex:1; border:1px solid var(--line); border-radius:8px; padding:10px 12px; background:var(--bg1); }
+.kpi .v { font:600 18px "JetBrains Mono"; margin-top:2px; }
+.kpi .v small { font-size:12px; color:var(--fg3); font-weight:400; }
+.sect { display:flex; align-items:center; gap:8px; margin:6px 0 8px; }
+table { width:100%; border-collapse:collapse; font-size:12.5px; }
+th { text-align:left; font:600 10.5px "JetBrains Mono"; letter-spacing:.1em; text-transform:uppercase; color:var(--fg3); padding:6px 10px; border-bottom:1px solid var(--line); }
+td { padding:9px 10px; border-bottom:1px solid var(--line); color:var(--fg2); white-space:nowrap; }
+td.m { font:12px "JetBrains Mono"; }
+td .t { color:var(--fg); font-weight:500; }
+tr:hover td { background:var(--bg1); }
+.chip { display:inline-flex; align-items:center; gap:4px; font:11px "JetBrains Mono"; padding:1px 6px; border-radius:4px; border:1px solid var(--line2); color:var(--fg2); }
+.chip.warn { border-color:color-mix(in srgb, var(--wait) 45%, transparent); color:var(--wait); background:var(--wait-dim); }
+.chip.info { border-color:color-mix(in srgb, var(--run) 45%, transparent); color:var(--run); }
+.chip.ok { border-color:color-mix(in srgb, var(--ok) 45%, transparent); color:var(--ok); }
+.chip .ph { font-size:12px; }
+.ic-btn { color:var(--fg3); font-size:15px; padding:0 4px; }
+.two { display:grid; grid-template-columns:1.25fr 1fr; gap:22px; margin-top:22px; }
+.card { border:1px solid var(--line); border-radius:8px; background:var(--bg1); overflow:hidden; }
+.card .row { border-radius:0; height:30px; padding-left:12px; }
+
+/* overlay */
+.scrim { position:absolute; inset:0; background:rgba(0,0,0,.5); display:grid; place-items:start center; padding-top:92px; }
+body.light .scrim { background:rgba(20,26,34,.28); }
+.dlg { width:680px; border:1px solid var(--line2); border-radius:10px; background:var(--bg2); box-shadow:var(--shadow); overflow:hidden; }
+.dlg-h { display:flex; align-items:center; gap:10px; padding:14px 18px; border-bottom:1px solid var(--line); }
+.dlg-h h2 { font-size:15px; font-weight:600; }
+.dlg-b { padding:16px 18px; }
+.field { margin-bottom:14px; }
+.field .lb { font-size:12px; color:var(--fg2); margin-bottom:6px; }
+.input { height:30px; border:1px solid var(--line2); border-radius:6px; background:var(--bg0); padding:0 10px; display:flex; align-items:center; gap:8px; font-size:13px; }
+.input.focus { box-shadow:var(--glow); border-color:transparent; }
+.links { border:1px solid var(--line); border-radius:6px; overflow:hidden; }
+.link { display:grid; grid-template-columns:22px 150px 1fr 190px 24px; align-items:center; gap:8px; padding:8px 10px; border-bottom:1px solid var(--line); font-size:12.5px; }
+.link:last-child { border-bottom:0; }
+.link .sel { font:12px "JetBrains Mono"; height:26px; border:1px solid var(--line2); border-radius:5px; background:var(--bg0); padding:0 8px; display:flex; align-items:center; gap:6px; color:var(--fg); }
+.link .sel .ph { margin-left:auto; font-size:12px; color:var(--fg3); }
+.link .plan { font-size:11.5px; color:var(--fg3); }
+.link .plan b { color:var(--fg2); font-weight:500; }
+.dlg-f { display:flex; align-items:center; gap:8px; padding:12px 18px; border-top:1px solid var(--line); background:var(--bg1); }
+.dlg-f .note { color:var(--fg3); font-size:11.5px; margin-right:auto; display:flex; gap:6px; align-items:center; }
+
+.pal { width:720px; border:1px solid var(--line2); border-radius:10px; background:var(--bg2); box-shadow:var(--shadow); overflow:hidden; }
+.pal-in { display:flex; align-items:center; gap:10px; height:46px; padding:0 14px; border-bottom:1px solid var(--line); font-size:14px; }
+.pal-in .ph { color:var(--acc); font-size:18px; }
+.pal-scope { display:flex; gap:4px; padding:8px 12px; border-bottom:1px solid var(--line); }
+.pal-scope span { font:500 11px "JetBrains Mono"; padding:2px 8px; border-radius:4px; color:var(--fg3); }
+.pal-scope span.on { background:var(--acc-dim); color:var(--acc); }
+.pal-sec { padding:8px 14px 4px; }
+.pi { display:flex; align-items:center; gap:10px; height:32px; padding:0 14px; font-size:13px; color:var(--fg); }
+.pi .ph { font-size:16px; color:var(--fg3); width:18px; }
+.pi .d { color:var(--fg3); font:11.5px "JetBrains Mono"; }
+.pi .k { margin-left:auto; display:flex; gap:3px; }
+.pi.on { background:var(--acc-dim); box-shadow:inset 2px 0 0 var(--acc); }
+.pi.on .ph { color:var(--acc); }
+.pal-f { display:flex; gap:14px; padding:8px 14px; border-top:1px solid var(--line); color:var(--fg3); font-size:11.5px; }
+</style>
+<!-- The real tokens (crates/rade-app/src/tokens.toml → build.rs), over the inline mockup values. -->
+<link rel="stylesheet" href="tokens.css">
+</head>
+<body>
+
+<!-- ============ A: workspace ============ -->
+<div class="app screen" id="a">
+  <header class="titlebar">
+    <div class="ws"><div class="ws-mark">A</div><span class="ws-name">acme</span><i class="ph ph-caret-up-down" style="font-size:12px;color:var(--fg3)"></i></div>
+    <div class="crumbs"><span>Shop</span><span class="sep">/</span><span>shop-web</span><span class="sep">/</span><b class="branch"><i class="ph ph-git-branch"></i>checkout-v2</b><span class="mono" style="font-size:11px;color:var(--fg3)">← develop ↑3</span></div>
+    <div class="cmd"><i class="ph ph-magnifying-glass"></i><span class="grow">Search or run a command…</span><kbd>Ctrl</kbd><kbd>K</kbd></div>
+    <div class="tb-btn" title="New (Shell, Claude, Codex, Browser)"><i class="ph ph-plus-square"></i></div>
+    <div class="tb-btn" title="Split"><i class="ph ph-square-split-horizontal"></i></div>
+    <div class="tb-btn" title="Browser"><i class="ph ph-globe-simple"></i></div>
+    <div class="btn-txt"><i class="ph ph-git-diff"></i>Review<span class="mono" style="color:var(--fg3);font-size:11px">7</span></div>
+    <div class="tb-btn on" title="Inspector"><i class="ph ph-sidebar-simple" style="transform:scaleX(-1)"></i></div>
+    <div class="wctl"><div class="tb-btn"><i class="ph ph-minus"></i></div><div class="tb-btn"><i class="ph ph-corners-out"></i></div><div class="tb-btn"><i class="ph ph-x"></i></div></div>
+  </header>
+  <div class="body">
+    <nav class="nav">
+      <div class="nav-h"><span class="label">Projects</span><div class="acts"><div class="tb-btn"><i class="ph ph-funnel-simple"></i></div><div class="tb-btn"><i class="ph ph-plus"></i></div></div></div>
+      <div class="tree">
+        <div class="row proj"><i class="ph ph-caret-down chev"></i><i class="ph ph-cube ic" style="color:var(--acc)"></i><span class="t">Shop</span><span class="meta"><span class="badge">1</span></span></div>
+        <div class="row" style="--d:1"><i class="ph ph-caret-down chev"></i><i class="ph ph-git-fork ic"></i><span class="t">shop-web</span><span class="meta">develop</span></div>
+        <div class="row" style="--d:2"><span class="chev"></span><span class="led done"></span><span class="t">dev-server</span><span class="meta">:5173</span></div>
+        <div class="row sel" style="--d:2"><i class="ph ph-caret-down chev"></i><i class="ph ph-git-branch ic" style="color:var(--wt)"></i><span class="t">checkout-v2</span><span class="meta">↑3 ●7</span></div>
+        <div class="row" style="--d:3"><span class="chev"></span><span class="led done"></span><span class="t">planner</span><span class="meta">claude</span></div>
+        <div class="row" style="--d:3"><span class="chev"></span><span class="led wait"></span><span class="t">tests</span><span class="meta"><span class="warn">needs input</span></span></div>
+        <div class="row" style="--d:1"><i class="ph ph-caret-right chev"></i><i class="ph ph-git-fork ic"></i><span class="t">shop-api</span><span class="meta"><span class="warn">feat/checkout-v2</span><i class="ph-fill ph-warning-diamond warn" style="font-size:12px"></i></span></div>
+        <div class="row" style="--d:1"><i class="ph ph-caret-right chev"></i><i class="ph ph-git-fork ic"></i><span class="t">shared-ui</span><span class="meta">develop<i class="ph ph-link-simple shared" style="font-size:12px" title="Also in Billing @ release/2.4"></i></span></div>
+        <div class="row proj"><i class="ph ph-caret-down chev"></i><i class="ph ph-cube ic" style="color:#e58fff"></i><span class="t">Billing</span><span class="meta"><span class="led run"></span></span></div>
+        <div class="row" style="--d:1"><i class="ph ph-caret-right chev"></i><i class="ph ph-git-fork ic"></i><span class="t">billing</span><span class="meta">main</span></div>
+        <div class="row" style="--d:1"><i class="ph ph-caret-down chev"></i><i class="ph ph-git-fork ic"></i><span class="t">shared-ui</span><span class="meta">release/2.4<i class="ph ph-link-simple shared" style="font-size:12px"></i></span></div>
+        <div class="row" style="--d:2"><i class="ph ph-caret-down chev"></i><i class="ph ph-git-branch ic" style="color:var(--wt)"></i><span class="t">tokens</span><span class="meta">↑1</span></div>
+        <div class="row" style="--d:3"><span class="chev"></span><span class="led run"></span><span class="t">ui</span><span class="meta">2m 14s</span></div>
+        <div class="row proj dim"><i class="ph ph-caret-right chev"></i><i class="ph ph-cube ic" style="color:#ffb86b"></i><span class="t">Docs</span><span class="meta"></span></div>
+        <div class="nav-sep"></div>
+        <div class="nav-h" style="padding-top:2px"><span class="label">Scratch</span></div>
+        <div class="row"><span class="chev"></span><i class="ph ph-terminal-window ic"></i><span class="t">~/workspaces/acme</span><span class="meta">2</span></div>
+      </div>
+      <div class="nav-foot">
+        <div class="inbox-pill"><span class="led wait"></span><span class="t">tests</span><span>needs input</span><kbd>Ctrl G</kbd></div>
+        <div class="tb-btn"><i class="ph ph-bell-simple"></i></div>
+      </div>
+    </nav>
+
+    <main class="center">
+      <div class="tabs">
+        <div class="tab on"><span class="led wait"></span>agents<span class="src">2</span><i class="ph ph-x x"></i></div>
+        <div class="tab"><i class="ph ph-globe-simple" style="font-size:13px;color:var(--fg3)"></i>localhost:5173</div>
+        <div class="tab"><i class="ph ph-git-diff" style="font-size:13px;color:var(--fg3)"></i>Review</div>
+        <div class="tab-add"><i class="ph ph-plus"></i></div>
+        <div class="right"><div class="tb-btn"><i class="ph ph-squares-four"></i></div><div class="tb-btn"><i class="ph ph-dots-three"></i></div></div>
+      </div>
+      <div class="panes">
+        <section class="pane">
+          <div class="pane-h"><span class="led done"></span><span class="n">planner</span><span>claude · opus</span><span class="st"><i class="ph ph-check-circle" style="color:var(--ok)"></i>done · 12s ago</span></div>
+<div class="term"><span class="c1">●</span> Plan for checkout-v2
+
+  <span class="c2">1.</span> Split <span class="c4">CheckoutForm</span> into steps
+  <span class="c2">2.</span> Move price calc to <span class="c4">shop-api</span>
+  <span class="c2">3.</span> Contract test for /v2/quote
+
+<span class="c1">●</span> Update(src/checkout/Form.tsx)
+  <span class="c2">⎿</span>  Updated with <span class="c5">+84</span> <span class="c6">-31</span>
+
+<span class="c1">●</span> Bash(pnpm test checkout)
+  <span class="c2">⎿</span>  <span class="c5">✓</span> 24 passed <span class="c2">(1.8s)</span>
+
+<span class="c2">✻ Worked for 3m 41s</span>
+
+<span class="box"><span class="c1">&gt;</span> <span class="cursor"></span>                                    </span>
+<span class="c2">  ⏵⏵ accept edits on · shop-web/checkout-v2</span></div>
+        </section>
+        <section class="pane focus">
+          <div class="pane-h"><span class="led wait"></span><span class="n">tests</span><span>codex · gpt-5</span><span class="st wait"><i class="ph-fill ph-hand-palm"></i>needs input</span></div>
+<div class="term"><span class="c4">codex</span> <span class="c2">›</span> write contract tests for /v2/quote
+
+<span class="c2">•</span> Explored  <span class="c2">src/api/quote.ts, tests/fixtures/</span>
+<span class="c2">•</span> Found 2 fixture sets
+
+<span class="c3">? Which fixtures should the contract test use?</span>
+
+  <span class="c1">›</span> <span style="color:var(--fg)">1. fixtures/quote-eu.json</span>   <span class="c2">EUR, VAT</span>
+    2. fixtures/quote-us.json   <span class="c2">USD, sales tax</span>
+    3. both, parametrized
+
+<span class="c2">  ↑↓ select · enter confirm · esc cancel</span></div>
+        </section>
+      </div>
+    </main>
+
+    <aside class="insp">
+      <div class="insp-tabs">
+        <div class="itab on"><i class="ph ph-git-diff"></i>Changes<span class="n">7</span></div>
+        <div class="itab"><i class="ph ph-tree-structure"></i>Files</div>
+        <div class="itab"><i class="ph ph-magnifying-glass"></i>Search</div>
+        <div class="itab" style="margin-left:auto"><i class="ph ph-pulse"></i></div>
+      </div>
+      <div class="insp-body">
+        <div style="display:flex;align-items:center;gap:6px;padding:0 12px 8px"><span class="label">Project · Shop</span><span style="margin-left:auto" class="mono" ><span style="color:var(--add);font-size:11px">+212</span> <span style="color:var(--del);font-size:11px">−58</span></span></div>
+        <div class="grp">
+          <div class="grp-h"><i class="ph ph-git-branch" style="color:var(--wt)"></i><span class="t">shop-web</span><span class="mono" style="font-size:11px;color:var(--fg3)">checkout-v2</span><span class="meta">↑3 · 4</span></div>
+          <div class="file"><span class="st M">M</span><span><span class="p">src/checkout/</span><span class="f">Form.tsx</span></span><span class="ad"><span class="a">+84</span> <span class="d">−31</span></span></div>
+          <div class="file"><span class="st A">A</span><span><span class="p">src/checkout/</span><span class="f">Steps.tsx</span></span><span class="ad"><span class="a">+66</span></span></div>
+          <div class="file"><span class="st M">M</span><span><span class="p">src/api/</span><span class="f">quote.ts</span></span><span class="ad"><span class="a">+12</span> <span class="d">−9</span></span></div>
+          <div class="file"><span class="st D">D</span><span><span class="p">src/checkout/</span><span class="f">legacy.ts</span></span><span class="ad"><span class="d">−18</span></span></div>
+          <div class="commit"><div class="in">Message (Ctrl Enter)</div><div class="btn-txt" title="Draft with agent"><i class="ph ph-sparkle"></i></div><div class="btn-txt btn-pri">Commit</div></div>
+        </div>
+        <div class="grp">
+          <div class="grp-h"><i class="ph ph-git-fork" style="color:var(--fg3)"></i><span class="t">shop-api</span><span class="mono" style="font-size:11px;color:var(--wait)">feat/checkout-v2</span><span class="meta">3</span></div>
+          <div class="file"><span class="st M">M</span><span><span class="p">src/routes/</span><span class="f">quote.rs</span></span><span class="ad"><span class="a">+41</span> <span class="d">−0</span></span></div>
+          <div class="file"><span class="st A">A</span><span><span class="p">tests/</span><span class="f">quote_v2.rs</span></span><span class="ad"><span class="a">+9</span></span></div>
+          <div class="file"><span class="st M">M</span><span><span class="f">Cargo.toml</span></span><span class="ad"><span class="a">+1</span></span></div>
+        </div>
+        <div class="drift"><i class="ph-fill ph-warning-diamond"></i><div>shop-api is on <span class="mono">feat/checkout-v2</span>, Shop's base is <span class="mono">develop</span>.<div class="sub">3 uncommitted changes, so RADE won't switch it.</div><div class="a"><span class="btn-txt">Keep, show in Shop</span><span class="btn-txt">Move to a Worktree…</span></div></div></div>
+        <div class="grp" style="opacity:.75"><div class="grp-h"><i class="ph ph-git-fork" style="color:var(--fg3)"></i><span class="t">shared-ui</span><span class="mono" style="font-size:11px;color:var(--fg3)">develop</span><span class="meta">clean</span></div></div>
+      </div>
+    </aside>
+  </div>
+  <footer class="status">
+    <div class="seg ws"><i class="ph ph-circles-four"></i>ACME</div>
+    <div class="seg"><i class="ph ph-cube"></i>Shop</div>
+    <div class="seg"><i class="ph ph-git-branch"></i>checkout-v2 <span style="color:var(--fg3)">↑3 ↓0</span></div>
+    <div class="seg"><span class="w">● 1 waiting</span><span class="ru">● 1 running</span><span class="ok">● 2 done</span></div>
+    <div class="seg"><i class="ph ph-plug"></i>:5173</div>
+    <div class="seg" title="Claude · acme-work"><i class="ph ph-gauge"></i>claude 5h <span class="mtr"><i style="width:62%"></i></span>62% · wk 41%</div>
+    <div class="seg"><i class="ph ph-user-circle"></i>richard@acme.io</div>
+    <div class="seg r"><kbd>Ctrl K</kbd> commands <kbd>Ctrl G</kbd> next waiting</div>
+  </footer>
+</div>
+
+<!-- ============ B: project home ============ -->
+<div class="app screen" id="b">
+  <header class="titlebar">
+    <div class="ws"><div class="ws-mark">A</div><span class="ws-name">acme</span><i class="ph ph-caret-up-down" style="font-size:12px;color:var(--fg3)"></i></div>
+    <div class="crumbs"><b>Shop</b><span class="sep">/</span><span>Overview</span></div>
+    <div class="cmd"><i class="ph ph-magnifying-glass"></i><span class="grow">Search or run a command…</span><kbd>Ctrl</kbd><kbd>K</kbd></div>
+    <div class="tb-btn"><i class="ph ph-plus-square"></i></div>
+    <div class="tb-btn"><i class="ph ph-sidebar-simple" style="transform:scaleX(-1)"></i></div>
+    <div class="wctl"><div class="tb-btn"><i class="ph ph-minus"></i></div><div class="tb-btn"><i class="ph ph-corners-out"></i></div><div class="tb-btn"><i class="ph ph-x"></i></div></div>
+  </header>
+  <div class="body nopanel">
+    <nav class="nav">
+      <div class="nav-h"><span class="label">Projects</span><div class="acts"><div class="tb-btn"><i class="ph ph-funnel-simple"></i></div><div class="tb-btn"><i class="ph ph-plus"></i></div></div></div>
+      <div class="tree">
+        <div class="row proj sel"><i class="ph ph-caret-down chev"></i><i class="ph ph-cube ic" style="color:var(--acc)"></i><span class="t">Shop</span><span class="meta"><span class="badge">1</span></span></div>
+        <div class="row" style="--d:1"><i class="ph ph-caret-right chev"></i><i class="ph ph-git-fork ic"></i><span class="t">shop-web</span><span class="meta">develop</span></div>
+        <div class="row" style="--d:1"><i class="ph ph-caret-right chev"></i><i class="ph ph-git-fork ic"></i><span class="t">shop-api</span><span class="meta"><span class="warn">feat/checkout-v2</span><i class="ph-fill ph-warning-diamond warn" style="font-size:12px"></i></span></div>
+        <div class="row" style="--d:1"><i class="ph ph-caret-right chev"></i><i class="ph ph-git-fork ic"></i><span class="t">shared-ui</span><span class="meta">develop<i class="ph ph-link-simple shared" style="font-size:12px"></i></span></div>
+        <div class="row proj"><i class="ph ph-caret-right chev"></i><i class="ph ph-cube ic" style="color:#e58fff"></i><span class="t">Billing</span><span class="meta"><span class="led run"></span></span></div>
+        <div class="row proj dim"><i class="ph ph-caret-right chev"></i><i class="ph ph-cube ic" style="color:#ffb86b"></i><span class="t">Docs</span></div>
+        <div class="nav-sep"></div>
+        <div class="nav-h" style="padding-top:2px"><span class="label">Scratch</span></div>
+        <div class="row"><span class="chev"></span><i class="ph ph-terminal-window ic"></i><span class="t">~/workspaces/acme</span><span class="meta">2</span></div>
+      </div>
+      <div class="nav-foot"><div class="inbox-pill"><span class="led wait"></span><span class="t">tests</span><span>needs input</span><kbd>Ctrl G</kbd></div><div class="tb-btn"><i class="ph ph-bell-simple"></i></div></div>
+    </nav>
+    <main class="home">
+      <div class="home-h">
+        <i class="ph ph-cube" style="font-size:26px;color:var(--acc)"></i>
+        <div><h1>Shop</h1><div class="sub">acme · 3 sources · .rade/projects/shop/project.toml</div></div>
+        <div class="acts"><span class="btn-txt"><i class="ph ph-gear-six"></i>Settings</span><span class="btn-txt"><i class="ph ph-git-branch"></i>New branch across sources…</span><span class="btn-txt btn-pri"><i class="ph ph-terminal-window"></i>Open terminal</span></div>
+      </div>
+      <div class="kpis">
+        <div class="kpi"><div class="label">Agents</div><div class="v">3 <small>1 waiting · 1 running</small></div></div>
+        <div class="kpi"><div class="label">Worktrees</div><div class="v">2 <small>checkout-v2, perf-img</small></div></div>
+        <div class="kpi"><div class="label">Uncommitted</div><div class="v">7 <small>files in 2 sources</small></div></div>
+        <div class="kpi"><div class="label">Pull requests</div><div class="v">1 <small>#482 checks passing</small></div></div>
+      </div>
+      <div class="sect"><span class="label">Sources</span><span style="margin-left:auto" class="btn-txt"><i class="ph ph-plus"></i>Add source</span></div>
+      <table>
+        <tr><th>Source</th><th>Base</th><th>Checkout</th><th>HEAD</th><th>vs base</th><th>State</th><th></th></tr>
+        <tr><td><i class="ph ph-git-fork" style="color:var(--fg3)"></i> <span class="t">shop-web</span></td><td class="m">develop</td><td class="m">main checkout</td><td class="m">develop</td><td class="m">↓2</td><td><span class="chip ok"><i class="ph ph-check"></i>clean</span></td><td><i class="ph ph-terminal-window ic-btn"></i><i class="ph ph-dots-three ic-btn"></i></td></tr>
+        <tr><td><i class="ph ph-git-fork" style="color:var(--fg3)"></i> <span class="t">shop-api</span></td><td class="m">develop</td><td class="m">main checkout</td><td class="m" style="color:var(--wait)">feat/checkout-v2</td><td class="m">↑4 ↓0</td><td><span class="chip warn"><i class="ph-fill ph-warning-diamond"></i>off base · 3 changes</span></td><td><i class="ph ph-terminal-window ic-btn"></i><i class="ph ph-dots-three ic-btn"></i></td></tr>
+        <tr><td><i class="ph ph-git-fork" style="color:var(--fg3)"></i> <span class="t">shared-ui</span></td><td class="m">develop</td><td class="m">project checkout <span style="color:var(--fg3)">.worktrees/shop/shared-ui</span></td><td class="m">develop</td><td class="m">=</td><td><span class="chip info"><i class="ph ph-link-simple"></i>shared · Billing @ release/2.4</span></td><td><i class="ph ph-terminal-window ic-btn"></i><i class="ph ph-dots-three ic-btn"></i></td></tr>
+      </table>
+      <div class="two">
+        <div>
+          <div class="sect"><span class="label">Worktrees</span></div>
+          <div class="card">
+            <div class="row"><i class="ph ph-git-branch ic" style="color:var(--wt)"></i><span class="t">checkout-v2</span><span class="mono" style="font-size:11px;color:var(--fg3)">shop-web ← develop</span><span class="meta">↑3 · 4 changed · <span class="led wait"></span>2 agents</span></div>
+            <div class="row"><i class="ph ph-git-branch ic" style="color:var(--wt)"></i><span class="t">perf-img</span><span class="mono" style="font-size:11px;color:var(--fg3)">shop-web ← develop</span><span class="meta">PR #482 <i class="ph ph-check-circle" style="color:var(--ok)"></i></span></div>
+          </div>
+        </div>
+        <div>
+          <div class="sect"><span class="label">Recent activity</span></div>
+          <div class="card">
+            <div class="row"><span class="led wait"></span><span class="t">tests</span><span style="color:var(--fg3)">asked which fixtures</span><span class="meta">now</span></div>
+            <div class="row"><span class="led done"></span><span class="t">planner</span><span style="color:var(--fg3)">finished · 24 tests passed</span><span class="meta">1m</span></div>
+            <div class="row"><i class="ph ph-git-pull-request ic" style="color:var(--ok)"></i><span class="t">#482</span><span style="color:var(--fg3)">opened from perf-img</span><span class="meta">2h</span></div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+  <footer class="status">
+    <div class="seg ws"><i class="ph ph-circles-four"></i>ACME</div>
+    <div class="seg"><i class="ph ph-cube"></i>Shop</div>
+    <div class="seg"><span class="w">● 1 waiting</span><span class="ru">● 1 running</span></div>
+    <div class="seg"><i class="ph ph-user-circle"></i>richard@acme.io</div>
+    <div class="seg r"><kbd>Ctrl K</kbd> commands <kbd>Alt 1</kbd> Shop</div>
+  </footer>
+</div>
+
+<!-- ============ C: add source dialog (built on A) ============ -->
+<div class="app screen" id="c" data-base="a">
+  <div class="scrim">
+    <div class="dlg">
+      <div class="dlg-h"><i class="ph ph-cube" style="font-size:20px;color:var(--acc)"></i><h2>New Project</h2><span class="mono" style="color:var(--fg3);font-size:11.5px">in acme</span><i class="ph ph-x" style="margin-left:auto;color:var(--fg3)"></i></div>
+      <div class="dlg-b">
+        <div class="field"><div class="lb">Name</div><div class="input focus">Checkout revamp<span class="cursor" style="height:14px;width:1px"></span></div></div>
+        <div class="field"><div class="lb" style="display:flex">Sources and base branch<span style="margin-left:auto;color:var(--fg3)">Each source gets one base. A source can be in many Projects.</span></div>
+          <div class="links">
+            <div class="link"><i class="ph-fill ph-check-square" style="color:var(--acc);font-size:17px"></i><span class="mono">shop-web</span><div class="plan"><b>main checkout</b> · on develop</div><div class="sel">develop<i class="ph ph-caret-down"></i></div><i class="ph ph-x" style="color:var(--fg3)"></i></div>
+            <div class="link"><i class="ph-fill ph-check-square" style="color:var(--acc);font-size:17px"></i><span class="mono">shop-api</span><div class="plan"><b>main checkout</b> · <span style="color:var(--wait)">on feat/checkout-v2</span></div><div class="sel">develop<i class="ph ph-caret-down"></i></div><i class="ph ph-x" style="color:var(--fg3)"></i></div>
+            <div class="link"><i class="ph-fill ph-check-square" style="color:var(--acc);font-size:17px"></i><span class="mono">shared-ui</span><div class="plan"><b>new project checkout</b> · Shop uses develop, Billing release/2.4</div><div class="sel">release/2.5<i class="ph ph-caret-down"></i></div><i class="ph ph-x" style="color:var(--fg3)"></i></div>
+            <div class="link" style="color:var(--fg3)"><i class="ph ph-plus" style="font-size:15px"></i><span>Add source…</span><div class="plan">from acme, a folder, or <span class="mono">owner/repo</span></div><span></span><span></span></div>
+          </div>
+        </div>
+      </div>
+      <div class="dlg-f"><span class="note"><i class="ph ph-info"></i>RADE never switches a dirty checkout. It makes a Worktree when a base is taken.</span><span class="btn-txt">Cancel</span><span class="btn-txt btn-pri">Create Project</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ D: palette (built on A) ============ -->
+<div class="app screen" id="d" data-base="a">
+  <div class="scrim" style="padding-top:64px">
+    <div class="pal">
+      <div class="pal-in"><i class="ph ph-magnifying-glass"></i><span>shared</span><span class="cursor" style="height:16px;width:1px;background:var(--fg)"></span><span style="margin-left:auto"><kbd>Esc</kbd></span></div>
+      <div class="pal-scope"><span class="on">All</span><span>&gt; Actions</span><span>@ Agents</span><span>/ Sources</span><span># Files</span><span>$ Symbols</span><span style="margin-left:auto">Tab next</span></div>
+      <div class="pal-sec label">Sources</div>
+      <div class="pi on"><i class="ph ph-git-fork"></i><span>shared-ui</span><span class="d">Shop · develop</span><span class="k"><kbd>Enter</kbd> open terminal</span></div>
+      <div class="pi"><i class="ph ph-git-fork"></i><span>shared-ui</span><span class="d">Billing · release/2.4 · 1 agent</span></div>
+      <div class="pal-sec label">Worktrees</div>
+      <div class="pi"><i class="ph ph-git-branch" style="color:var(--wt)"></i><span>tokens</span><span class="d">Billing · shared-ui ← release/2.4 · ↑1</span></div>
+      <div class="pal-sec label">Actions</div>
+      <div class="pi"><i class="ph ph-link-simple"></i><span>Add shared-ui to Project…</span><span class="k"><kbd>Ctrl</kbd><kbd>⇧</kbd><kbd>A</kbd></span></div>
+      <div class="pi"><i class="ph ph-arrows-split"></i><span>Change base of shared-ui in Shop…</span></div>
+      <div class="pi"><i class="ph ph-users-three"></i><span>Fan-out on shared-ui…</span><span class="d">one prompt, several agents</span></div>
+      <div class="pal-sec label">Files</div>
+      <div class="pi"><i class="ph ph-file-ts"></i><span>shared/theme.ts</span><span class="d">shared-ui · src/</span></div>
+      <div class="pal-f"><span><kbd>↑↓</kbd> move</span><span><kbd>Enter</kbd> run</span><span><kbd>Ctrl Enter</kbd> in new tab</span><span style="margin-left:auto">9 results</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ E: agent usage ============ -->
+<div class="app screen" id="e">
+  <header class="titlebar">
+    <div class="ws"><div class="ws-mark">A</div><span class="ws-name">acme</span><i class="ph ph-caret-up-down" style="font-size:12px;color:var(--fg3)"></i></div>
+    <div class="crumbs"><b>Agent usage</b></div>
+    <div class="cmd"><i class="ph ph-magnifying-glass"></i><span class="grow">Search or run a command…</span><kbd>Ctrl</kbd><kbd>K</kbd></div>
+    <div class="tb-btn"><i class="ph ph-plus-square"></i></div>
+    <div class="tb-btn on"><i class="ph ph-gauge"></i></div>
+    <div class="wctl"><div class="tb-btn"><i class="ph ph-minus"></i></div><div class="tb-btn"><i class="ph ph-corners-out"></i></div><div class="tb-btn"><i class="ph ph-x"></i></div></div>
+  </header>
+  <div class="body nopanel">
+    <nav class="nav">
+      <div class="nav-h"><span class="label">Projects</span><div class="acts"><div class="tb-btn"><i class="ph ph-funnel-simple"></i></div><div class="tb-btn"><i class="ph ph-plus"></i></div></div></div>
+      <div class="tree">
+        <div class="row proj"><i class="ph ph-caret-right chev"></i><i class="ph ph-cube ic" style="color:var(--acc)"></i><span class="t">Shop</span><span class="meta"><span class="badge">1</span></span></div>
+        <div class="row proj"><i class="ph ph-caret-right chev"></i><i class="ph ph-cube ic" style="color:#e58fff"></i><span class="t">Billing</span><span class="meta"><span class="led run"></span></span></div>
+        <div class="row proj dim"><i class="ph ph-caret-right chev"></i><i class="ph ph-cube ic" style="color:#ffb86b"></i><span class="t">Docs</span></div>
+        <div class="nav-sep"></div>
+        <div class="nav-h" style="padding-top:2px"><span class="label">Scratch</span></div>
+        <div class="row"><span class="chev"></span><i class="ph ph-terminal-window ic"></i><span class="t">~/workspaces/acme</span><span class="meta">2</span></div>
+      </div>
+      <div class="nav-foot"><div class="inbox-pill"><span class="led wait"></span><span class="t">tests</span><span>needs input</span><kbd>Ctrl G</kbd></div><div class="tb-btn"><i class="ph ph-bell-simple"></i></div></div>
+    </nav>
+    <main class="home" style="padding:18px 24px">
+      <div class="home-h">
+        <i class="ph ph-gauge" style="font-size:24px;color:var(--acc)"></i>
+        <div><h1>Agent usage</h1><div class="sub">7 accounts · limits from each CLI · tokens from local session logs</div></div>
+        <div class="acts">
+          <div class="seg-ctl mono"><span>Today</span><span class="on">7 days</span><span>30 days</span></div>
+          <span class="btn-txt"><i class="ph ph-circles-four"></i>All workspaces<i class="ph ph-caret-down" style="font-size:11px"></i></span>
+          <span class="btn-txt"><i class="ph ph-plus"></i>Add account</span>
+        </div>
+      </div>
+      <div class="ux"><div>
+        <div class="card">
+          <table class="acc-t">
+            <tr><th>Account</th><th>Plan</th><th>Tightest limit</th><th style="text-align:right">Tokens 7d</th><th>Updated</th></tr>
+            <tr class="on"><td><span class="ag claude sm">C</span> <span class="t">acme-work</span> <span class="chip">acme ✓</span></td><td>Max 20x</td><td><span class="tl"><span class="mtr w"><i style="width:62%"></i></span><b>62%</b> 5-hour</span></td><td class="m r">12.4M</td><td class="m">40s</td></tr>
+            <tr><td><span class="ag claude sm">C</span> <span class="t">acme-team</span> <span class="chip">acme</span></td><td>Team</td><td><span class="tl"><span class="mtr w"><i style="width:12%"></i></span><b>12%</b> weekly</span></td><td class="m r">1.1M</td><td class="m">2h</td></tr>
+            <tr><td><span class="ag codex sm">X</span> <span class="t">acme</span> <span class="chip">acme ✓</span></td><td>Pro Lite</td><td><span class="tl hot"><span class="mtr w"><i style="width:81%"></i></span><b><i class="ph-fill ph-warning-diamond"></i>81%</b> Spark 5-hour</span></td><td class="m r">0.9M</td><td class="m">5m</td></tr>
+            <tr><td><span class="ag codex sm">X</span> <span class="t">acme-biz</span> <span class="chip">acme</span></td><td>Business</td><td><span class="tl"><span class="mtr w"><i style="width:27%"></i></span><b>27%</b> weekly</span></td><td class="m r">2.6M</td><td class="m">1h</td></tr>
+            <tr><td><span class="ag claude sm">C</span> <span class="t">personal</span> <span class="chip">personal ✓</span></td><td>Pro</td><td><span class="tl hot"><span class="mtr w"><i style="width:88%"></i></span><b><i class="ph-fill ph-warning-diamond"></i>88%</b> weekly</span></td><td class="m r">6.8M</td><td class="m">1d</td></tr>
+            <tr><td><span class="ag codex sm">X</span> <span class="t">personal</span> <span class="chip">personal ✓</span></td><td>Plus</td><td><span class="tl"><span class="mtr w"><i style="width:4%"></i></span><b>4%</b> weekly</span></td><td class="m r">0.2M</td><td class="m">3d</td></tr>
+            <tr class="dim"><td><span class="ag codex sm">X</span> <span class="t">oss</span> <span class="chip">personal</span></td><td>—</td><td style="color:var(--fg3)">no data yet</td><td class="m r">0</td><td class="m">—</td></tr>
+          </table>
+        </div>
+        <div class="sect" style="margin-top:16px"><span class="label">Next resets</span><span class="mono" style="margin-left:auto;font-size:11px;color:var(--fg3)">quota coming back</span></div>
+        <div class="card">
+          <div class="rz"><span class="mono w">in 1h 12m</span><span class="ag claude sm">C</span><span class="t">acme-work</span><span>5-hour · now 62%</span><span class="mono f">forecast: hits 100% in ~40m</span></div>
+          <div class="rz"><span class="mono">in 2h 30m</span><span class="ag codex sm">X</span><span class="t">acme</span><span>Spark 5-hour · now 81%</span><span class="mono f">GPT-5.3-Codex-Spark only</span></div>
+          <div class="rz"><span class="mono">Sat 21:00</span><span class="ag claude sm">C</span><span class="t">personal</span><span>weekly · now 88%</span><span class="mono f">forecast: 97% at reset</span></div>
+          <div class="rz"><span class="mono">Mon 09:00</span><span class="ag claude sm">C</span><span class="t">acme-work</span><span>weekly ×4 · max 58% Opus</span><span class="mono f"></span></div>
+        </div>
+        </div>
+        <div class="card det">
+          <div class="det-h"><span class="ag claude">C</span><div><div class="t">acme-work</div><div class="s mono">Claude Code · Max 20x · ~/.claude-work</div></div><span class="btn-txt" style="margin-left:auto"><i class="ph ph-dots-three"></i></span></div>
+          <div class="lg label">Session</div>
+          <div class="lrow"><span class="n">5-hour</span><span class="bar"><i style="width:62%"></i></span><b>62%</b><span class="rs">1h 12m</span></div>
+          <div class="lg label">Weekly</div>
+          <div class="lrow"><span class="n">All models</span><span class="bar"><i style="width:41%"></i></span><b>41%</b><span class="rs">Mon 09:00</span></div>
+          <div class="lrow"><span class="n">Opus</span><span class="bar"><i style="width:58%"></i></span><b>58%</b><span class="rs">Mon 09:00</span></div>
+          <div class="lrow"><span class="n">Sonnet</span><span class="bar"><i style="width:22%"></i></span><b>22%</b><span class="rs">Mon 09:00</span></div>
+          <div class="lrow"><span class="n">OAuth apps</span><span class="bar"><i style="width:3%"></i></span><b>3%</b><span class="rs">Mon 09:00</span></div>
+          <div class="lg label">Extra usage</div>
+          <div class="lrow"><span class="n">Spend limit</span><span class="bar"><i style="width:25%"></i></span><b>$12</b><span class="rs">of $50 /mo</span></div>
+          <div class="lg label" style="display:flex">Tokens per day<span style="margin-left:auto;letter-spacing:0;text-transform:none">cache reads excluded</span></div>
+          <div class="bars sm">
+            <div class="b" style="--h:38%"><i></i><span>F</span></div>
+            <div class="b" style="--h:12%"><i></i><span>S</span></div>
+            <div class="b" style="--h:6%"><i></i><span>S</span></div>
+            <div class="b" style="--h:71%"><i></i><span>M</span></div>
+            <div class="b" style="--h:100%"><i></i><b class="v mono">3.1M</b><span>T</span></div>
+            <div class="b" style="--h:64%"><i></i><span>W</span></div>
+            <div class="b today" style="--h:48%"><i></i><b class="v mono">1.5M</b><span>T</span></div>
+          </div>
+          <div class="det-f mono"><span>Shop 9.1M</span><span>Billing 2.3M</span><span>Scratch 1.0M</span><span style="margin-left:auto">opus 78% · sonnet 22%</span></div>
+        </div>
+      </div>
+    </main>
+  </div>
+  <footer class="status">
+    <div class="seg ws"><i class="ph ph-circles-four"></i>ACME</div>
+    <div class="seg"><i class="ph ph-gauge"></i>claude 5h <span class="mtr"><i style="width:62%"></i></span>62% · wk 41%</div>
+    <div class="seg"><span class="w">● 1 waiting</span><span class="ru">● 1 running</span></div>
+    <div class="seg"><i class="ph ph-user-circle"></i>richard@acme.io</div>
+    <div class="seg r"><kbd>Ctrl K</kbd> commands</div>
+  </footer>
+</div>
+
+<!-- ============ F: new agent menu with accounts (built on A) ============ -->
+<div class="app screen" id="f" data-base="a">
+  <div class="pop" style="right:300px;top:40px">
+    <div class="pop-h mono">New in Shop / shop-web / checkout-v2</div>
+    <div class="pi"><i class="ph ph-terminal-window"></i><span>Shell</span><span class="k"><kbd>Ctrl ⇧ T</kbd></span></div>
+    <div class="pop-sec label">Claude Code</div>
+    <div class="pi on"><span class="ag claude sm">C</span><span>acme-work</span><span class="d">5h 62% · wk 41%</span><span class="k"><i class="ph ph-check" style="color:var(--acc)"></i></span></div>
+    <div class="pi"><span class="ag claude sm">C</span><span>acme-team</span><span class="d">5h 8% · wk 12%</span></div>
+    <div class="pi dis"><span class="ag claude sm">C</span><span>personal</span><span class="d">other workspace</span><span class="k"><i class="ph ph-lock-simple"></i></span></div>
+    <div class="pop-sec label">Codex</div>
+    <div class="pi"><span class="ag codex sm">X</span><span>acme</span><span class="d">wk 1%</span></div>
+    <div class="pop-sec label">Other</div>
+    <div class="pi"><i class="ph ph-users-three"></i><span>Fan-out…</span><span class="d">one prompt, several agents</span></div>
+    <div class="pi"><i class="ph ph-globe-simple"></i><span>Browser</span><span class="k"><kbd>Ctrl ⇧ O</kbd></span></div>
+  </div>
+  <div class="toast"><i class="ph-fill ph-warning-diamond" style="color:var(--wait)"></i><div><b>acme-work</b> will hit its 5-hour limit in ~40m at this pace<div class="sub mono">62% now · resets in 1h 12m · acme-team is at 8%</div></div><span class="btn-txt">Next agents use acme-team</span><i class="ph ph-x" style="color:var(--fg3)"></i></div>
+</div>
+
+<style>
+.mtr { display:inline-block; width:36px; height:5px; border-radius:3px; background:var(--bg4); overflow:hidden; }
+.mtr i { display:block; height:100%; background:var(--acc); border-radius:3px; }
+.seg-ctl { display:flex; border:1px solid var(--line2); border-radius:6px; overflow:hidden; height:26px; font-size:11.5px; }
+.seg-ctl span { padding:0 10px; display:flex; align-items:center; color:var(--fg2); border-right:1px solid var(--line); }
+.seg-ctl span:last-child { border-right:0; }
+.seg-ctl span.on { background:var(--acc-dim); color:var(--acc); }
+.accts { display:grid; grid-template-columns:repeat(3, 1fr); gap:12px; }
+.acct { border:1px solid var(--line); border-radius:8px; background:var(--bg1); padding:12px 14px 10px; }
+.acct.hot { border-color:color-mix(in srgb, var(--wait) 40%, transparent); }
+.acct.empty { opacity:.8; }
+.acct-h { display:flex; align-items:center; gap:10px; margin-bottom:12px; }
+.acct-h .t { font-weight:600; }
+.acct-h .s { color:var(--fg3); font-size:11.5px; }
+.ag { width:24px; height:24px; border-radius:6px; display:grid; place-items:center; font:600 12px "JetBrains Mono"; flex:none; }
+.ag.sm { width:18px; height:18px; font-size:10px; border-radius:4px; }
+.ag.claude { background:rgba(217,119,87,.16); color:#e08a6a; }
+.ag.codex { background:var(--bg4); color:var(--fg); }
+.lim { margin-bottom:10px; }
+.lr { display:flex; align-items:baseline; gap:8px; font-size:12px; color:var(--fg2); margin-bottom:5px; }
+.lr b { font:600 13px "JetBrains Mono"; color:var(--fg); }
+.lr b.w { color:var(--wait); } .lr b.w .ph-fill { font-size:12px; }
+.lr .rs { margin-left:auto; font:11px "JetBrains Mono"; color:var(--fg3); }
+.bar { height:6px; border-radius:3px; background:var(--bg4); overflow:hidden; }
+.bar i { display:block; height:100%; border-radius:3px; background:var(--acc); }
+.bar.warn i { background:var(--wait); }
+.bar.off { opacity:.5; }
+.acct-f { white-space:nowrap; overflow:hidden; display:flex; gap:10px; border-top:1px solid var(--line); padding-top:8px; margin-top:4px; font:11px "JetBrains Mono"; color:var(--fg3); }
+.acct-f span:first-child { color:var(--fg2); }
+.acct-f .up { margin-left:auto; }
+.nodata { display:flex; gap:8px; align-items:center; color:var(--fg3); font-size:12px; height:76px; }
+.nodata .ph { font-size:18px; }
+.chart { padding:14px 16px 8px; }
+.bars { display:flex; align-items:flex-end; gap:10px; height:150px; }
+.b { flex:1; height:100%; display:flex; flex-direction:column; justify-content:flex-end; align-items:center; position:relative; }
+.b i { width:100%; height:calc(var(--h) * .82); background:color-mix(in srgb, var(--acc) 55%, transparent); border-radius:4px 4px 0 0; }
+.b.today i { background:var(--acc); }
+.b:hover i { background:var(--acc); }
+.b span { font:10.5px "JetBrains Mono"; color:var(--fg3); margin-top:6px; }
+.b .v { position:absolute; bottom:calc(var(--h) * .82 + 26px); font-size:10.5px; color:var(--fg2); font-weight:500; }
+.hb { display:flex; align-items:center; gap:10px; height:32px; padding:0 12px; font-size:12.5px; }
+.hb .t { width:70px; white-space:nowrap; color:var(--fg); }
+.hb .track { flex:1; height:6px; border-radius:3px; background:var(--bg3); overflow:hidden; }
+.hb .track i { display:block; height:100%; background:var(--acc); border-radius:3px; }
+.hb .mono { font-size:11.5px; color:var(--fg2); width:42px; text-align:right; }
+
+.ux { display:grid; grid-template-columns:1fr 440px; gap:16px; margin-top:16px; align-items:start; }
+.acc-t td { padding:8px 10px; }
+.acc-t td.r { text-align:right; }
+.acc-t tr.on td { background:var(--acc-dim); }
+.acc-t tr.on td:first-child { box-shadow:inset 2px 0 0 var(--acc); }
+.acc-t tr.dim td { opacity:.6; }
+.acc-t .ag.sm { display:inline-grid; vertical-align:-4px; margin-right:4px; }
+.acc-t .chip { margin-left:4px; font-size:10.5px; padding:0 5px; }
+.tl { display:inline-flex; align-items:center; gap:8px; color:var(--fg2); font-size:12px; }
+.tl b { font:600 12px "JetBrains Mono"; color:var(--fg); min-width:34px; }
+.tl.hot b { color:var(--wait); } .tl.hot .mtr i { background:var(--wait); }
+.tl b .ph-fill { font-size:11px; margin-right:2px; }
+.mtr.w { width:56px; }
+.det { padding:14px 16px 10px; }
+.det-h { display:flex; align-items:center; gap:10px; margin-bottom:4px; }
+.det-h .t { font-weight:600; } .det-h .s { font-size:11px; color:var(--fg3); }
+.lg { margin:12px 0 4px; }
+.lrow { display:grid; grid-template-columns:88px 1fr 40px 92px; align-items:center; gap:10px; height:24px; font-size:12px; color:var(--fg2); }
+.lrow b { font:600 12px "JetBrains Mono"; color:var(--fg); text-align:right; }
+.lrow .rs { font:11px "JetBrains Mono"; color:var(--fg3); }
+.bars.sm { height:110px; gap:8px; margin-top:6px; padding-top:18px; }
+.rz { display:grid; grid-template-columns:86px 18px 90px 1fr auto; align-items:center; gap:10px; height:32px; padding:0 12px; border-bottom:1px solid var(--line); font-size:12px; color:var(--fg2); }
+.rz:last-child { border-bottom:0; }
+.rz .t { color:var(--fg); font-weight:500; }
+.rz .w { color:var(--acc); }
+.rz .f { font-size:11px; color:var(--fg3); }
+.rz .ag.sm { display:inline-grid; }
+.det-f { display:flex; gap:12px; border-top:1px solid var(--line); margin-top:10px; padding-top:8px; font-size:11px; color:var(--fg3); }
+.pop { position:absolute; width:340px; border:1px solid var(--line2); border-radius:8px; background:var(--bg2); box-shadow:var(--shadow); padding:6px 0; }
+.pop-h { font-size:11px; color:var(--fg3); padding:4px 14px 8px; border-bottom:1px solid var(--line); margin-bottom:4px; }
+.pop-sec { padding:8px 14px 2px; }
+.pop .pi { height:30px; }
+.pi.dis { opacity:.45; }
+.toast { position:absolute; left:50%; transform:translateX(-50%); bottom:44px; display:flex; align-items:center; gap:12px; padding:10px 14px; border:1px solid var(--line2); border-radius:8px; background:var(--bg2); box-shadow:var(--shadow); font-size:12.5px; }
+.toast .sub { color:var(--fg3); font-size:11px; margin-top:2px; }
+</style>
+
+<script>
+// Hash: #<screen>-<theme>. Overlay screens (c, d) clone their base screen underneath.
+for (const s of document.querySelectorAll('.screen[data-base]')) {
+  const base = document.getElementById(s.dataset.base).cloneNode(true);
+  base.removeAttribute('id'); base.classList.remove('screen');
+  base.style.cssText = 'position:absolute;inset:0;';
+  s.prepend(base);
+  s.style.display = '';
+}
+function apply() {
+  const [scr, theme] = (location.hash.slice(1) || 'a-dark').split('-');
+  document.body.classList.toggle('light', theme === 'light');
+  for (const s of document.querySelectorAll('.screen')) s.classList.toggle('on', s.id === scr);
+}
+addEventListener('hashchange', apply); apply();
+addEventListener('keydown', e => {
+  const [scr, theme] = (location.hash.slice(1) || 'a-dark').split('-');
+  if ('123456'.includes(e.key)) location.hash = 'abcdef'['123456'.indexOf(e.key)] + '-' + (theme || 'dark');
+  if (e.key === 't') location.hash = scr + '-' + (theme === 'light' ? 'dark' : 'light');
+});
+</script>
+<style>.screen[data-base].on { display:block; } .screen[data-base] { position:relative; width:1440px; height:900px; }</style>
+</body>
+</html>

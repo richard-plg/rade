@@ -1,0 +1,21 @@
+{
+  "session_id": "00000000-0000-4000-8000-0000000000aa",
+  "transcript_path": "/home/user/.claude-work/projects/-home-user-workspaces-acme-shop-web/00000000-0000-4000-8000-0000000000aa.jsonl",
+  "cwd": "/home/user/workspaces/acme/shop-web",
+  "model": {"id": "claude-opus-5-5", "display_name": "Opus 5.5"},
+  "workspace": {"current_dir": "/home/user/workspaces/acme/shop-web", "project_dir": "/home/user/workspaces/acme/shop-web", "added_dirs": []},
+  "version": "2.1.309",
+  "output_style": {"name": "default"},
+  "cost": {"total_cost_usd": 1.23, "total_duration_ms": 600000, "total_api_duration_ms": 120000, "total_lines_added": 10, "total_lines_removed": 2},
+  "context_window": {"total_input_tokens": 90000, "context_window_size": 200000, "used_percentage": 45},
+  "exceeds_200k_tokens": false,
+  "fast_mode": false,
+  "thinking": {"enabled": true},
+  "rate_limits": {
+    "five_hour": {"used_percentage": 62, "resets_at": 1793180320},
+    "seven_day": {"used_percentage": 41, "resets_at": 1793610000},
+    "spend_limit": {"used_percentage": 24, "resets_at": 1794009600, "used_usd": 12, "limit_usd": 50, "period": "month"},
+    "future_bucket": {"used_percentage": 7, "resets_at": 1793610000}
+  },
+  "some_new_field": {"nested": [1, 2, 3]}
+}

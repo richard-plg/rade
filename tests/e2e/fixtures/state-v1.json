@@ -1,0 +1,80 @@
+{
+  "version": 1,
+  "projects": [
+    {
+      "id": "demo",
+      "name": "demo",
+      "path": "@HOME@/code/demo",
+      "worktrees": [
+        {
+          "id": "w_1",
+          "name": "main",
+          "path": "@HOME@/code/demo",
+          "tabs": [
+            {
+              "id": "t_2",
+              "name": "Tab 1",
+              "layout": {
+                "type": "split",
+                "dir": "right",
+                "ratio": 0.5,
+                "a": {
+                  "type": "leaf",
+                  "pane": {
+                    "id": "p_3",
+                    "kind": { "type": "terminal", "cwd": "@HOME@/code/demo" }
+                  }
+                },
+                "b": {
+                  "type": "leaf",
+                  "pane": {
+                    "id": "p_4",
+                    "name": "lead",
+                    "kind": { "type": "terminal", "cwd": "@HOME@/code/demo", "command": "fake" },
+                    "agent": "fake",
+                    "status": "done",
+                    "status_since": 1759300000,
+                    "session_id": "sess-v1",
+                    "had_turn": true
+                  }
+                }
+              },
+              "focused": "p_4",
+              "zoomed": null
+            }
+          ],
+          "active_tab": "t_2"
+        },
+        {
+          "id": "w_5",
+          "name": "feat",
+          "path": "@DATA@/rade-dev/worktrees/demo/feat",
+          "tabs": [],
+          "active_tab": null
+        }
+      ],
+      "active_worktree": "w_1"
+    },
+    {
+      "id": "general",
+      "name": "General",
+      "path": "@HOME@",
+      "worktrees": [
+        {
+          "id": "w_6",
+          "name": "main",
+          "path": "@HOME@",
+          "tabs": [],
+          "active_tab": null
+        }
+      ],
+      "active_worktree": "w_6"
+    }
+  ],
+  "active_project": "demo",
+  "next_id": 6,
+  "notifications": [
+    { "id": 1, "pane": "p_4", "title": null, "text": "lead finished", "time": 1759300000, "read": true, "source": "status", "path": "demo › main" }
+  ],
+  "palette_recent": ["project:demo", "action:add_project", "worktree:demo/w_5"]
+}
