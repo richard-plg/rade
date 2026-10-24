@@ -3,7 +3,7 @@
 # not run code on the owner's machine. Every build and test runs inside
 # ci/Dockerfile via the runner's Docker daemon. Nothing is bind-mounted; the
 # repo goes in as the build context and results come out with `docker cp`.
-# Hosted runners start empty, so every job builds the image cold.
+# Hosted runners start empty; image layers come from the Actions cache (below).
 #
 # Also called by release.yml on a v* tag, so a release passes the same gates.
 name: CI
@@ -24,9 +24,17 @@ permissions:
   contents: read
 
 env:
-  # Zig's resolver can't parse a scoped IPv6 nameserver Docker may copy into
-  # bridge-network build containers; see ci/Dockerfile.
-  BUILD: docker build --network=host --progress=plain -f ci/Dockerfile
+  # Image layers are cached in the GitHub Actions cache (type=gha), one scope
+  # per target, each job reading all three: the toolchain and libghostty
+  # layers (ci/Dockerfile) are rebuilt only when they change. Cache mounts
+  # (cargo, zig caches) are not exported, so Rust still builds cold.
+  # Host network: Zig's resolver can't parse a scoped IPv6 nameserver Docker
+  # may copy into bridge-network build containers; see ci/Dockerfile.
+  CACHE_FROM: |
+    type=gha,scope=rade-check
+    type=gha,scope=rade-e2e
+    type=gha,scope=rade-deb
+  DOCKER_BUILD_RECORD_UPLOAD: false
 
 jobs:
   commits:
@@ -62,9 +70,18 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           submodules: recursive
-      - run: $BUILD --target check -t "rade-ci:check-$GITHUB_RUN_ID" .
-      - if: always()
-        run: docker image rm "rade-ci:check-$GITHUB_RUN_ID" >/dev/null 2>&1 || true
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+        with:
+          buildkitd-flags: --allow-insecure-entitlement network.host
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: ci/Dockerfile
+          target: check
+          network: host
+          allow: network.host
+          cache-from: ${{ env.CACHE_FROM }}
+          cache-to: type=gha,scope=rade-check,mode=min
 
   e2e:
     name: E2E (headless Weston)
@@ -77,7 +94,20 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           submodules: recursive
-      - run: $BUILD --target e2e -t "rade-ci:e2e-$GITHUB_RUN_ID" .
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+        with:
+          buildkitd-flags: --allow-insecure-entitlement network.host
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: ci/Dockerfile
+          target: e2e
+          network: host
+          allow: network.host
+          load: true
+          tags: rade-ci:e2e-${{ github.run_id }}
+          cache-from: ${{ env.CACHE_FROM }}
+          cache-to: type=gha,scope=rade-e2e,mode=min
       - name: Suites (each in a fresh container; ci/e2e.sh)
         run: ci/e2e.sh "rade-ci:e2e-$GITHUB_RUN_ID" run m2 m3 m4 m5 m6 m7 m8 m9 m11 m12 m13 m14 m14b m15 m15b m16 m24 m26 m28 m29 m30 m31 m34 m36 m37 m38 m39 titles product-recovery settings
       - if: always()
@@ -98,15 +128,34 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           submodules: recursive
+      - name: Version and date from git (.git is not in the build context)
+        id: version
+        run: |
+          echo "version=$(scripts/version.sh)" >> "$GITHUB_OUTPUT"
+          echo "epoch=$(git log -1 --format=%ct)" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+        with:
+          buildkitd-flags: --allow-insecure-entitlement network.host
       - name: Build the .deb (scripts/package-deb.sh in the CI image)
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: ci/Dockerfile
+          target: deb
+          network: host
+          allow: network.host
+          load: true
+          tags: rade-ci:deb-${{ github.run_id }}
+          build-args: |
+            RADE_VERSION=${{ steps.version.outputs.version }}
+            SOURCE_DATE_EPOCH=${{ steps.version.outputs.epoch }}
+          cache-from: ${{ env.CACHE_FROM }}
+          cache-to: type=gha,scope=rade-deb,mode=min
+      - name: Copy the .deb out of the image
+        env:
+          version: ${{ steps.version.outputs.version }}
         run: |
           set -euo pipefail
-          # Version from git here: .git is not in the build context.
-          version=$(scripts/version.sh)
-          echo "version: $version"
-          $BUILD --target deb -t "rade-ci:deb-$GITHUB_RUN_ID" \
-            --build-arg "RADE_VERSION=$version" \
-            --build-arg "SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)" .
           c=$(docker create "rade-ci:deb-$GITHUB_RUN_ID")
           mkdir -p dist && docker cp "$c:/src/target/debian/." dist/ && docker rm "$c" >/dev/null
           ls -l dist

@@ -85,9 +85,9 @@ docker build --network=host -f ci/Dockerfile --target deb -t rade-ci:deb \
 - Not in CI: `tests/live` (needs the real desktop, keyboard and mouse) — run it by hand before a release that changes UI behaviour.
 - The release workflow is the gate: it publishes nothing unless the full CI passes on the tag. (A public repo can also protect `main` with required checks.)
 - **Flaky E2E**: m6's "one desktop banner, replaced in place" can fail when the machine is loaded (GLib's freedesktop backend sends a new banner if the first `Notify` reply hasn't arrived yet). `ci/e2e.sh` retries a failed suite once, alone, and leaves a warning annotation. A suite that fails twice fails the job.
-- Disk: locally the build cache (cargo/zig cache mounts, ~4 GB, plus image layers) lives in your Docker; `docker builder prune` makes the next run cold. A GitHub-hosted runner always builds cold.
+- Disk: locally the build cache (cargo/zig cache mounts, ~4 GB, plus image layers) lives in your Docker; `docker builder prune` makes the next run cold. On GitHub-hosted runners the image layers (toolchain, libghostty) come from the Actions cache (`type=gha`, one scope per target, 10 GB per repo), so only a toolchain or `ghostty` submodule change rebuilds them; Rust builds cold every run (cache mounts are not exported).
 
-### Timings (a 24-core workstation, measured 2026-10-01; a 4-vCPU hosted runner is slower and always cold)
+### Timings (a 24-core workstation, measured 2026-10-01; a 4-vCPU hosted runner is slower: libghostty alone took ~9 min there before the layer cache)
 
 | step | cold | warm |
 |---|---|---|

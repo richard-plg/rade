@@ -48,7 +48,10 @@ WORKDIR /src
 
 # ── libghostty (zig) ─────────────────────────────────────────────────────────
 FROM toolchain AS src
-COPY --chown=ci:ci . /src
+# The submodule alone first: libghostty (~9 min cold on a 4-vCPU runner) is a
+# layer that only a submodule bump invalidates, so CI's layer cache (type=gha,
+# ci.yml) skips it; the rest of the repo is copied after it.
+COPY --chown=ci:ci ghostty /src/ghostty
 # zig-pkg (fetched deps) and the caches are mounts; zig-out stays in the layer.
 # Build with `docker build --network=host`: Zig's own DNS resolver fails
 # (ResolvConfParseFailed) on the scoped IPv6 nameserver (`fe80::1%3`) Docker
@@ -58,6 +61,7 @@ RUN --mount=type=cache,target=/home/ci/.cache/zig,uid=1000,gid=1000 \
     --mount=type=cache,target=/src/ghostty/.zig-cache,uid=1000,gid=1000 \
     --mount=type=cache,target=/src/ghostty/zig-pkg,uid=1000,gid=1000 \
     cd ghostty && zig build -Dapp-runtime=none -Doptimize=ReleaseFast
+COPY --chown=ci:ci . /src
 
 # ── fmt + clippy + unit tests ────────────────────────────────────────────────
 FROM src AS check
