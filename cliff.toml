@@ -1,0 +1,43 @@
+# git-cliff 2.14.2 (ADR-0043): the CHANGELOG section of a release, generated
+# from Conventional Commits by scripts/release.sh (`git cliff --unreleased`).
+# Only the groups are rendered here; release.sh writes the `## [X.Y.Z]` line.
+#   feat → Added · perf, revert, any breaking (`!` / BREAKING CHANGE) → Changed
+#   fix → Fixed · everything else (docs, test, ci, chore, …) is left out.
+# The line is the commit's description (the R-ID scope is dropped). A footer
+# `Changelog: <text>` replaces it; `Changelog: skip` leaves the commit out.
+
+[changelog]
+header = ""
+body = """
+{% for group, commits in commits | group_by(attribute="group") %}
+### {{ group | striptags | trim }}
+
+{% for commit in commits -%}
+{% set_global line = commit.message | split(pat="\n") | first | trim -%}
+{% for f in commit.footers -%}
+{% if f.token | lower == "changelog" %}{% set_global line = f.value | trim %}{% endif -%}
+{% endfor -%}
+- {% if commit.breaking %}**Breaking:** {% endif %}{{ line | upper_first }}
+{% endfor %}
+{% endfor %}
+"""
+footer = ""
+trim = true
+
+[git]
+conventional_commits = true
+filter_unconventional = true
+split_commits = false
+protect_breaking_commits = true
+commit_parsers = [
+    { footer = "^[Cc]hangelog: *skip$", skip = true },
+    { field = "breaking", pattern = "true", group = "<!-- 1 -->Changed" },
+    { message = "^feat", group = "<!-- 0 -->Added" },
+    { message = "^(perf|revert)", group = "<!-- 1 -->Changed" },
+    { message = "^fix", group = "<!-- 2 -->Fixed" },
+    { message = ".*", skip = true },
+]
+filter_commits = false
+tag_pattern = "v[0-9]+\\.[0-9]+\\.[0-9]+.*"
+topo_order = false
+sort_commits = "oldest"

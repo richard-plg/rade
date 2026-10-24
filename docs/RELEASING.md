@@ -1,6 +1,6 @@
 # Releasing RADE
 
-Why it works this way: [ADR-0012](internals/adr/0012-releases-semver-keep-a-changelog-self-hosted-ci.md), runners: [ADR-0042](internals/adr/0042-public-repo-ci-on-github-hosted-runners.md).
+Why it works this way: [ADR-0012](internals/adr/0012-releases-semver-keep-a-changelog-self-hosted-ci.md), runners: [ADR-0042](internals/adr/0042-public-repo-ci-on-github-hosted-runners.md), the generated changelog: [ADR-0043](internals/adr/0043-changelog-generated-from-commits.md).
 
 ## Versions
 
@@ -18,19 +18,29 @@ Why it works this way: [ADR-0012](internals/adr/0012-releases-semver-keep-a-chan
 - Subjects follow [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/) with R-IDs (or a milestone) as the scope:
   `feat(R18): Browser Pane …` · `fix(R13.2,R11.2): …` · `docs(M12): checks …` · `test(R7.2): …` · `ci: …` · `chore(release): v0.2.0`.
   Types: `feat fix perf refactor docs test build ci chore style revert`; `!` after the scope marks a breaking change. CI checks new commits (`scripts/lint-commits.sh origin/main..HEAD` locally).
-- A user-visible change adds a line to `## [Unreleased]` in [CHANGELOG.md](../CHANGELOG.md) in the same commit, under `### Added`, `Changed`, `Deprecated`, `Removed`, `Fixed` or `Security` ([Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/)). Write it for a user, not as the commit subject.
+- The changelog is generated at release time from the commits since the last tag ([git-cliff](https://git-cliff.org) 2.14.2, [cliff.toml](../cliff.toml)): `feat` → **Added**, `perf` / `revert` → **Changed**, `fix` → **Fixed**, any breaking commit (`!` or a `BREAKING CHANGE:` footer) → **Changed** marked **Breaking:**; `docs`, `test`, `ci`, `chore`, `refactor`, `build` and `style` are left out. The line is the commit's description without the scope, so **write `feat` / `fix` / `perf` subjects for a user**.
+- A footer `Changelog: <text>` replaces that line (when the subject has to stay technical); `Changelog: skip` leaves the commit out.
+- `## [Unreleased]` in [CHANGELOG.md](../CHANGELOG.md) is optional hand-written text (an intro, a migration note, extra `### …` items): `scripts/release.sh` keeps it at the top of the new section and adds the generated items to the same groups.
+- Preview the next section any time: `git cliff --unreleased --strip all`.
+- Install git-cliff (the release script checks the version):
+  ```sh
+  v=2.14.2; f=git-cliff-$v-x86_64-unknown-linux-gnu.tar.gz
+  gh release download v$v -R orhun/git-cliff -p "$f" -p "$f.sha512" -D /tmp/git-cliff
+  (cd /tmp/git-cliff && sha512sum -c "$f.sha512" && tar xzf "$f" && install -m 755 git-cliff-$v/git-cliff ~/.local/bin/)
+  ```
+  (or `cargo install git-cliff --version 2.14.2 --locked`).
 
 ## Cut a release
 
 1. On `main`, clean and pushed; CI green on the head commit ([Actions](https://github.com/richard-plg/rade/actions/workflows/ci.yml)).
-2. Read `[Unreleased]`; pick the version by the rules above.
+2. Preview the section (`git cliff --unreleased --strip all`, plus anything under `[Unreleased]`); pick the version by the rules above.
 3. Run:
    ```sh
    scripts/release.sh 0.2.0
    # agents: append git-commit args, e.g. --trailer "Co-Authored-By: …"
    # NO_PUSH=1 to inspect first, then: git push --atomic origin HEAD v0.2.0
    ```
-   It bumps `Cargo.toml` + `Cargo.lock`, moves `[Unreleased]` to `## [0.2.0] - <date>` with compare links, commits `chore(release): v0.2.0`, tags `v0.2.0` and pushes both.
+   It bumps `Cargo.toml` + `Cargo.lock`, writes `## [0.2.0] - <date>` (the `[Unreleased]` text + the generated items) with compare links, commits `chore(release): v0.2.0`, tags `v0.2.0` and pushes both.
 4. The tag runs [release.yml](../.github/workflows/release.yml): the full CI from the tag (fmt, clippy, unit, every E2E suite, `.deb` + m10), then a GitHub Release `RADE v0.2.0` with `rade_0.2.0_amd64.deb`, `SHA256SUMS` and the changelog section as notes. Watch: `gh run watch -R richard-plg/rade` (or `gh-watch`).
 5. Check: `gh release view v0.2.0 -R richard-plg/rade`, then
    ```sh
@@ -47,10 +57,10 @@ When `main` has moved on with unreleased features and `0.2.0` needs a fix:
 
 ```sh
 git switch -c release/0.2 v0.2.0          # branch from the tag
-# fix + test, commit as fix(R…): …, add it under [Unreleased] in CHANGELOG.md
+# fix + test, commit as fix(R…): <what the user sees> (the changelog line)
 git push -u origin release/0.2
 scripts/release.sh 0.2.1                   # allowed on release/* branches
-git switch main && git cherry-pick <fix>   # bring the fix (and its changelog line) to main
+git switch main && git cherry-pick <fix>   # bring the fix to main
 ```
 
 ## Install from a Release

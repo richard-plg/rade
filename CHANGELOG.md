@@ -3,8 +3,9 @@
 All notable changes to RADE are recorded here. The format follows
 [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/) and versions
 follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html) with the
-rules in [docs/RELEASING.md](docs/RELEASING.md) (0.x before 1.0.0). Requirement IDs (R…)
-refer to [docs/internals/PRD.md](docs/internals/PRD.md); milestones (M…) to
+rules in [docs/RELEASING.md](docs/RELEASING.md) (0.x before 1.0.0). From 1.0.0
+each release's section is generated from its Conventional Commits (ADR-0043);
+the 0.x sections were written by hand. Requirement IDs (R…) refer to [docs/internals/PRD.md](docs/internals/PRD.md); milestones (M…) to
 [docs/internals/MILESTONES.md](docs/internals/MILESTONES.md).
 
 ## [Unreleased]
@@ -1092,14 +1093,4 @@ Initial release: everything built in milestones M0–M12.
   releases with the `.deb` and `SHA256SUMS`, `rade-app --version`, this
   changelog (ADR-0012).
 
-[Unreleased]: https://github.com/richard-plg/rade/compare/v0.7.1...HEAD
-[0.7.1]: https://github.com/richard-plg/rade/compare/v0.7.0...v0.7.1
-[0.7.0]: https://github.com/richard-plg/rade/compare/v0.6.0...v0.7.0
-[0.6.0]: https://github.com/richard-plg/rade/compare/v0.5.1...v0.6.0
-[0.5.1]: https://github.com/richard-plg/rade/compare/v0.5.0...v0.5.1
-[0.5.0]: https://github.com/richard-plg/rade/compare/v0.4.0...v0.5.0
-[0.4.0]: https://github.com/richard-plg/rade/compare/v0.3.1...v0.4.0
-[0.3.1]: https://github.com/richard-plg/rade/compare/v0.3.0...v0.3.1
-[0.3.0]: https://github.com/richard-plg/rade/compare/v0.2.0...v0.3.0
-[0.2.0]: https://github.com/richard-plg/rade/compare/v0.1.0...v0.2.0
-[0.1.0]: https://github.com/richard-plg/rade/releases/tag/v0.1.0
+[Unreleased]: https://github.com/richard-plg/rade/commits/main
