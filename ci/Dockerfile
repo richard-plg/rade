@@ -23,7 +23,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
       libgl-dev libegl-dev libepoxy-dev libgl1-mesa-dri libegl-mesa0 mesa-libgallium \
       weston wl-clipboard dbus dbus-daemon libglib2.0-bin fuse3 \
       jq bc python3 python3-pil python3-gi gir1.2-gdkpixbuf-2.0 librsvg2-common \
-      dpkg-dev binutils desktop-file-utils lintian ncurses-bin netcat-openbsd procps \
+      dpkg-dev binutils patchelf desktop-file-utils lintian ncurses-bin netcat-openbsd procps \
       fonts-dejavu-core fonts-noto-core \
       unzip libnss3 libnspr4 libgbm1 libasound2t64 libatk-bridge2.0-0t64 libcups2t64 \
       libxkbcommon0 libxcomposite1 libxdamage1 libxrandr2 libdrm2

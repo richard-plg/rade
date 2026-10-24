@@ -19,6 +19,7 @@ cd "$ROOT"
 # sorts higher and `apt install ./…deb` upgrades (scripts/version.sh, ADR-0012).
 # CI builds without .git and passes RADE_VERSION.
 VERSION=${RADE_VERSION:-$(scripts/version.sh)}
+MAINTAINER="Richard <richard.plg202@gmail.com>"
 ARCH=$(dpkg --print-architecture)
 GLIB=ghostty/zig-out/lib/libghostty-internal.so
 GSHARE=ghostty/zig-out/share
@@ -40,6 +41,16 @@ install -d "$PKG"/DEBIAN "$PKG"/usr/bin "$PKG"/usr/lib/rade "$PKG"/usr/share/rad
 install -m755 -s "$BIN/rade" "$PKG/usr/bin/rade"
 install -m755 -s "$BIN/rade-app" "$PKG/usr/lib/rade/rade-app"
 install -m644 "$GLIB" "$PKG/usr/lib/rade/libghostty-internal.so"
+# Zig links it with RUNPATH /usr/lib/<triplet>, a default search path anyway
+# (lintian custom-library-search-path). The CI image has patchelf, so
+# released packages never carry it; a local build without it only warns.
+if command -v patchelf >/dev/null; then
+    patchelf --remove-rpath "$PKG/usr/lib/rade/libghostty-internal.so"
+    ! readelf -d "$PKG/usr/lib/rade/libghostty-internal.so" | grep -qE 'RUNPATH|RPATH' \
+        || { echo "libghostty-internal.so still has a RUNPATH" >&2; exit 1; }
+else
+    echo "warning: no patchelf, libghostty-internal.so keeps its RUNPATH (apt install patchelf)" >&2
+fi
 ln -s ../lib/rade/rade-app "$PKG/usr/bin/rade-app"
 ln -s ../../bin/rade "$PKG/usr/lib/rade/rade"
 [[ $(readelf -d "$PKG/usr/lib/rade/rade-app" | grep -o 'RUNPATH.*') == *'[$ORIGIN]'* ]] \
@@ -85,8 +96,8 @@ for p in sorted(meta["packages"], key=lambda p: p["name"]):
             print(f.read_text(errors="replace").strip() + "\n")
 ' | gzip -9n > "$PKG/usr/share/doc/rade/rust-crates-licenses.txt.gz"
 install -m644 CHANGELOG.md "$PKG/usr/share/doc/rade/"
-printf 'rade (%s) unstable; urgency=medium\n\n  * See /usr/share/doc/rade/CHANGELOG.md.\n\n -- RADE contributors <rade@localhost>  %s\n' \
-    "$VERSION" "$(date -R ${SOURCE_DATE_EPOCH:+-d @$SOURCE_DATE_EPOCH})" | gzip -9n > "$PKG/usr/share/doc/rade/changelog.gz"
+printf 'rade (%s) unstable; urgency=medium\n\n  * See /usr/share/doc/rade/CHANGELOG.md.\n\n -- %s  %s\n' \
+    "$VERSION" "$MAINTAINER" "$(date -R ${SOURCE_DATE_EPOCH:+-d @$SOURCE_DATE_EPOCH})" | gzip -9n > "$PKG/usr/share/doc/rade/changelog.gz"
 find "$PKG/usr/share" -type d -exec chmod 755 {} + && find "$PKG/usr/share" -type f -exec chmod 644 {} +
 
 # Depends from the ELF NEEDED entries. libGL is dlopen()ed by GLAD (not
@@ -105,7 +116,7 @@ Version: $VERSION
 Section: devel
 Priority: optional
 Architecture: $ARCH
-Maintainer: RADE contributors <rade@localhost>
+Maintainer: $MAINTAINER
 Installed-Size: $SIZE
 Depends: ${DEPS:+$DEPS, }libgl1
 Recommends: git

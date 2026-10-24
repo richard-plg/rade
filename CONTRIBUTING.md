@@ -40,7 +40,7 @@ scripts/package-deb.sh                              # → target/debian/rade_<ve
 sudo apt install ./target/debian/rade_*_amd64.deb
 ```
 
-Packaging also needs `dpkg-dev`, `binutils`, `python3-gi`,
+Packaging also needs `dpkg-dev`, `binutils`, `patchelf` (optional), `python3-gi`,
 `gir1.2-gdkpixbuf-2.0` and `librsvg2-common`. A tagged commit packages as
 `X.Y.Z`, any other commit as `X.Y.Z+git<date>.<sha>`, so re-installing upgrades
 in place. There is no Flatpak or Snap: a sandbox can't spawn arbitrary agent
