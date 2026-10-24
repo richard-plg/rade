@@ -47,7 +47,7 @@ Why it works this way: [ADR-0012](internals/adr/0012-releases-semver-keep-a-chan
    gh release download v0.2.0 -R richard-plg/rade -D /tmp/rade-v0.2.0
    (cd /tmp/rade-v0.2.0 && sha256sum -c SHA256SUMS && dpkg-deb --info rade_0.2.0_amd64.deb)
    ```
-   With gh ≥ 2.81 also `gh release verify-asset v0.2.0 /tmp/rade-v0.2.0/rade_0.2.0_amd64.deb -R richard-plg/rade` (the immutable release's attestation).
+   With gh ≥ 2.81 also `gh release verify-asset v0.2.0 /tmp/rade-v0.2.0/rade_0.2.0_amd64.deb -R richard-plg/rade` (the immutable release's attestation), and `gh attestation verify /tmp/rade-v0.2.0/rade_0.2.0_amd64.deb -R richard-plg/rade` (the build provenance `release.yml` signs: which workflow run and commit built the `.deb`).
 
 If the release workflow fails before publishing: re-run it when the failure was transient (it rebuilds from the tag). If the fix needs a commit, fix on main; since no Release exists yet, the tag may be recreated on the fixed commit (`git tag -d vX.Y.Z && git push origin :refs/tags/vX.Y.Z`, then `git tag -a vX.Y.Z -m 'RADE vX.Y.Z' && git push origin vX.Y.Z`) — done once, for v0.1.0, whose first run failed in the commit-lint job. Once a Release is published its tag never moves (immutable releases enforce it); fixes go in the next patch version. Releases are **immutable** (repo setting): a published Release's assets and tag can't change; a bad release is superseded by the next version, and can be marked pre-release or deleted.
 
