@@ -1,6 +1,6 @@
 # Remove Tasks, Batches, Initiatives, Reports and their engines
 
-Status: accepted 2026-10-23 (M33, PRD R101). Supersedes ADR-0018, ADR-0019, ADR-0020, ADR-0022, ADR-0023, ADR-0024, ADR-0025, ADR-0027 and the Tasks part of ADR-0028 (decisions 4, 5, 6's Verify clause and 7). Amends ADR-0029 (the Code page goes) and ADR-0030 (Impact no longer goes into Batch Reviewer or Initiative acceptance prompts). Approved design: docs/design/redesign-2026-10-23.md §1, §3.1, §9.
+Status: accepted 2026-10-23 (M33, PRD R101). Supersedes ADR-0018, ADR-0019, ADR-0020, ADR-0022, ADR-0023, ADR-0024, ADR-0025, ADR-0027 and the Tasks part of ADR-0028 (decisions 4, 5, 6's Verify clause and 7). Amends ADR-0029 (the Code page goes) and ADR-0030 (Impact no longer goes into Batch Reviewer or Initiative acceptance prompts). Approved design: docs/internals/design/redesign-2026-10-23.md §1, §3.1, §9.
 
 From M17 to M32 RADE grew a task manager (Tasks, Task Runs, the Definition of Ready, Profiles), an SDLC orchestrator (Batches, Initiatives, the Plan gate, Verified Runs and verify-command confirmation) and a reporting stack (Event Journal, Digest, Reports, Report Styles, export, Flow metrics, Lessons). The owner found them hard to use; M26 and M27 tried to hide them behind a simpler UI while keeping the engines, and the result is the current UI: a Project opened in the sidebar shows `Tasks · Start here 2/4` instead of its Sources (N1), Worktrees drift into No Project (N2), and one status is repeated in six or seven places. The redesign makes the Source link (ADR-0034) the centre of the app; the engines above are about a third of the code and every one of them reaches into the sidebar, palette, menus, state and socket.
 
@@ -25,7 +25,7 @@ From M17 to M32 RADE grew a task manager (Tasks, Task Runs, the Definition of Re
 ## Consequences
 
 - 1.0.0 is a breaking release (0.MINOR, ADR-0012): scripts and Agents calling the removed commands or methods get exit 2 with the ADR named; the CHANGELOG lists them under "Removed".
-- E2E suites m17–m23, m25 and m27 are deleted, m26 is rewritten, m18-style Reports screenshots go. Their `docs/checks/M<n>.md` stay as history.
+- E2E suites m17–m23, m25 and m27 are deleted, m26 is rewritten, m18-style Reports screenshots go. Their `docs/internals/checks/M<n>.md` stay as history.
 - Downgrading to 0.7.1 after a 1.0 start needs `state.json.v2.bak`; 0.7.1 would otherwise read version 3 as unknown.
 - Activity is lost on quit by design; anything that must last is in git, `gh` or the Agent's own logs.
 - A Code page user loses the docked results list; the popover covers the same answers, and `rade code … --json` gives the full list.

@@ -167,7 +167,7 @@ fn forecast_ends_below_100_at_reset_and_texts() {
     assert_eq!(when_text(NOW + 15 * 86_400, NOW, 0), "Nov 7 14:00");
 }
 
-/// Scene E's latest limits with their series (docs/design/spec/e-usage.md
+/// Scene E's latest limits with their series (docs/internals/design/spec/e-usage.md
 /// "Content").
 pub(crate) fn scene_e() -> Vec<AccountLimits> {
     let mon = NOW + 2 * 86_400 + 19 * HOUR; // Mon 2026-10-26 09:00

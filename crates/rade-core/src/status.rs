@@ -22,7 +22,7 @@ impl AgentStatus {
     /// Glyph colour (R10.3, R20.1) in the light or dark style: every one has
     /// ≥ 3:1 contrast (WCAG 1.4.11, graphics) on libadwaita's window, view,
     /// sidebar and caption backgrounds of that style (tested; the same
-    /// tokens are in the app's stylesheet and `docs/design/contrast.py`).
+    /// tokens are in the app's stylesheet and `docs/internals/design/contrast.py`).
     /// `running` is a fixed blue, never the accent (owner decision, M14).
     pub fn color(self, dark: bool) -> &'static str {
         let (light, dk) = match self {

@@ -175,8 +175,8 @@ check "5 worktree adds during 60 imports: no 'already has a worktree' ($fails fa
 rade worktree list web-dashboard --json > "$OUT/race.json"
 check "…each listed once" test "$(rade worktree list web-dashboard --json | jq '[.worktrees[] | select(.worktree|startswith("race-"))] | length')" = 5
 
-echo "== R20.1 contrast tokens (docs/design/contrast.py)"
-check "every status token pair meets WCAG 2.2" python3 "$ROOT/docs/design/contrast.py"
+echo "== R20.1 contrast tokens (docs/internals/design/contrast.py)"
+check "every status token pair meets WCAG 2.2" python3 "$ROOT/docs/internals/design/contrast.py"
 
 echo
 echo "M14: $PASS passed, $FAIL failed (screenshots: ${OUT#$ROOT/})"

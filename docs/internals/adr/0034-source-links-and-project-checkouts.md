@@ -1,6 +1,6 @@
 # Source links with one base; Project checkouts; Base drift; Scratch
 
-Status: accepted 2026-10-23 (M33, PRD R97–R100, R104). Supersedes the Named Bases part of ADR-0017 (decision 3 and the 0.3.1 follow-up's branch matching). Amends ADR-0028: its sidebar rules (decisions 1–3) become the Navigator's (Project → Source link → Worktree → Agent), and No Project / General become Scratch. Owner decisions 1 and 2 in docs/design/redesign-2026-10-23.md §9.
+Status: accepted 2026-10-23 (M33, PRD R97–R100, R104). Supersedes the Named Bases part of ADR-0017 (decision 3 and the 0.3.1 follow-up's branch matching). Amends ADR-0028: its sidebar rules (decisions 1–3) become the Navigator's (Project → Source link → Worktree → Agent), and No Project / General become Scratch. Owner decisions 1 and 2 in docs/internals/design/redesign-2026-10-23.md §9.
 
 A Project today is a set of Sources plus Named Bases (`dev`, `prod`), each mapping to a branch per Source. The run of 2026-10-23 showed what that model cannot say: a Worktree made on `shop-web` (in Shop) lands in No Project (N2); its Review diffs against `main` while Shop's base is `develop` (N3); `shared-ui`, in Shop at `develop` and in Billing at `release/2.4`, shows as one `shared-ui main` row (N4); `shop-api` switched to `feat/checkout-v2` is off its base with no warning (N5). One folder can only be on one branch, so a Source used by two Projects at two bases needs two checkouts, and RADE must say which one a Project uses.
 

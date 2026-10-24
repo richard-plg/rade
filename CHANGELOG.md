@@ -4,8 +4,8 @@ All notable changes to RADE are recorded here. The format follows
 [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/) and versions
 follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html) with the
 rules in [docs/RELEASING.md](docs/RELEASING.md) (0.x before 1.0.0). Requirement IDs (R…)
-refer to [docs/PRD.md](docs/PRD.md); milestones (M…) to
-[docs/MILESTONES.md](docs/MILESTONES.md).
+refer to [docs/internals/PRD.md](docs/internals/PRD.md); milestones (M…) to
+[docs/internals/MILESTONES.md](docs/internals/MILESTONES.md).
 
 ## [Unreleased]
 

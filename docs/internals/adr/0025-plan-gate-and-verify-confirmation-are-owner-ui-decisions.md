@@ -4,7 +4,7 @@ Status: accepted 2026-10-03 (M23, PRD R67–R70); amended 2026-10-03 (M24, PRD R
 
 Superseded by ADR-0033 (1.0.0).
 
-M23 adds two owner decisions to a Task Run: approving a plan before a risky change is made (docs/research/ai-native-sdlc.md §3.2, roadmap § M23), and confirming a verify command before RADE runs it with the owner's rights. Both guard against the same actor: an Agent with shell access, which can edit the Task file, the Workspace's TOML files and run `rade` against the socket.
+M23 adds two owner decisions to a Task Run: approving a plan before a risky change is made (docs/internals/research/ai-native-sdlc.md §3.2, roadmap § M23), and confirming a verify command before RADE runs it with the owner's rights. Both guard against the same actor: an Agent with shell access, which can edit the Task file, the Workspace's TOML files and run `rade` against the socket.
 
 ## Decision
 

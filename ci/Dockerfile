@@ -68,7 +68,7 @@ RUN --mount=type=cache,target=/home/ci/.cargo/registry,uid=1000,gid=1000 \
     && cargo fmt --all --check \
     && cargo clippy --workspace --all-targets --locked -- -D warnings \
     && cargo test --workspace --locked \
-    && python3 docs/design/contrast.py \
+    && python3 docs/internals/design/contrast.py \
     && scripts/contrast_test.sh \
     && scripts/trace_test.sh \
     && scripts/trace.sh --no-write >/dev/null \

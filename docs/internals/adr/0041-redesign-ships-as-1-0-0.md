@@ -4,7 +4,7 @@ Status: accepted 2026-10-24 (owner decision). Amends ADR-0012 §2 (the pre-1.0 p
 
 ## Context
 
-ADR-0012 §2 kept RADE on 0.x until "docs/API.md is declared stable". The redesign (docs/design/redesign-2026-10-23.md, M33–M44) was planned as 0.8.0. It removes the Task, Batch, Initiative and Report engines (ADR-0033), settles the Project model on Source links with one base each (ADR-0034) and adds Agent Accounts and usage (ADR-0035). After it, the CLI, socket and file formats are the ones the owner means to keep. 0.8.0 was never tagged.
+ADR-0012 §2 kept RADE on 0.x until "docs/API.md is declared stable". The redesign (docs/internals/design/redesign-2026-10-23.md, M33–M44) was planned as 0.8.0. It removes the Task, Batch, Initiative and Report engines (ADR-0033), settles the Project model on Source links with one base each (ADR-0034) and adds Agent Accounts and usage (ADR-0035). After it, the CLI, socket and file formats are the ones the owner means to keep. 0.8.0 was never tagged.
 
 ## Decision
 

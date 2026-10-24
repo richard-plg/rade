@@ -3,7 +3,7 @@
 Checked 2026-10-02 against DingTalk's English developer docs, "Robot message type":
 <https://help.dingtalk.io/open/development/robot-message-type>. Not yet checked by a real paste
 into a DingTalk group (R45-c, pending owner) — treat the rendering notes as **UNVERIFIED** until
-`docs/checks/M18.md` records that paste.
+`docs/internals/checks/M18.md` records that paste.
 
 ## Payload
 

@@ -1,4 +1,4 @@
-//! Terminal titles → the model (R1, docs/checks/M12-titles.md): sanitize
+//! Terminal titles → the model (R1, docs/internals/checks/M12-titles.md): sanitize
 //! each OSC 0/2 title and take at most 4 per second per Pane, so Agent
 //! spinners don't re-render GTK. Plus renaming a Tab (double-click on its
 //! label, palette "Rename Tab…") and `debug.tabs` for the E2E harness.

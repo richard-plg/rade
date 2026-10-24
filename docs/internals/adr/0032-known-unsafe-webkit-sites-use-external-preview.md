@@ -2,7 +2,7 @@
 
 Status: accepted (2026-10-08)
 
-The isolated YouTube compatibility recheck again killed the whole RADE process with WebKitGTK 2.52.6. A toolbar fallback cannot contain an in-process native crash. See `docs/research/webkit-compat.md` for baseline evidence.
+The isolated YouTube compatibility recheck again killed the whole RADE process with WebKitGTK 2.52.6. A toolbar fallback cannot contain an in-process native crash. See `docs/internals/research/webkit-compat.md` for baseline evidence.
 
 Refuse `youtube.com`, `youtu.be`, `youtube-nocookie.com` and their subdomains in the embedded preview, using a parsed host and WebKit navigation/response policy decisions as well as the initial-load check. Keep the requested URL available for the visible Chromium/default-browser alternatives. Refuse known unsafe direct CLI URLs immediately with an engine recommendation. Local previews keep their existing behavior. Chromium annotations retain the same URL and an unambiguous Agent in the original Tab/Worktree; existing WebKit annotations stay in RADE.
 

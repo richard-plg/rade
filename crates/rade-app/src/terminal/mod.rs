@@ -59,7 +59,7 @@ type ChildExitedCallback = dyn Fn(u32);
 
 /// Agent Panes keep at least this much scrollback (PRD R2.7): Ghostty's
 /// `scrollback-limit` counts page-memory bytes, ~8–10 bytes per cell, so
-/// 10,000 lines of a 500-column Terminal fit (docs/checks/M0.md row 6).
+/// 10,000 lines of a 500-column Terminal fit (docs/internals/checks/M0.md row 6).
 /// ponytail: fixed budget; wider Terminals keep fewer lines — size it from
 /// the column count if that ever matters.
 pub const AGENT_SCROLLBACK_BYTES: usize = 64 << 20;

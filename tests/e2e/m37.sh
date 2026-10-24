@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # E2E (M37, PRD R100 UI, R104, R105, R107): the Navigator, the Inbox popover,
 # Project home, the drift UI and Activity on the mockup's data set
-# (docs/design/spec/a-workspace.md / b-project-home.md "Content"): Workspace
+# (docs/internals/design/spec/a-workspace.md / b-project-home.md "Content"): Workspace
 # `acme` with real git repositories shop-web (main checkout on develop, 2
 # commits behind origin/develop on a bare remote), shop-api (drifts to
 # feat/checkout-v2), shared-ui (main checkout on main; develop and

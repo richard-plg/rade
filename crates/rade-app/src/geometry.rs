@@ -1,6 +1,6 @@
 //! `debug.ui {"op": "geometry", "widget", "nth"?, "all"?}` (PRD R102.5,
 //! test mode only, ADR-0021): what a widget looks like, for the spec
-//! sheets' measurements (`docs/design/spec/README.md` "Measurement method").
+//! sheets' measurements (`docs/internals/design/spec/README.md` "Measurement method").
 //!
 //! GTK 4 exposes a widget's allocation, CSS margin / padding / border
 //! widths, color, font and classes. Its computed background, border colors,

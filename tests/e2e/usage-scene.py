@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Scene E / F usage data (docs/design/spec/e-usage.md "Content") written
+"""Scene E / F usage data (docs/internals/design/spec/e-usage.md "Content") written
 straight into a temp Usage store, the way the app writes it
 (`$XDG_STATE_HOME/rade-dev/usage/<agent>-<sha8 of realpath config_dir>.jsonl`,
 docs/API.md "Usage store"), relative to now:

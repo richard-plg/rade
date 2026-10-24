@@ -1,6 +1,6 @@
 # Agent Accounts per Workspace, locked in rade-core; usage read from statusline JSON and Agent logs
 
-Status: accepted 2026-10-23 (M33, PRD R108–R110). Amends ADR-0015 (a Workspace's single `CLAUDE_CONFIG_DIR` becomes a list of accounts per Agent) and ADR-0016 (`rade setup` installs hooks into every declared `config_dir`). Builds on ADR-0021 (test-only switches). Owner request in docs/design/redesign-2026-10-23.md §9–§10; Detailed limits option A chosen in docs/design/redesign-build-plan.md §7.
+Status: accepted 2026-10-23 (M33, PRD R108–R110). Amends ADR-0015 (a Workspace's single `CLAUDE_CONFIG_DIR` becomes a list of accounts per Agent) and ADR-0016 (`rade setup` installs hooks into every declared `config_dir`). Builds on ADR-0021 (test-only switches). Owner request in docs/internals/design/redesign-2026-10-23.md §9–§10; Detailed limits option A chosen in docs/internals/design/redesign-build-plan.md §7.
 
 The owner runs Claude Code and Codex under several logins (`~/.claude`, `~/.claude-work`, `~/.codex`) and needs to know, before giving an Agent work, how much quota each login has left, to pick the right one when opening an Agent, and never to run one Workspace's Agent under another Workspace's login. Each CLI already separates logins by its config directory (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`). Limits differ per plan and change between CLI versions (Claude Code 2.1.309: `five_hour`, `seven_day`, `spend_limit` in statusline JSON; codex-cli 0.163.0: `primary` / `secondary` windows per `limit_id`, e.g. `codex_bengalfox` = Spark, in rollout files).
 

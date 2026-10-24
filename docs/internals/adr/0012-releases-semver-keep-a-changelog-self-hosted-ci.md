@@ -1,6 +1,6 @@
 # Releases: SemVer from Cargo.toml, a curated Keep a Changelog, tag-driven GitHub Releases built on the self-hosted runner
 
-RADE is a desktop app shipped as a `.deb`, built and tested on the owner's machine, which is also the org's self-hosted GitHub Actions runner (`~/deploy/runner`: ephemeral, Docker-socket, deliberately thin). The repo is private on the GitHub **Free** plan. Most commits are written by agents. Decided 2026-10-01 (owner delegated the choices); how-to in [docs/RELEASING.md](../RELEASING.md).
+RADE is a desktop app shipped as a `.deb`, built and tested on the owner's machine, which is also the org's self-hosted GitHub Actions runner (`~/deploy/runner`: ephemeral, Docker-socket, deliberately thin). The repo is private on the GitHub **Free** plan. Most commits are written by agents. Decided 2026-10-01 (owner delegated the choices); how-to in [docs/RELEASING.md](../../RELEASING.md).
 
 ## Decisions
 

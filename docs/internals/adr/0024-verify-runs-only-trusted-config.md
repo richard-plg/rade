@@ -4,7 +4,7 @@ Status: accepted 2026-10-03 (M22, PRD R63–R66); amended by ADR-0025 (M23): eve
 
 Superseded by ADR-0033 (1.0.0).
 
-M22 makes a Task Run *verified*: when the Task Agent says it is done, RADE runs one deterministic check before the Task reaches `review` (docs/research/ai-native-sdlc.md §3.3, roadmap § M22). That check is a shell command run with the owner's rights, so where it may come from is a security decision.
+M22 makes a Task Run *verified*: when the Task Agent says it is done, RADE runs one deterministic check before the Task reaches `review` (docs/internals/research/ai-native-sdlc.md §3.3, roadmap § M22). That check is a shell command run with the owner's rights, so where it may come from is a security decision.
 
 ## Decision
 

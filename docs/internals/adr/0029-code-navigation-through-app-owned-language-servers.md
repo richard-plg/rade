@@ -1,6 +1,6 @@
 # Code navigation through language servers the app owns
 
-Status: accepted 2026-10-05 (M28, PRD R83–R86). Owner decisions in docs/research/code-navigation.md ("Owner decisions (2026-10-05)"); numbers in docs/research/code-nav-spike.md. Builds on ADR-0006 (the socket is the control surface), ADR-0017 (layered config, content trust of `.rade.toml`) and ADR-0024 (repository config is read from the main checkout only).
+Status: accepted 2026-10-05 (M28, PRD R83–R86). Owner decisions in docs/internals/research/code-navigation.md ("Owner decisions (2026-10-05)"); numbers in docs/internals/research/code-nav-spike.md. Builds on ADR-0006 (the socket is the control surface), ADR-0017 (layered config, content trust of `.rade.toml`) and ADR-0024 (repository config is read from the main checkout only).
 
 The owner reads and reviews Agent-written code in the Viewer and wants VS Code-style tracing: where is it defined, who uses it, who calls it. Agents need the same answers without each starting its own server.
 

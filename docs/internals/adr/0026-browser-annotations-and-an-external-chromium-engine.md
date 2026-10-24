@@ -2,7 +2,7 @@
 
 Status: accepted 2026-10-03 (M24, PRD R71, R72). Builds on ADR-0011 (Browser Pane: WebKitGTK, isolated-world automation) and ADR-0006 (the socket is the control surface); revisits ADR-0011's "Chromium/CDP in a separate window" option, as that ADR asked for when Agents need trusted input.
 
-M24's spike (docs/research/webkit-compat.md) opened public pages in a Browser Pane and in Chromium. WebKitGTK 2.52 on Ubuntu 26.04 renders SPAs, SSO login pages, WebGL, IndexedDB and service workers, but has no WebRTC, File System Access, OPFS or WebGPU, and **YouTube crashes its UI process — taking all of RADE down** (MiniBrowser crashes the same way: a WebKitGTK bug, not RADE's). Agents also need trusted input for some pages (ADR-0011 consequence). And the owner wants to point at what is wrong on a page (and later on a design prototype, M25) instead of describing it.
+M24's spike (docs/internals/research/webkit-compat.md) opened public pages in a Browser Pane and in Chromium. WebKitGTK 2.52 on Ubuntu 26.04 renders SPAs, SSO login pages, WebGL, IndexedDB and service workers, but has no WebRTC, File System Access, OPFS or WebGPU, and **YouTube crashes its UI process — taking all of RADE down** (MiniBrowser crashes the same way: a WebKitGTK bug, not RADE's). Agents also need trusted input for some pages (ADR-0011 consequence). And the owner wants to point at what is wrong on a page (and later on a design prototype, M25) instead of describing it.
 
 ## Decision
 

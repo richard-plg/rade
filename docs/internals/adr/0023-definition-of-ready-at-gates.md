@@ -4,7 +4,7 @@ Status: accepted 2026-10-03 (M21, PRD R58–R62). Builds on ADR-0018 (Tasks are 
 
 Superseded by ADR-0033 (1.0.0).
 
-M21 gives Tasks the sections an Agent needs to work alone (Context, Constraints, Verify, Open questions; `kind`, `risk`, `depends`) and a Definition of Ready (docs/research/ai-native-sdlc.md §6). The owner's existing Task files (v1: Goal, Done when, Log) and older RADE versions must keep working.
+M21 gives Tasks the sections an Agent needs to work alone (Context, Constraints, Verify, Open questions; `kind`, `risk`, `depends`) and a Definition of Ready (docs/internals/research/ai-native-sdlc.md §6). The owner's existing Task files (v1: Goal, Done when, Log) and older RADE versions must keep working.
 
 ## Decision
 

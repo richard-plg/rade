@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """R105-c, R106-c, R107-f: measure scenes B (Project home), C (New Project
-dialog) and D (command palette) against docs/design/spec/b-project-home.md,
+dialog) and D (command palette) against docs/internals/design/spec/b-project-home.md,
 c-new-project.md and d-palette.md, the same way as spec_a.py: each row read
 with the hidden `debug.ui geometry` op (test mode, ADR-0021) and compared
 with the sheet's value and tolerance (spec README: sizes ±1 px, font size
@@ -10,7 +10,7 @@ Usage: spec_bcd.py <socket> <tokens.toml> <dark|light> <b|c|d>
 
 Rows measured only by a screenshot (shadows, glow, the whole scene) are the
 goldens' (golden-diff.py); contrast rows (B.38, C.27, D.23) are
-docs/design/contrast.py. Prints one PASS / FAIL line per row; exit 1 when
+docs/internals/design/contrast.py. Prints one PASS / FAIL line per row; exit 1 when
 any row fails.
 """
 import json

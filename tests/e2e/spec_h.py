@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""R118-e: measure the Review Loop (scene H) against docs/design/spec/h-review.md
+"""R118-e: measure the Review Loop (scene H) against docs/internals/design/spec/h-review.md
 rows H.1–H.4, H.7, H.8, H.10, H.12–H.15, H.17 and H.19 the way spec_f.py
 does: each row read with the hidden `debug.ui geometry` op (test mode,
 ADR-0021) and `debug.review info`, compared with the sheet's value and
 tolerance (spec README: sizes ±1 px, font size ±0.5 px, colors exact).
 H.5, H.6, H.9, H.11, H.16, H.18, H.20 are checked by m44.sh's `debug.review`
-checks; H.21 is docs/design/contrast.py; H.22 is m40's layout pass.
+checks; H.21 is docs/internals/design/contrast.py; H.22 is m40's layout pass.
 
 Usage: spec_h.py <socket> <tokens.toml> <dark|light> <review pane id>
 

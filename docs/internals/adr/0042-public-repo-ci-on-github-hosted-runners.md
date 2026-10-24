@@ -17,5 +17,5 @@ RADE goes open source (2026-10-24). ADR-0012 put CI on the owner's self-hosted r
 ## Consequences
 
 - CI is slower (no warm BuildKit cache) and its timing-sensitive E2E checks may need looser budgets on hosted hardware. A later change can cache image layers in the GitHub Actions cache.
-- Commit SHAs quoted in `docs/checks/*.md` point at the private history.
+- Commit SHAs quoted in `docs/internals/checks/*.md` point at the private history.
 - Artifact attestations (unavailable for private repos on Free, ADR-0012) and branch protection with required checks become available.

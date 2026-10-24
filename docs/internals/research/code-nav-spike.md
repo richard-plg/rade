@@ -1,6 +1,6 @@
 # Code navigation spike: LSP startup, memory, latency, staleness
 
-Run 2026-10-05 for `docs/research/code-navigation.md` §7 ("Spike"), before M28. Question: can RADE run real language servers per Worktree for definition, references and call hierarchy? This spike measures what they cost and what RADE must do to keep their answers right while Agents edit files.
+Run 2026-10-05 for `docs/internals/research/code-navigation.md` §7 ("Spike"), before M28. Question: can RADE run real language servers per Worktree for definition, references and call hierarchy? This spike measures what they cost and what RADE must do to keep their answers right while Agents edit files.
 
 All numbers come from this machine: 24 cores, 91 GB RAM, `/tmp` on tmpfs, cargo registry already warm. Expect slower start-up on smaller machines. Numbers marked **UNVERIFIED** were not measured.
 

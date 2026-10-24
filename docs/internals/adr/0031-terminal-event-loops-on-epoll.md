@@ -1,6 +1,6 @@
 # Terminal event loops on epoll, not io_uring
 
-Status: accepted 2026-10-06 (M30, PRD R89). Supersedes the M29 hypothesis in docs/checks/M29.md ("a fork of a 65 GB process is refused").
+Status: accepted 2026-10-06 (M30, PRD R89). Supersedes the M29 hypothesis in docs/internals/checks/M29.md ("a fork of a 65 GB process is refused").
 
 New Terminals failed with Ghostty's `error initializing surface err=error.SystemResources` (m19 failed 4 checks locally, 7 surfaces each run; the owner saw it too). M29 blamed `fork()` of a process with a ~65 GB writable mapping. M30 measured it:
 

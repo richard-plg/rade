@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Pane captions and Tab tooltips follow terminal titles (R1, docs/checks/M12-titles.md;
+# Pane captions and Tab tooltips follow terminal titles (R1, docs/internals/checks/M12-titles.md;
 # since 1.0.0 the Tab label is the user's, Agent's or Worktree's name, R103.2):
 # OSC 0/2 sanitized (spinner glyphs stripped), `rade list --json` title,
 # rename sticks over new titles and survives a relaunch, an Agent Grid

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # E2E (M35, R102 / R103): the terminal-native visual system and window chrome
-# on scene A's data (docs/design/spec/a-workspace.md): bundled fonts under a
+# on scene A's data (docs/internals/design/spec/a-workspace.md): bundled fonts under a
 # fontconfig without them, `debug.ui geometry` and test mode, live theme
 # switch with the Terminal's tokens, breadcrumb + Review count, the command
 # field / Ctrl+Shift+P / chrome-only Ctrl+K, flat tab labels and LEDs, Pane
@@ -255,7 +255,7 @@ spec() { python3 "$HERE/spec_a.py" "$SOCK" "$ROOT/crates/rade-app/src/tokens.tom
 spec dark
 check "R103-a dark: spec A rows A.2–A.16, A.39–A.57, A.70–A.73, A.75–A.77 within tolerance ($(grep -c ^PASS "$OUT/spec-a-dark.txt") rows pass)" spec dark
 grep ^FAIL "$OUT/spec-a-dark.txt"
-check "R103-a A.78 / A.79: contrast.py (text ≥ 4.5, glyphs ≥ 3, both themes)" bash -c "python3 '$ROOT/docs/design/contrast.py' > '$OUT/contrast.txt'"
+check "R103-a A.78 / A.79: contrast.py (text ≥ 4.5, glyphs ≥ 3, both themes)" bash -c "python3 '$ROOT/docs/internals/design/contrast.py' > '$OUT/contrast.txt'"
 # R103-f: the visible .suggested-action widgets of the top surface.
 primaries() { geo .suggested-action '"all":true' | jq -r '[.[] | .label] | join(",")'; }
 check "R103-f scene A: exactly one primary button, Commit" eventually 5 is primaries Commit

@@ -20,7 +20,7 @@ fn names(l: &[(String, String)]) -> Vec<String> {
 /// Token names of one table of the spec README ("### Dark (default)" or
 /// "### Light"): the backticked first cell of each row.
 fn readme_table(title: &str) -> Vec<String> {
-    let readme = std::fs::read_to_string(repo().join("docs/design/spec/README.md")).unwrap();
+    let readme = std::fs::read_to_string(repo().join("docs/internals/design/spec/README.md")).unwrap();
     let part = readme.split_once(title).expect("table heading").1;
     let mut out = vec![];
     for line in part.lines().skip(1) {
@@ -72,7 +72,7 @@ fn r102_a_token_names_equal_the_spec_readme_tables() {
 #[test]
 fn r102_a_mockup_tokens_css_has_the_same_values() {
     let t = tokens();
-    let path = repo().join("docs/design/redesign-2026-10-23/tokens.css");
+    let path = repo().join("docs/internals/design/redesign-2026-10-23/tokens.css");
     let css = std::fs::read_to_string(&path).expect("mockup tokens.css (written by build.rs)");
     assert_eq!(css, tokens_gen::mockup_css(&t), "stale {}", path.display());
     let block = |sel: &str| {
@@ -95,7 +95,7 @@ fn r102_a_mockup_tokens_css_has_the_same_values() {
         }
     }
     // The mockup reads it after its own inline tokens.
-    let html = std::fs::read_to_string(repo().join("docs/design/redesign-2026-10-23/mockup.html"))
+    let html = std::fs::read_to_string(repo().join("docs/internals/design/redesign-2026-10-23/mockup.html"))
         .unwrap();
     let link = html
         .find("<link rel=\"stylesheet\" href=\"tokens.css\">")
@@ -237,7 +237,7 @@ fn icon_names_in_code() -> Vec<String> {
 /// Icons of the spec README "## Icons" table as bundled names
 /// (`ph-<name>[-fill|-bold]-symbolic`).
 fn icon_names_in_spec() -> Vec<String> {
-    let readme = std::fs::read_to_string(repo().join("docs/design/spec/README.md")).unwrap();
+    let readme = std::fs::read_to_string(repo().join("docs/internals/design/spec/README.md")).unwrap();
     let table = readme.split_once("## Icons").unwrap().1;
     let t = tokens();
     let colors = names(&t.dark);

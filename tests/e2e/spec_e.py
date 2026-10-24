@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""R110-d: measure the Usage page (scene E) against docs/design/spec/e-usage.md
+"""R110-d: measure the Usage page (scene E) against docs/internals/design/spec/e-usage.md
 rows E.1–E.34, the same way as spec_a.py / spec_f.py: each row read with the
 hidden `debug.ui geometry` op (test mode, ADR-0021) and `debug.ui usage` (what
 the page shows), compared with the sheet's value and tolerance (spec README:
@@ -10,7 +10,7 @@ Usage: spec_e.py <socket> <tokens.toml> <dark|light>
 The page must be open on scene E (tests/e2e/usage-scene.py) with the filter
 All workspaces, period 7 days and `acme-work` selected. Times that move with
 the clock (`in 1h 12m`, `40s`, weekday names) are matched by pattern. E.35 is
-docs/design/contrast.py; E.36 is the golden. Prints one PASS / FAIL line per
+docs/internals/design/contrast.py; E.36 is the golden. Prints one PASS / FAIL line per
 row; exit 1 when any row fails.
 """
 import json

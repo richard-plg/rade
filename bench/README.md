@@ -24,4 +24,4 @@ Caveats: the two binaries use different Ghostty versions (system 1.3.1 vs fork `
 
 ## Idle / hidden rendering
 
-`RADE_LOG_RENDERS=1 target/release/rade-app` prints draws per second per Pane (M0 used the spike's `RADE_SPIKE_LOG_RENDERS`). See `docs/checks/M0.md` rows 5 and 7.
+`RADE_LOG_RENDERS=1 target/release/rade-app` prints draws per second per Pane (M0 used the spike's `RADE_SPIKE_LOG_RENDERS`). See `docs/internals/checks/M0.md` rows 5 and 7.

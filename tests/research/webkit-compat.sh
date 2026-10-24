@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# M24 spike (docs/research/webkit-compat.md): open public pages in a Browser
+# M24 spike (docs/internals/research/webkit-compat.md): open public pages in a Browser
 # Pane (headless Weston, temp dirs like the E2E suites, nobody logged in),
 # probe web features with compat-probe.js, keep console + screenshot. Each
 # site gets a fresh app (a crash on one must not hide the others).

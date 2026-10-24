@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""R108-i: measure the `+` menu (scene F) against docs/design/spec/f-new-agent.md
+"""R108-i: measure the `+` menu (scene F) against docs/internals/design/spec/f-new-agent.md
 rows F.1–F.7, F.11–F.14 and F.21, the same way as spec_a.py / spec_bcd.py:
 each row read with the hidden `debug.ui geometry` op (test mode, ADR-0021)
 and `debug.ui new_menu` (the rows), compared with the sheet's value and
@@ -12,7 +12,7 @@ The menu must be open (`debug.ui {"op":"new_menu","arg":"open"}`). With
 `m39` (R110-i, tests/e2e/m39.sh: scene F's usage figures in the store and
 the forecast Toast shown) the usage rows F.8–F.10 and the Toast rows
 F.15–F.19 are measured too, and F.14 expects m39's accounts. F.20 is checked
-by m39.sh; F.22 is docs/design/contrast.py; F.23 is a golden. Prints one
+by m39.sh; F.22 is docs/internals/design/contrast.py; F.23 is a golden. Prints one
 PASS / FAIL line per row; exit 1 when any row fails.
 """
 import json

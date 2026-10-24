@@ -73,7 +73,7 @@ rade send "$h" "printf '\\e]777;notify;Build;finished ok\\a'" --enter
 check "OSC 777 → Notification" new_note_since "$n0"
 check "OSC 777 title + body" test "$(last_note | jq -r '[.title, .text] | join("|")')" = "Build|finished ok"
 # OSC 99: the pinned Ghostty fork has a kitty_notification parser that is not
-# wired into its OSC dispatcher, so nothing reaches RADE (docs/checks/M3.md).
+# wired into its OSC dispatcher, so nothing reaches RADE (docs/internals/checks/M3.md).
 sleep 1.2
 n0=$(count_notes)
 rade send "$h" "printf '\\e]99;;hello99\\e\\\\'; echo OSC99-SENT" --enter

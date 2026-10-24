@@ -1,6 +1,6 @@
 # Code navigation in the Review and a diff's Impact
 
-Status: accepted 2026-10-06 (M29, PRD R87–R88). Owner decisions 4 and 5 in docs/research/code-navigation.md ("Owner decisions (2026-10-05)"); the spike's "Keeping results fresh" and "Impact list" recommendations (docs/research/code-nav-spike.md). Builds on ADR-0029 (app-owned language servers, text matches when they can't answer) and ADR-0020 (deterministic facts in, judgment out).
+Status: accepted 2026-10-06 (M29, PRD R87–R88). Owner decisions 4 and 5 in docs/internals/research/code-navigation.md ("Owner decisions (2026-10-05)"); the spike's "Keeping results fresh" and "Impact list" recommendations (docs/internals/research/code-nav-spike.md). Builds on ADR-0029 (app-owned language servers, text matches when they can't answer) and ADR-0020 (deterministic facts in, judgment out).
 
 Amended by ADR-0033 (1.0.0): Impact no longer goes into Batch Reviewer or Initiative acceptance prompts; the Fan-out Judge keeps it.
 

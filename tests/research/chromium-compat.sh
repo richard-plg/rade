@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# M24 spike, the other half (docs/research/webkit-compat.md): the same
+# M24 spike, the other half (docs/internals/research/webkit-compat.md): the same
 # public pages and probe as webkit-compat.sh, in `rade browser --engine
 # chromium` (headless, temp profile, temp XDG dirs; no RADE app needed).
 # Usage: tests/research/chromium-compat.sh [chrome]   → target/research-chromium/

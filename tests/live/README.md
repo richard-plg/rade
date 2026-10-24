@@ -3,7 +3,7 @@
 `tests/e2e/` proves RADE headless (ADR-0006). `tests/live/` covers what only
 the real desktop can: real keys through GNOME/IBus, real mouse, the real
 Wayland clipboard, the real notification server and real Agents. It runs the
-owner-manual checks of M1–M5 (`docs/checks/M*.md`, `docs/checks/R6.md`).
+owner-manual checks of M1–M5 (`docs/internals/checks/M*.md`, `docs/internals/checks/R6.md`).
 
 ```sh
 tests/live/run.sh            # all: m1 … m9 (~25 min)

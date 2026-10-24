@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Test of docs/design/contrast.py against crates/rade-app/src/tokens.toml (PRD R102-c).
+# Test of docs/internals/design/contrast.py against crates/rade-app/src/tokens.toml (PRD R102-c).
 # Usage: scripts/contrast_test.sh   (exit 1 if any check fails)
 set -euo pipefail
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
@@ -16,7 +16,7 @@ check() { # name, command...
     if "$@"; then pass=$((pass + 1)); echo "ok   $name"
     else fail=$((fail + 1)); echo "FAIL $name"; fi
 }
-run() { rc=0; out=$(python3 "$root/docs/design/contrast.py" "$@" 2>&1) || rc=$?; }
+run() { rc=0; out=$(python3 "$root/docs/internals/design/contrast.py" "$@" 2>&1) || rc=$?; }
 
 real_tokens_pass() {
     run "$tokens"

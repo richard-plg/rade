@@ -1,11 +1,11 @@
 # Releasing RADE
 
-Why it works this way: [ADR-0012](adr/0012-releases-semver-keep-a-changelog-self-hosted-ci.md), runners: [ADR-0042](adr/0042-public-repo-ci-on-github-hosted-runners.md).
+Why it works this way: [ADR-0012](internals/adr/0012-releases-semver-keep-a-changelog-self-hosted-ci.md), runners: [ADR-0042](internals/adr/0042-public-repo-ci-on-github-hosted-runners.md).
 
 ## Versions
 
 - One source of truth: `[workspace.package] version` in `Cargo.toml` (`rade --version`, `rade-app --version`, the `.deb`). Never edit it by hand; `scripts/release.sh` does.
-- [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html). [API.md](API.md) is stable from 1.0.0 ([ADR-0041](adr/0041-redesign-ships-as-1-0-0.md)):
+- [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html). [API.md](API.md) is stable from 1.0.0 ([ADR-0041](internals/adr/0041-redesign-ships-as-1-0-0.md)):
   - **MAJOR** (`1.4.2 → 2.0.0`): any incompatible change to the `rade` CLI / socket contract, the config files (`config.toml`, `workspace.toml`, `project.toml`, `.rade.toml`) or `state.json`.
   - **MINOR** (`1.0.0 → 1.1.0`): new features and compatible additions (a command, method, optional param, result field or config key).
   - **PATCH** (`1.0.0 → 1.0.1`): bug fixes only.

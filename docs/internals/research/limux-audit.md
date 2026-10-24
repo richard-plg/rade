@@ -1,7 +1,7 @@
 # limux audit — fork or build?
 
 Audited 2026-09-30, read-only (no build). Repo `am-will/limux` @ `ae67aae` (2026-09-28), v0.1.30, MIT.
-Paths are relative to the limux root unless noted. Spec: [PRD](../PRD.md), [API](../API.md), [CONTEXT](../../CONTEXT.md).
+Paths are relative to the limux root unless noted. Spec: [PRD](../PRD.md), [API](../../API.md), [CONTEXT](../../../CONTEXT.md).
 
 ## 1. Size and structure
 

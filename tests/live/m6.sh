@@ -67,7 +67,7 @@ C=$(rade spawn --agent claude --source "$repo" --name kc --json 'reply with exac
 want "claude turn done" 1 "rade wait $C --until done --timeout 300" done
 check "claude said PONG" screen_has "$C" PONG
 SID=$(q "[.. | objects | select(.id? == \"$C\")][0].session_id // empty")
-rade open "$ROOT/docs/PRD.md:10" --pane "$C" >/dev/null
+rade open "$ROOT/docs/internals/PRD.md:10" --pane "$C" >/dev/null
 rade focus "$C" >/dev/null
 sleep 2 # debounced save
 shape() { jq -S '{active_source, notifications_collapsed, sources: [.sources[] | {id, name, active_worktree,

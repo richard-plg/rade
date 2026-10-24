@@ -9,5 +9,5 @@ Smooth GPU rendering (PRD R4) is the top requirement, so terminals render with G
 
 ## Consequences
 
-- We own a Ghostty fork: pin a commit, keep patches minimal, document them in `docs/research/libghostty-linux.md`, rebase deliberately.
+- We own a Ghostty fork: pin a commit, keep patches minimal, document them in `docs/internals/research/libghostty-linux.md`, rebase deliberately.
 - Rich UI (Markdown, Mermaid) uses WebKitGTK 6 inside Viewer Panes only; never for Terminals. (Extended by ADR-0011: Browser Panes use the same WebKitGTK 6.)

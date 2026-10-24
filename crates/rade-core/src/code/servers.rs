@@ -1,7 +1,7 @@
 //! Which language server serves a file and how it starts (R83, ADR-0029):
 //! languages by extension, the root folder (one server per root and
 //! language, never shared across Worktrees), the built-in commands and
-//! settings from the spike (docs/research/code-nav-spike.md) under the
+//! settings from the spike (docs/internals/research/code-nav-spike.md) under the
 //! layered `[code.server.<lang>]`, command lookup (the repository's
 //! `node_modules/.bin`, then PATH), install hints, and the pool: lazy
 //! start, LRU cap, idle stop, crash count.

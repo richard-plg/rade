@@ -12,8 +12,8 @@
 # is fine. "Named Base" is allowed until M36 (decision log, M34).
 #
 # Exceptions (written here on purpose; add one only with a reason):
-#   Not scanned at all: CHANGELOG.md, docs/adr/ before ADR-0033,
-#     docs/checks/ before M34, docs/PRD.md / docs/API.md (they
+#   Not scanned at all: CHANGELOG.md, docs/internals/adr/ before ADR-0033,
+#     docs/internals/checks/ before M34, docs/internals/PRD.md / docs/API.md (they
 #     record the removal), tests/.
 #   Scanned files allowed to name the removed things:
 EXCEPTIONS=(

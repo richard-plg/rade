@@ -136,7 +136,7 @@ fn gresource(dir: &std::path::Path, prefix: &str, name: &str, out_dir: &std::pat
 
 /// Design tokens (R102.1, ADR-0036 §3): `src/tokens.toml` → `$OUT_DIR/tokens.css`
 /// (GTK), `$OUT_DIR/tokens.rs` (`crate::tokens`) and the mockup's
-/// `docs/design/redesign-2026-10-23/tokens.css` (rewritten only when it differs).
+/// `docs/internals/design/redesign-2026-10-23/tokens.css` (rewritten only when it differs).
 fn tokens(manifest_dir: &std::path::Path, out_dir: &std::path::Path) {
     let src = manifest_dir.join("src/tokens.toml");
     println!("cargo:rerun-if-changed={}", src.display());
@@ -148,7 +148,7 @@ fn tokens(manifest_dir: &std::path::Path, out_dir: &std::path::Path) {
     let t = tokens_gen::parse(&text).unwrap_or_else(|e| panic!("{e}"));
     std::fs::write(out_dir.join("tokens.css"), tokens_gen::gtk_css(&t)).unwrap();
     std::fs::write(out_dir.join("tokens.rs"), tokens_gen::rust_table(&t)).unwrap();
-    let mockup = manifest_dir.join("../../docs/design/redesign-2026-10-23/tokens.css");
+    let mockup = manifest_dir.join("../../docs/internals/design/redesign-2026-10-23/tokens.css");
     let css = tokens_gen::mockup_css(&t);
     if mockup.parent().is_some_and(|d| d.is_dir())
         && std::fs::read_to_string(&mockup).ok().as_deref() != Some(css.as_str())

@@ -1,5 +1,5 @@
 //! Agent Presets (PRD R16.1–R16.2): how to launch, prompt, resume, and
-//! observe each kind of Agent. Facts: docs/research/agent-integration.md.
+//! observe each kind of Agent. Facts: docs/internals/research/agent-integration.md.
 //! Built-ins are overridable and extensible in `config.toml` `[agents.<name>]`.
 
 use serde::{Deserialize, Serialize};
@@ -45,7 +45,7 @@ pub struct Preset {
     pub image_paths: bool,
     /// Bytes to send for Shift+Enter if the kitty keyboard protocol is not
     /// enough (R6.2). Reserved: parsed but not applied in v1 — every built-in
-    /// gets Shift+Enter natively from Ghostty (decision in docs/checks/R6.md).
+    /// gets Shift+Enter natively from Ghostty (decision in docs/internals/checks/R6.md).
     pub shift_enter: Option<String>,
     /// Environment variables that select the Agent's config (Claude Code
     /// `CLAUDE_CONFIG_DIR`); recorded from a hand-started Agent and set again

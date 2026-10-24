@@ -89,7 +89,7 @@ if click "$x" "$y" right; then
     sleep 1 # the first key is lost if sent before the popover has the keyboard
     want "R19.1 right-click on a Tab opens its menu (keyboard in it)" 2 "rade debug window --json | jq -r .focus.widget" GtkModelButton
     # M14: arrows move through the items (AdwTabBar's own menu closed on
-    # Down / Tab, docs/checks/M13.md acceptance).
+    # Down / Tab, docs/internals/checks/M13.md acceptance).
     key down
     sleep 0.3
     want "M14 Down keeps the Tab menu open" 2 menu_open true

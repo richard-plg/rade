@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""R103-a: measure scene A's chrome against docs/design/spec/a-workspace.md.
+"""R103-a: measure scene A's chrome against docs/internals/design/spec/a-workspace.md.
 
 Usage: spec_a.py <socket> <tokens.toml> <dark|light> <planner pane> <tests pane>
                  [--rows A.17-A.38,A.58-A.69]
@@ -15,7 +15,7 @@ A.75–A.77 (Statusline) are read with the hidden `debug.ui geometry` op
 texts exact). Colors are what GTK draws for the widget's own box; a
 background of an opaque token is also checked on the window's pixels where
 no child covers the widget (`drawn.background`). A.78 / A.79 are
-`docs/design/contrast.py` (m35.sh runs it).
+`docs/internals/design/contrast.py` (m35.sh runs it).
 Prints one PASS / FAIL line per row; exit 1 when any row fails.
 """
 import json

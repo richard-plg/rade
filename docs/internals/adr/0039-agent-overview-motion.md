@@ -1,6 +1,6 @@
 # Agent Overview: a full-window view with ~200 ms motion
 
-Status: accepted 2026-10-24 (M43, PRD R117). Amends ADR-0036 §6 ("120 ms ease-out, no sliding panels") for Agent Overview only. Owner decisions in docs/design/overview-mode-proposal.md (Q1–Q6, answered 2026-10-24).
+Status: accepted 2026-10-24 (M43, PRD R117). Amends ADR-0036 §6 ("120 ms ease-out, no sliding panels") for Agent Overview only. Owner decisions in docs/internals/design/overview-mode-proposal.md (Q1–Q6, answered 2026-10-24).
 
 The owner runs Agents in several Workspaces at once, and only one Workspace is shown (R23.4). Finding the Agent that needs them means switching Workspace and scanning its Navigator. They asked for an app-switcher-like view "with a nice macOS-style animation" that lists every Agent, most urgent first, and jumps to one.
 
@@ -25,7 +25,7 @@ Measured 2026-10-24 in headless Weston (Mesa llvmpipe, i.e. GL on the CPU), 1440
 
 - **The window behind can be shrunk without a paintable:** GTK 4.22 CSS `transform` (with a `transition`) on the window's content box scales the Ghostty GL areas with it; no snapshot code is needed. It costs nothing measurable here.
 - **Blur is dropped:** `filter: blur()` plus `opacity` turned the backdrop gray instead of dark; a plain `alpha(@bg0, 0.93)` layer reads like the mockup.
-- **RADE's own work is under 1 ms** (facts 0.1–0.3 ms, tails 0.04 ms, building 40 cards 0.6–0.7 ms). The first frame and each frame are GTK layout and painting of the full window on llvmpipe; even with no motion a frame's p95 is 18 ms there. So §5's budget cannot be judged in headless CI on a CPU renderer: it needs the real desktop (GPU), like R111-f. **Open: the owner decides whether R117.8 is checked live only** (see docs/checks/M43.md).
+- **RADE's own work is under 1 ms** (facts 0.1–0.3 ms, tails 0.04 ms, building 40 cards 0.6–0.7 ms). The first frame and each frame are GTK layout and painting of the full window on llvmpipe; even with no motion a frame's p95 is 18 ms there. So §5's budget cannot be judged in headless CI on a CPU renderer: it needs the real desktop (GPU), like R111-f. **Open: the owner decides whether R117.8 is checked live only** (see docs/internals/checks/M43.md).
 - **Jump:** a jump fades the layer out over 220 ms while the window behind scales back to full size. The owner kept this (2026-10-24) instead of the first draft's "the chosen card grows to the main area", which is dropped.
 - **Preview (R117.9, 2026-10-24):** a hovered or selected card's Preview fades in over 120 ms with a 4 px slide from its card (ADR-0036's own timing, not this ADR's longer ones); nothing moves under Reduce Animation.
 

@@ -1,6 +1,6 @@
 # Live: Tab label follows a real Claude Code's terminal title, and the real
 # mouse + keyboard rename a Tab by double-clicking its label (R1.8,
-# docs/checks/M12-titles.md). Run: tests/live/run.sh tests/live/titles.sh
+# docs/internals/checks/M12-titles.md). Run: tests/live/run.sh tests/live/titles.sh
 rade source add "$ROOT" --name repo >/dev/null
 rpc() { python3 - "$RADE_SOCKET" "$1" "${2:-{\}}" <<'PY'
 import json, socket, sys

@@ -7,7 +7,7 @@ checks every pair of its [contrast] table in both themes: `text` pairs need
 "<ink> on <background>… [over <base>]"; a translucent background is composited
 over its base, a translucent ink over the result.
 
-Usage: python3 docs/design/contrast.py [tokens.toml]
+Usage: python3 docs/internals/design/contrast.py [tokens.toml]
 Exit 0 when every line says OK, 1 when one is LOW (the line names the pair),
 2 on a malformed file.
 """

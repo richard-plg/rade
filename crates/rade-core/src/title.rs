@@ -1,5 +1,5 @@
 //! Terminal titles (OSC 0/2) → Tab labels and Pane captions (R1, see
-//! docs/checks/M12-titles.md): sanitizing what programs send, which title
+//! docs/internals/checks/M12-titles.md): sanitizing what programs send, which title
 //! a Tab shows, and how often the UI takes a new one.
 
 use crate::{Pane, Tab};

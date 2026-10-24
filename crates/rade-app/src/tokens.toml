@@ -1,10 +1,10 @@
 # RADE design tokens (ADR-0036 §3, PRD R102.1): the only place a color is written.
-# Names and values = the "Spec value" column of docs/design/spec/README.md (Tokens).
+# Names and values = the "Spec value" column of docs/internals/design/spec/README.md (Tokens).
 # build.rs → $OUT_DIR/tokens.css (GTK @define-color, light then dark) and
-# docs/design/redesign-2026-10-23/tokens.css (the mockup). Values: #rrggbb or #rrggbbaa.
+# docs/internals/design/redesign-2026-10-23/tokens.css (the mockup). Values: #rrggbb or #rrggbbaa.
 # `shadow` and `glow` are the color part of those shadows; their geometry is in
 # style.css (`0 20px 60px @shadow`, `0 0 0 1px @acc-line, 0 0 18px @glow`).
-# docs/design/contrast.py checks the pairs in [contrast] (text ≥ 4.5 : 1, glyph ≥ 3 : 1).
+# docs/internals/design/contrast.py checks the pairs in [contrast] (text ≥ 4.5 : 1, glyph ≥ 3 : 1).
 
 [dark]
 bg0 = "#07090b"

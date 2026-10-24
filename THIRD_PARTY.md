@@ -100,7 +100,7 @@ GResource; the Terminal font, ADR-0037). Copyright 2022 The Maple Mono Project A
 Source: https://github.com/phosphor-icons/core, npm `@phosphor-icons/core@2.1.1` (`assets/regular/<name>.svg`, `assets/fill/<name>-fill.svg`,
 `assets/bold/<name>-bold.svg`), unmodified, renamed `ph-<name>-symbolic.svg` / `ph-<name>-fill-symbolic.svg` / `ph-<name>-bold-symbolic.svg`
 (`robot` in Bold for agents without a logo: PRD R115, ADR-0038). Used in: `crates/rade-app/assets/icons/` (the `rade-icons`
-GResource; PRD R102.4, ADR-0036 §4) — the icons of `docs/design/spec/README.md` "Icons".
+GResource; PRD R102.4, ADR-0036 §4) — the icons of `docs/internals/design/spec/README.md` "Icons".
 
 ```
 MIT License

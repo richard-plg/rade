@@ -16,7 +16,7 @@ The mockup is the picture; these sheets are what tests check. One file per mocku
 
 ## Rules for every sheet
 
-- **IDs are stable.** `A.1`, `A.2`, … (letter = screen). A row is never renumbered or reused; a dropped row keeps its ID with the value `— (removed <date>)`. PRD ACs cite `spec A.4` or "every row of the Measurements table of `docs/design/spec/a-workspace.md`".
+- **IDs are stable.** `A.1`, `A.2`, … (letter = screen). A row is never renumbered or reused; a dropped row keeps its ID with the value `— (removed <date>)`. PRD ACs cite `spec A.4` or "every row of the Measurements table of `docs/internals/design/spec/a-workspace.md`".
 - **Columns.** `ID | Element | Value (px/pt/token) | Tolerance | How measured`. Every Value is a number with a unit (`px` = GTK CSS px at scale 1; `ms`; `%`; `em`) or a token name from the tables below. Every row has all five cells.
 - **Window.** Golden scenes run at **1440 × 900 px, scale 1**, with the mockup's data (each sheet's `## Content`). `## 1280 px` = the same scene at 1280 × 800. `## Text scale 200 %` = 1440 × 900 with `org.gnome.desktop.interface text-scaling-factor 2.0` (GTK `gtk-xft-dpi` doubled).
 - **Themes.** Every token row holds in both themes; the hex comes from the dark or light table. A screen is checked in both.
@@ -28,7 +28,7 @@ The mockup is the picture; these sheets are what tests check. One file per mocku
 |---|---|---|
 | `geometry <widget> → <field>` | Hidden socket method `debug.ui {"op":"geometry","widget":"<widget>","nth"?:n}` (test mode only, ADR-0021). `<widget>` is the CSS name or class given in the sheet (e.g. `nav-row`, `titlebar`); `nth` picks the n-th match in document order (0-based, default 0). Returns `{"x","y","width","height"}` (window coordinates, allocation), `"margin"`, `"padding"`, `"border"` (each `{top,right,bottom,left}` px), `"radius"` (px), `"font": {"family","size","weight","letter_spacing","features"}`, `"color"`, `"background"` (computed: what GTK draws for the widget's own box, `#rrggbbaa`), `"drawn"` (the window's pixels: `background` where no child covers the widget, `edge` / `outside` per side), `"opacity"`, `"classes"`, `"visible"`, `"label"` (text of a label child, if any). Colors compare to the token's hex. | M35 (R102) |
 | `class <widget> has <c>` / `count <selector> = n` | The same op's `classes` field; `count` = number of visible matches of the selector in the window (`{"op":"geometry","widget":…,"all":true}` returns a list). | M35 |
-| `contrast.py <ink> on <bg>` | `docs/design/contrast.py` reading `crates/rade-app/src/tokens.toml` (both themes), compositing translucent tokens over their base. Text ≥ 4.5 : 1, icons / LEDs / borders that carry meaning ≥ 3 : 1. | M35 |
+| `contrast.py <ink> on <bg>` | `docs/internals/design/contrast.py` reading `crates/rade-app/src/tokens.toml` (both themes), compositing translucent tokens over their base. Text ≥ 4.5 : 1, icons / LEDs / borders that carry meaning ≥ 3 : 1. | M35 |
 | `screenshot` | Golden image of the scene (`rade debug screenshot`), light + dark, compared by pixel to the approved golden with a small threshold; terminal contents and clock / "ago" texts are masked. First approval: a reviewer agent compares GTK and mockup side by side in `target/design-diff/index.html` (build plan §3.5). Used only where geometry cannot see the thing (glow, gradient-free fills, icon shape). | M35 |
 | `debug.ui <op>` | An existing or milestone-specific `debug.ui` op that returns model-level facts (row titles, meta texts, order). Named per row. | per milestone |
 

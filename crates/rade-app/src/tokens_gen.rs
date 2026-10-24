@@ -4,7 +4,7 @@
 //!
 //! `tokens.toml` is read line by line (sections `[dark]` / `[light]` with
 //! `name = "#rrggbb[aa]"` lines; other sections, such as `[contrast]` for
-//! `docs/design/contrast.py`, are skipped), so the token order of the file is
+//! `docs/internals/design/contrast.py`, are skipped), so the token order of the file is
 //! kept and no TOML crate is needed at build time.
 #![allow(dead_code)]
 

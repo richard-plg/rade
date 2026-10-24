@@ -92,7 +92,7 @@ Principles worth quoting ([pb]): "A stage ends by committing an artifact the nex
 | Definition of Ready | `status: ready` is a label. `batch run` only checks the status string (`batch.rs` `check`, R48.2). The skill says to use `ready` "only when Goal and Done when are clear". | Nothing checks that the content exists. | High: Batches start Tasks with empty specs. |
 | Context pointers (files, patterns, docs) | Task Agent prompt = file path + Worktrees (`crates/rade-app/src/tasks.rs` `prompt`). CLAUDE.md / AGENTS.md come from the repo. | No convention for "look at X, follow pattern Y". | Medium |
 | Plan before code, human-approved | RADE's own process: "Start in plan mode" (CLAUDE.md). For user Tasks: none. A Profile could pass `--permission-mode plan` (R36 `args`) but nothing waits on a plan. | No plan section, no plan gate in Task Run or Batch. | High for risky Tasks. |
-| Single verify command + evidence | RADE itself has `docs/checks/M<n>.md` with commands and results. Sources have `setup` (R12.2, R29) but no `verify`/`test` key. The Task Agent prompt says "summarize what changed and stop". | No verify command, no evidence recorded in the Task, no gate. | **Highest**: [cc-bp] calls this the difference between watching and walking away. |
+| Single verify command + evidence | RADE itself has `docs/internals/checks/M<n>.md` with commands and results. Sources have `setup` (R12.2, R29) but no `verify`/`test` key. The Task Agent prompt says "summarize what changed and stop". | No verify command, no evidence recorded in the Task, no gate. | **Highest**: [cc-bp] calls this the difference between watching and walking away. |
 | Deterministic stop gate (Stop hook / TaskCompleted) | `rade setup` installs status hooks (`rade status --hook`). The scheduler is deterministic (ADR-0020). | `running → review` happens when the turn ends, whether or not checks passed. | High (Batch quality). |
 | Fresh-context reviewer, separation of duties | `agent-judge` Reviewer, read-only, Task file + diff, `VERDICT:` line, `max_rounds`. Human approval only in the UI (R50, ADR-0020). Fan-out Judge (R15). | The Reviewer gets no verify output and no review rubric (REVIEW.md-style passes, "only correctness/requirement gaps"). Not asked to tick each Done-when item. | Medium. A good base. |
 | Compounding knowledge (mistake twice → CLAUDE.md) | Reviewer notes reach the Task Agent (`changes_prompt`). Log lines. Reports (R41–R47). | Notes are never aggregated or proposed as CLAUDE.md/skill edits. | Medium, compounds over time. |
@@ -209,7 +209,7 @@ updated: 2026-10-02T11:05
 What changes for whom, and why. 2–5 lines.
 
 ## Context
-- Read: backend/src/auth/session.rs (token refresh), docs/adr/0007-….md
+- Read: backend/src/auth/session.rs (token refresh), docs/internals/adr/0007-….md
 - Follow the pattern in: backend/src/auth/email_login.rs
 - Docs: https://…/sms-provider-api
 
