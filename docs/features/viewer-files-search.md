@@ -30,11 +30,16 @@ restart. Content zooms with `Ctrl+scroll`, `Ctrl++` / `Ctrl+−`, `Ctrl+0`. `Esc
 The header has **Open in VS Code** (`[viewer] editor`, default `code`; your `$EDITOR` when that's
 missing) and Copy path.
 
+![Ctrl+click on a path an Agent printed opens it in a Viewer; the Files tab, then a README with a Mermaid diagram](../images/files.gif)
+<sub>[Watch as MP4](../images/files.mp4)</sub>
+
 ## Files
 
 The Inspector's **Files** tab (`Ctrl+Shift+E` toggles the Inspector) shows the focused Worktree's
 tree with `.gitignore` applied (toggle to show ignored files), git status colours and file icons.
-Click to open, middle-click to open to the side.
+Changed files are marked (`M`, `A`, `?`) and so are the folders above them, so you see at a glance
+what an Agent touched. Click to open, middle-click to open to the side. The tree follows the
+focused Pane: focus another Agent and it shows that Agent's Worktree.
 
 <picture>
   <source media="(prefers-color-scheme: light)" srcset="../images/files-light.png">

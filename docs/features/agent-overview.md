@@ -9,7 +9,7 @@ every Workspace on one screen, most urgent first.
   <img alt="Agent Overview: bands Needs you, Finished not seen and Running, each card with its Workspace, Project and last lines" src="../images/overview-dark.png">
 </picture>
 
-![Opening Agent Overview, moving the selection and jumping to an Agent in another Workspace](../images/overview.gif)
+![Agent Overview over three Workspaces: the Agent that needs you is selected with its Preview, the next ones, by Workspace, then Enter jumps to it in its Workspace](../images/overview.gif)
 <sub>[Watch as MP4](../images/overview.mp4)</sub>
 
 ## What you see
@@ -27,9 +27,18 @@ Each card shows the agent's glyph in its status colour, its name and model, the 
 screen, its last Notification, the branch's `↑ahead · n changed`, and the Agent Account it runs
 under. The Agents of one [Fan-out](fan-out.md) share one card.
 
+## Preview
+
 Rest the pointer (or the selection) on a card for a **Preview**: up to 24 live lines of that
-Agent's screen, so you can read what it's asking without leaving the Overview. `Alt+P` turns
-keyboard previews off and on.
+Agent's screen, beside its card, so you can read what it's asking — or how far it got — without
+leaving the Overview. It follows the selection as you move and updates while the Agent works.
+Click it (or press `Enter`) to jump there. `Alt+P` turns keyboard previews off and on; the
+pointer still shows one.
+
+<picture>
+  <source media="(prefers-color-scheme: light)" srcset="../images/overview-preview-light.png">
+  <img alt="The audit Agent's card in Needs you with its Preview: the routes it found and its question, Patch both now?" src="../images/overview-preview-dark.png">
+</picture>
 
 ## Keys
 

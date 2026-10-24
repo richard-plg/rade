@@ -9,6 +9,9 @@ identity: its git name and email, its GitHub login, its SSH key and its Agent Ac
   <img alt="The Workspace switcher with two Workspaces" src="../images/switcher-dark.png">
 </picture>
 
+![Switching between acme, globex and personal; each has its own Projects and Agents; a hidden Agent asks and the Workspace button shows an amber dot](../images/workspaces.gif)
+<sub>[Watch as MP4](../images/workspaces.mp4)</sub>
+
 ## Add and switch
 
 ```sh
@@ -21,6 +24,12 @@ One window shows one Workspace; the others keep running. Switch with the button 
 `Ctrl+Alt+1…9`, or the palette. When an Agent in a hidden Workspace needs you, the button shows an
 amber `!` and the Toast or desktop notification names the Workspace (`[acme] tests needs input`);
 clicking it switches there. The `default` Workspace, rooted at `$HOME`, always exists.
+
+Each Workspace holds as many [Projects](projects-and-worktrees.md) as you need — Acme's Shop and
+Billing, a client's Portal and Mobile — and the Navigator shows the Projects of the Workspace on
+screen. To see the Agents of every Workspace at once, open
+[Agent Overview](agent-overview.md) (`Ctrl+Shift+Space`). How to split your work into Workspaces
+and Projects: [the guide](../guides/organizing-workspaces-and-projects.md).
 
 ## workspace.toml
 

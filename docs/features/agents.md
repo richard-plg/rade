@@ -23,12 +23,24 @@ you?
   rade spawn --cmd "npm run dev" --split down          # any program, no agent
   ```
 
-An Agent started from another Agent is its **Subagent**: it opens in the parent's Tab, parent on
-the left, up to 8 children tiled on the right (the **Agent Grid**). Limits keep a runaway agent in
-check: at most 8 live Subagents per parent and a depth of 3 (both configurable under `[limits]`).
-
 You can also start an agent by hand in any terminal (`claude`, `codex`…). RADE recognizes it from
 the running process and shows its glyph; its status comes from its hooks.
+
+## The Agent Grid
+
+An Agent started from another Agent is its **Subagent**: it opens in the parent's Tab, parent on
+the left, up to 8 children tiled on the right (the **Agent Grid**). So *"split this across four
+Subagents"* gives you the whole team in one Tab. Limits keep a runaway agent in
+check: at most 8 live Subagents per parent and a depth of 3 (both configurable under `[limits]`).
+
+![One Claude Code Agent spawns four Subagents — two Claude Code, two Codex — into its Agent Grid, answers for one of them and sums up](../images/grid.gif)
+<sub>[Watch as MP4](../images/grid.mp4)</sub>
+
+The parent drives its Subagents with the same CLI: `rade wait <name> --until done`,
+`rade read <name>`, `rade send <name> "…"`. Mix agents freely — a Claude Code parent with Codex
+children, or the other way round. Each Subagent appears under its Worktree in the Navigator and
+as its own card in [Agent Overview](agent-overview.md). Walkthrough:
+[One agent, a team of agents](../showcases/one-agent-a-team-of-agents.md).
 
 ## Status at a glance
 
@@ -122,4 +134,5 @@ under is an [Agent Account](accounts-and-usage.md).
 
 - [Agent Overview](agent-overview.md) — every Agent of every Workspace in one view.
 - [CLI for agents](cli-for-agents.md) — how agents spawn, wait for and read each other.
+- [Viewer, files and search](viewer-files-search.md) — open what an Agent touched.
 - [Review](review.md) — read what an Agent changed and send it comments.

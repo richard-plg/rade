@@ -1,6 +1,6 @@
 # Getting started
 
-From install to your first reviewed change in about ten minutes.
+From install to two Workspaces, their Projects and a team of Agents in about ten minutes.
 
 ## 1. Install
 
@@ -34,57 +34,69 @@ Code). It backs up every file it changes and is safe to re-run. For Codex: run `
 once and trust RADE's entries. For Codex / OpenCode / Antigravity, also append
 `/usr/share/rade/AGENTS-snippet.md` to your `AGENTS.md`.
 
-## 3. A Workspace and a Project
+## 3. Workspaces: one per identity
 
-Put your repositories under a folder per identity (see
+Put your repositories under a folder per company, client or personal work (see
 [Organizing Workspaces and Projects](guides/organizing-workspaces-and-projects.md)):
 
 ```sh
 rade workspace add ~/workspaces/acme
-rade source add ~/workspaces/acme/shop-web
-rade project add Shop --source shop-web:develop     # the branch your work starts from
+rade workspace add ~/workspaces/personal
+rade source add ~/workspaces/acme/shop-web --workspace acme
+rade source add ~/workspaces/acme/shop-api --workspace acme
+rade source add ~/workspaces/personal/blog --workspace personal
 ```
 
-**Shop** appears in the Navigator on the left. Click it for its Project home.
-
-Using several GitHub accounts or git emails? Run
+Switch with `Ctrl+Alt+1…9` or the Workspace button at the top left. A Workspace you're not looking
+at keeps running. Using several GitHub accounts or git emails? Run
 `rade workspace setup ~/workspaces/acme --dry-run` — see
 [Workspaces and identity](features/workspaces-and-identity.md).
 
-## 4. Start an Agent on a Worktree
+## 4. Projects: what ships together
+
+```sh
+rade workspace switch acme
+rade project add Shop --source shop-web:develop --source shop-api:develop   # the branch work starts from
+```
+
+**Shop** appears in the Navigator on the left with its two repositories. Click it for its Project
+home. Add one Project per product; a Workspace can hold as many as you need.
+
+## 5. An Agent, and its team
 
 Give the work its own Worktree so the Agent doesn't touch your checkout:
 
 ```sh
-rade spawn --source shop-web --agent claude --worktree new --name coupons "Add coupon codes to the cart"
+rade spawn --source shop-web --agent claude --worktree new --name guest "Add guest checkout"
 ```
 
-(or the palette's *Spawn Agent…* with *New Worktree*). A new Tab opens in Worktree `coupons`, cut
-from `develop`. Watch it in the Navigator: blue while working, amber when it needs you, green
-when done. When it needs you, `Ctrl+Shift+G` jumps there.
+(or `+` in the titlebar, or the palette's *Spawn Agent…*). A new Tab opens in Worktree `guest`, cut
+from `develop`. Watch it in the Navigator: blue while working, amber when it needs you, green when
+done.
 
-## 5. Review
+Now ask it to split the work: *"Use rade to give the form, the validation and the tests to three
+Subagents, two Claude Code and one Codex, then wait for them."* Each Subagent opens beside it in
+the Tab's **Agent Grid**, and the parent reads their answers when they finish. See
+[One agent, a team of agents](showcases/one-agent-a-team-of-agents.md).
 
-When the turn ends, click **Review** on the Toast (or `Ctrl+Shift+R`):
+## 6. Who needs me? Agent Overview
 
-1. Read the diff file by file; `v` marks a file viewed.
-2. Select lines, `c`, write a comment, `Enter`.
-3. **Request changes** — the Agent gets your comments as `Review round 1`.
-4. When it's done, the Review shows only what changed since. Repeat, or **Approve ▾ → Ask Agent
-   to commit**.
+Press `Ctrl+Shift+Space` from anywhere, even inside a terminal: every Agent of every Workspace,
+most urgent first. Rest on a card to read its **Preview**, `Enter` to jump to it — in whichever
+Workspace it is. `Ctrl+Shift+G` jumps straight to the newest Agent that needs you.
 
-## 6. Ship
+## 7. Files
 
-Open **Changes** (`Ctrl+Shift+M`), check the commit, **Push**, then **Create PR…** —
-**Generate** drafts the title and description. The PR targets `develop`, the same base the Review
-used.
+`Ctrl+click` any `path:line` an Agent prints to open it in a Viewer beside it. `Ctrl+Shift+E`
+shows the Inspector; its **Files** tab is the focused Worktree's tree with git status colours.
+Markdown opens rendered, with Mermaid diagrams.
 
 ## Keep going
 
-- Agents can drive each other: ask Claude Code to *"have codex review this"*. → [CLI for agents](features/cli-for-agents.md)
+- Read what an Agent changed and send it comments. → [Review](features/review.md)
+- Commit, push and open a PR against the Project's base. → [Changes and PRs](features/changes-and-prs.md)
 - Try it three ways at once. → [Fan-out](features/fan-out.md)
 - Point at what's wrong on a web page. → [Browser and Annotations](features/browser.md)
-- Every Agent of every Workspace: `Ctrl+Shift+Space`. → [Agent Overview](features/agent-overview.md)
 
 Keep RADE open while Agents work: quitting stops their processes. On the next start Session
 Restore brings back the layout and resumes each Agent's session.

@@ -214,7 +214,7 @@ rade config explain agents.claude.command --project shop
 
 prints the value every layer sets and which one wins.
 
-## Three layouts that work
+## Four layouts that work
 
 **Solo, one identity.** One Workspace `~/workspaces/personal`. One Project per product
 (`Blog`, `CLI`), usually a single link each. A Worktree per feature or per Agent. Scratch for
@@ -229,6 +229,10 @@ release branch. Agents in `personal` can never use the company's login, and vice
 its own SSH key and `gh` config. Keep their repositories under their own roots. Use Agent Overview
 to watch both at once, and the [Usage page](../features/accounts-and-usage.md) to see which login
 is close to its limit.
+
+**Work, a client and side projects.** Three Workspaces (`acme`, `globex`, `personal`), each with
+two or three Projects. You look at one at a time; Agent Overview and the switcher's `!` tell you
+when one of the others needs you. → [Showcase: three Workspaces, one window](../showcases/three-workspaces-one-window.md)
 
 ## Mistakes to avoid
 
@@ -248,3 +252,4 @@ is close to its limit.
 - [Workspaces and identity](../features/workspaces-and-identity.md) — setup, import, doctor.
 - [Agent Accounts and usage](../features/accounts-and-usage.md) — logins per Workspace, limits.
 - [Showcase: two companies, one laptop](../showcases/two-companies-one-laptop.md).
+- [Showcase: three Workspaces, one window](../showcases/three-workspaces-one-window.md).

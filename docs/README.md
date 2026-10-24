@@ -2,7 +2,7 @@
 
 ## First steps
 
-- [Getting started](getting-started.md) — install, hooks, first Project, first reviewed change.
+- [Getting started](getting-started.md) — install, hooks, two Workspaces, a Project, a team of Agents.
 - [Organizing Workspaces and Projects](guides/organizing-workspaces-and-projects.md) — how to set
   up identities, products and Worktrees so everything else just works.
 
@@ -10,26 +10,26 @@
 
 | Page | What it covers |
 |---|---|
-| [Agents](features/agents.md) | Start agents, status, Notifications, Inbox, Session Restore, `rade setup`, Presets |
-| [Agent Overview](features/agent-overview.md) | Every Agent of every Workspace on one screen (`Ctrl+Shift+Space`) |
-| [Terminals and layout](features/terminals-and-layout.md) | Tabs, splits, zoom, Ctrl+click paths, image paste, pause, system monitor |
+| [Workspaces and identity](features/workspaces-and-identity.md) | A Workspace per company or client; switching; git / SSH / `gh` per Workspace; setup, import, doctor |
 | [Projects and Worktrees](features/projects-and-worktrees.md) | Sources, Projects and their bases, checkouts, drift, the Navigator, Project home |
-| [Workspaces and identity](features/workspaces-and-identity.md) | `workspace.toml`, git / SSH / `gh` per Workspace, setup, import, doctor |
-| [Review](features/review.md) | The Review Pane: Viewed, inline comments, rounds, Approve |
-| [Changes and PRs](features/changes-and-prs.md) | Stage, commit, push, Create PR, Generate drafts |
-| [Code navigation](features/code-navigation.md) | Definition, references, callers, hover, Impact, `rade code` |
-| [Viewer, files and search](features/viewer-files-search.md) | Code, Markdown + Mermaid, HTML, PDF; Files, Search, command palette |
-| [Browser and Annotations](features/browser.md) | Browser Pane, annotate → Agent, `rade browser`, Chromium |
-| [Fan-out](features/fan-out.md) | One prompt to several Agents, Judge, Winner |
-| [Agent Accounts and usage](features/accounts-and-usage.md) | Logins per Workspace, the `+` menu, limits and forecasts |
-| [Settings and config](features/settings-and-config.md) | Settings page, `config.toml`, layered config, trust |
+| [Agent Overview](features/agent-overview.md) | Every Agent of every Workspace on one screen (`Ctrl+Shift+Space`), live Previews |
+| [Agents](features/agents.md) | Start agents, the Agent Grid of Subagents, status, Notifications, Inbox, Session Restore, Presets |
+| [Viewer, files and search](features/viewer-files-search.md) | Files tree; code, Markdown + Mermaid, HTML, PDF; Search, command palette |
+| [Terminals and layout](features/terminals-and-layout.md) | Tabs, splits, zoom, Ctrl+click paths, image paste, pause, system monitor |
 | [The `rade` CLI](features/cli-for-agents.md) | How agents drive RADE and each other |
+| [Agent Accounts and usage](features/accounts-and-usage.md) | Logins per Workspace, the `+` menu, limits and forecasts |
+| [Browser and Annotations](features/browser.md) | Browser Pane, annotate → Agent, `rade browser`, Chromium |
+| [Code navigation](features/code-navigation.md) | Definition, references, callers, hover, Impact, `rade code` |
+| [Changes and PRs](features/changes-and-prs.md) | Stage, commit, push, Create PR, Generate drafts |
+| [Fan-out](features/fan-out.md) | One prompt to several Agents, Judge, Winner |
+| [Review](features/review.md) | The Review Pane: Viewed, inline comments, rounds, Approve |
+| [Settings and config](features/settings-and-config.md) | Settings page, `config.toml`, layered config, trust |
 
 ## Showcases
 
-[All showcases](showcases/README.md): Claude asks Codex for a review · Review in rounds · Fan out
-and pick a winner · Fix a UI bug with annotations · One feature across two repositories · Two
-companies, one laptop.
+[All showcases](showcases/README.md): One agent, a team of agents · Three Workspaces, one window ·
+Two companies, one laptop · Claude asks Codex for a review · Fix a UI bug with annotations · One
+feature across two repositories · Fan out and pick a winner · Review in rounds.
 
 ## Reference
 
