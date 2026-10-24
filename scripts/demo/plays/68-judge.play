@@ -1,0 +1,20 @@
+match: WINNER: <
+think 2.5
+say Reading the three diffs against the task.
+tool Read limiter-1.diff
+out 3 files, +36 -0
+tool Read limiter-2.diff
+out 1 file, +10 -0
+tool Read limiter-3.diff
+out 2 files, +14 -0
+think 1.5
+say limiter-1 is the best of the three.
+out limiter-1: token bucket, 429 + Retry-After,
+out   two tests for bursts and refill
+out limiter-3: sliding window is correct, but
+out   no tests and no Retry-After header
+out limiter-2: fixed window lets 2x the limit
+out   through at a window edge, no tests
+say RANKING: limiter-1, limiter-3, limiter-2
+say WINNER: limiter-1
+done

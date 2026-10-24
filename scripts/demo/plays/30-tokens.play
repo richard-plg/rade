@@ -1,0 +1,10 @@
+match: tokens|focus
+think 1
+tool Read src/tokens.ts
+out Read 11 lines
+say Adding focus-ring tokens for both themes, then updating Button.
+tool Edit src/tokens.ts
+add export const focus = { ring: "#5eead4", width: 2 };
+sh printf 'export const focus = { ring: "#5eead4", width: 2 };\n' >> src/tokens.ts
+tool Bash npm run build
+think 900

@@ -1,0 +1,19 @@
+match: spacing scale
+think 1
+say Wiring the spacing scale into Button and the card layout.
+tool Read src/tokens.ts
+out Read 11 lines
+tool Read src/Button.tsx
+out Read 6 lines
+tool Edit src/tokens.ts
+add export const space = [0, 4, 8, 12, 16, 24, 32] as const;
+sh printf 'export const space = [0, 4, 8, 12, 16, 24, 32] as const;\n' >> src/tokens.ts
+tool Edit src/Button.tsx
+add padding: `${space[2]}px ${space[4]}px`,
+tool Bash npm run build
+out compiled 14 modules in 0.9s
+tool Bash npm test
+out ✓ src/Button.test.tsx (3 tests) 12ms
+out Test Files  1 passed (1)
+say Build is green. Checking the other components next.
+pause 900

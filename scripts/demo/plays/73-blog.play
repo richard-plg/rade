@@ -1,0 +1,10 @@
+match: October notes
+think 1
+say Reading last month's post for tone.
+tool Glob content/posts/*.md
+out Found 6 files
+tool Read content/posts/2026-09-notes.md
+out Read 48 lines
+say Drafting the October post.
+tool Write content/posts/2026-10-notes.md
+think 900

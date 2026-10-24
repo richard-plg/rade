@@ -1,0 +1,7 @@
+think 1.5
+say On it.
+tool Read README.md
+out Read 6 lines
+think 1
+say Done.
+done

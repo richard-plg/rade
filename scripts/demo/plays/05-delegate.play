@@ -1,0 +1,22 @@
+match: [Aa]sk [Cc]odex|second opinion
+think 1
+say I'll get a second opinion from Codex before I commit.
+tool Bash rade spawn --agent codex --name rev "Review git diff HEAD~1; list bugs as path:line"
+sh rade spawn --agent codex --name rev "Review git diff HEAD~1; list bugs as path:line" >/dev/null
+out rev started beside me
+tool Bash rade wait rev --until done --timeout 900
+sh rade wait rev --until done --timeout 120 >/dev/null
+out done
+tool Bash rade read rev --lines 40
+out 2 findings
+say Codex found two real issues:
+out useCart.ts:12  unknown codes silently give 0%
+out CouponField.tsx:7  an empty code still submits
+tool Edit src/cart/useCart.ts
+add if (code && !(code in COUPONS)) throw new UnknownCoupon(code);
+tool Edit src/cart/CouponField.tsx
+add <button disabled={!code.trim()}>Apply</button>
+tool Bash npm test
+out ✓ 8 tests passed
+say Both fixed and tested. Ready for your review.
+done

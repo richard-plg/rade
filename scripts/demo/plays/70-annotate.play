@@ -1,0 +1,27 @@
+match: Browser annotations
+think 1.2
+say Two annotations. Looking at the page.
+tool Bash rade browser snapshot
+out button "Add to cart" [ref=e7]
+out heading "Gear for people who ship."
+tool Read preview/styles.css
+out Read 30 lines
+think 0.8
+say Tightening the hero, and making the
+say buttons stand out.
+tool Edit preview/styles.css
+del .hero { padding: 72px 32px; }
+add .hero { padding: 36px 32px; }
+del .add { padding: 6px 12px; background: #3b4a54; }
+add .add { width: 100%; padding: 12px;
+add   font-weight: 600; background: #0f766e; }
+sh sed -i 's|^\.hero { padding: 72px 32px;|.hero { padding: 36px 32px;|' preview/styles.css
+sh sed -i 's|^\.add { .*|.add { width: 100%; padding: 12px; font-size: 15px; font-weight: 600; background: #0f766e; }|' preview/styles.css
+tool Bash rade browser reload
+sh rade browser reload && sleep 0.8 && rade browser eval 'window.scrollTo(0,0)'
+pause 1.2
+tool Bash rade browser screenshot
+out Saved 1 image
+say Done. The hero is 72px shorter and
+say Add to cart is full width, in teal.
+done

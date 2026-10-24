@@ -1,0 +1,12 @@
+match: [Rr]eview round|[Rr]eview comments|comments
+think 1
+say Working through your review comments.
+tool Edit src/cart/useCart.ts
+del   const pct = code === "WELCOME10" ? 10 : 0;
+add   const pct = COUPONS[code ?? ""] ?? 0;
+sh sed -i 's|  const pct = code === "WELCOME10" ? 10 : 0;|  const pct = COUPONS[code ?? ""] ?? 0;|' src/cart/useCart.ts && printf '\nconst COUPONS: Record<string, number> = { WELCOME10: 10, VIP20: 20 };\n' >> src/cart/useCart.ts
+tool Bash npm test
+out ✓ 7 tests passed
+sh git add -A && git commit -qm "refactor(cart): coupon table"
+say Moved the codes into a table and added VIP20. Ready for another look.
+done

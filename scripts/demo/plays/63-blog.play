@@ -1,0 +1,19 @@
+match: [Dd]raft
+think 1
+say Reading the last three posts to match the tone.
+tool Read posts/2026-09-rust-notes.md
+out Read 64 lines
+tool Read posts/2026-10-gtk-tips.md
+out Read 81 lines
+say Drafting the launch post: what it is, why, how to try it.
+tool Write posts/2026-10-launch.md
+out Wrote 58 lines
+tool Edit posts/2026-10-launch.md
+add ## Why another terminal?
+add Agents are great until you run five of them.
+tool Bash npm run build
+out built 15 pages in 1.3s
+tool Bash npx spellcheck posts/2026-10-launch.md
+out 2 words to check: worktree, libghostty
+say Both are fine. Adding them to the dictionary.
+pause 900

@@ -1,0 +1,16 @@
+match: [Mm]igrat
+think 1
+say Running the orders migration against staging.
+tool Bash npm run migrate -- --env staging
+out applying 0007_add_currency.sql
+out applying 0008_backfill_totals.sql
+out ERROR: column "currency" of relation "orders" already exists
+tool Read db/migrations/0007_add_currency.sql
+out Read 4 lines
+say 0007 was applied by hand on staging. The migration needs a guard.
+tool Edit db/migrations/0007_add_currency.sql
+add ALTER TABLE orders ADD COLUMN IF NOT EXISTS currency text;
+tool Bash npm run migrate -- --env staging
+out ERROR: connect ECONNREFUSED staging-db.acme.internal:5432
+say Staging's database is not reachable from this machine.
+sh hook error

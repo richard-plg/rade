@@ -1,0 +1,16 @@
+match: [Cc]onvert cart
+think 1.2
+say Moving cart pricing to integer cents.
+tool Grep "price" in src/cart
+out Found 11 uses in 4 files
+tool Read src/cart/pricing.ts
+out Read 24 lines
+tool Edit src/cart/pricing.ts
+add const TAX_RATE_BP = 825; // basis points
+add export const tax = (l: CartLine[]) =>
+add   Math.round((subtotal(l) * TAX_RATE_BP) / 10000);
+tool Bash npx vitest run src/cart
+out ✓ 6 tests passed
+say Updating checkout and the receipt next.
+tool Edit src/checkout/receipt.ts
+think 900

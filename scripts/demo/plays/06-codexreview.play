@@ -1,0 +1,14 @@
+match: list bugs
+think 1.5
+tool Bash git diff HEAD~1 --stat
+out src/cart/CouponField.tsx | 11 +++++++++++
+out src/cart/useCart.ts      |  5 +++++
+tool Read src/cart/useCart.ts
+out Read 12 lines
+think 2
+say Two findings:
+out src/cart/useCart.ts:12
+out   unknown codes silently give 0% — throw instead
+out src/cart/CouponField.tsx:7
+out   an empty code still submits — disable Apply
+done

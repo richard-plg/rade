@@ -1,0 +1,22 @@
+match: [Bb]roken links
+think 1
+say I'll crawl the built site and check every internal link.
+tool Bash npm run build
+out built 14 pages in 1.2s
+tool Bash npx linkcheck dist --internal
+out checked 212 links in 14 pages
+out 4 broken links found:
+out /posts/2026-09-rust-notes/#benchmarks
+out /about/#contact
+out /posts/2026-10-gtk-tips/#shortcuts
+out /archive/2025/
+say Two are renamed anchors, two point at pages that moved.
+tool Grep "#benchmarks" in posts/
+out Found 1 file
+tool Edit posts/2026-09-rust-notes.md
+add ## Benchmarks {#benchmarks}
+sh sed -i 's/^# Rust notes/# Rust notes\n\n## Benchmarks {#benchmarks}/' posts/2026-09-rust-notes.md
+tool Bash npx linkcheck dist --internal
+out checked 212 links in 14 pages
+out 3 broken links found
+pause 900

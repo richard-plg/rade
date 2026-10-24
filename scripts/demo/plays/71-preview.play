@@ -1,0 +1,10 @@
+match: preview page
+think 1.2
+say I'll build the storefront preview with
+say a header, a hero and a product grid.
+tool Write preview/index.html
+out Wrote 45 lines
+tool Write preview/styles.css
+out Wrote 30 lines
+say Preview is ready. Open it in the Browser.
+done

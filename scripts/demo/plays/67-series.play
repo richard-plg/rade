@@ -1,0 +1,15 @@
+match: [Oo]utline
+think 1
+tool Read posts/2026-09-rust-notes.md
+out Read 64 lines
+say Four posts would cover it, one a week.
+out 1. Why agents need a cockpit
+out 2. Worktrees: one task, one branch
+out 3. Reviewing agent work in rounds
+out 4. Fan-out: three agents race, one wins
+tool Write posts/series-outline.md
+out Wrote 21 lines
+sh printf '# Series outline\n\n1. Why agents need a cockpit\n2. Worktrees\n3. Review rounds\n4. Fan-out\n' > posts/series-outline.md
+say Outline saved to posts/series-outline.md.
+done
+notify series: outline saved

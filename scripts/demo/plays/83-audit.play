@@ -1,0 +1,12 @@
+match: [Aa]udit
+think 1
+say Reading the cart before the checkout work.
+tool Read src/cart/Cart.tsx
+out Read 19 lines
+tool Read src/cart/useCart.ts
+out Read 7 lines
+say Two things to fix before shipping:
+out 1. src/cart/Cart.tsx:12 maps items, no empty state
+out 2. src/cart/useCart.ts:5 total ignores quantity
+say Both are small. Want me to fix them?
+done

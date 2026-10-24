@@ -1,0 +1,17 @@
+match: [Rr]eceipt
+think 1.2
+say Building the receipt on the cart totals.
+tool Read src/cart/pricing.ts
+out Read 24 lines
+tool Grep "formatPrice" in src/
+out Found 6 uses in 5 files
+say orderTotal() already includes tax.
+tool Read src/checkout/receipt.ts
+out Read 22 lines
+say Receipt lines look right. Checking.
+tool Bash npx tsc --noEmit
+out No errors found
+tool Bash npm test
+out ✓ 9 tests passed
+say Receipt shows subtotal, tax and total.
+done

@@ -1,0 +1,12 @@
+match: [Ll]azy
+think 1
+say Lazy-loading the product images.
+tool Grep "<img" in src/
+out Found 2 files
+tool Read src/catalog/ProductCard.tsx
+out Read 12 lines
+tool Edit src/catalog/ProductCard.tsx
+add <img src={product.image} loading="lazy" />
+sh mkdir -p src/catalog && printf 'export const lazy = { loading: "lazy", decoding: "async" } as const;\n' > src/catalog/image.ts
+tool Bash npm run build
+think 900

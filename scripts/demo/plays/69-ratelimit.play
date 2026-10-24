@@ -1,0 +1,7 @@
+match: rate limit
+# Fan-out demo (scripts/demo/fanout.sh): one prompt, a different change per
+# Worktree. The scene writes $DEMO_FIX/<n>/work.play (what each Agent shows and
+# does) and the files it adds; <n> = the Worktree's number (limiter-<n>).
+think 1.5
+sh play "$DEMO_FIX/${PWD##*-}/work.play" >/dev/tty
+done
