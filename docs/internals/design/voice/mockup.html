@@ -1,0 +1,254 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Voice Composer mockup</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,400;0,500;0,600;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/regular/style.css">
+<link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/fill/style.css">
+<link rel="stylesheet" href="../redesign-2026-10-23/tokens.css">
+<style>
+/* M46 Voice Composer mockup (PLAN-voice.md §5, spec I). Hash: #a … #f, add -light (e.g. #c-light), #all = every state. */
+* { box-sizing: border-box; margin: 0; }
+body { background: var(--bg0); color: var(--fg); font: 13px/1.4 Inter, sans-serif; font-feature-settings: "tnum"; }
+.mono { font-family: "JetBrains Mono", monospace; }
+kbd { font: 10.5px "JetBrains Mono"; color: var(--fg3); border: 1px solid var(--line2); border-radius: 3px; padding: 0 4px; background: var(--bg2); line-height: 16px; display: inline-block; }
+
+.frame { width: 1440px; height: 900px; position: relative; overflow: hidden; display: none; flex-direction: column; }
+.frame.on { display: flex; }
+.cap { position: absolute; right: 12px; bottom: 34px; font: 11px "JetBrains Mono"; color: var(--fg3); background: var(--bg1); border: 1px solid var(--line2); border-radius: 4px; padding: 3px 8px; z-index: 9; }
+
+/* window chrome, simplified from screen A */
+.tb { height: 40px; flex: none; background: var(--bg1); border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 10px; padding: 0 12px; font-size: 12.5px; color: var(--fg2); }
+.tb .crumb b { color: var(--fg); font-weight: 600; }
+.tb .cmd { margin: 0 auto; width: 420px; height: 26px; border: 1px solid var(--line2); border-radius: 6px; background: var(--bg0); display: flex; align-items: center; gap: 8px; padding: 0 10px; color: var(--fg3); font-size: 12px; }
+.body { flex: 1; display: grid; grid-template-columns: 260px 1fr; min-height: 0; }
+.nav { background: var(--bg1); border-right: 1px solid var(--line); padding: 10px 0; }
+.nr { display: flex; align-items: center; gap: 8px; height: 26px; padding: 0 12px; font-size: 12.5px; color: var(--fg2); }
+.nr.d1 { padding-left: 26px; } .nr.d2 { padding-left: 40px; }
+.nr.sel { background: var(--acc-dim); color: var(--fg); box-shadow: inset 2px 0 var(--acc); }
+.nr .m { margin-left: auto; font: 11px "JetBrains Mono"; color: var(--fg3); }
+.lbl { font: 600 10.5px "JetBrains Mono"; letter-spacing: .12em; color: var(--fg3); padding: 4px 12px 6px; }
+.center { display: grid; grid-template-rows: 34px 1fr; min-width: 0; min-height: 0; background: var(--bg0); }
+.tabs { display: flex; border-bottom: 1px solid var(--line); background: var(--bg1); padding-left: 4px; }
+.tab { display: flex; align-items: center; gap: 8px; padding: 0 12px; font-size: 12.5px; color: var(--fg2); border-right: 1px solid var(--line); position: relative; }
+.tab.on { background: var(--bg0); color: var(--fg); }
+.tab.on::after { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 2px; background: var(--acc); }
+.panes { display: grid; grid-template-columns: 1.35fr 1fr; gap: 6px; padding: 6px; min-height: 0; }
+.pane { display: grid; grid-template-rows: 26px 1fr; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; background: var(--bg0); min-height: 0; position: relative; }
+.pane.focus { box-shadow: var(--glow); border-color: transparent; }
+.pane-h { display: flex; align-items: center; gap: 8px; padding: 0 4px 0 8px; border-bottom: 1px solid var(--line); background: var(--bg1); font: 11.5px "JetBrains Mono"; color: var(--fg3); }
+.pane-h .n { color: var(--fg); font-weight: 500; }
+.pane-h .st { margin-left: auto; display: flex; align-items: center; gap: 6px; }
+.pb { width: 22px; height: 22px; display: grid; place-items: center; border-radius: 4px; color: var(--fg3); font-size: 13px; }
+.pb.mic.rec { color: var(--err); background: color-mix(in srgb, var(--err) 14%, transparent); }
+.pb.mic.open { color: var(--acc); background: var(--acc-dim); }
+.glyph { color: var(--agent-claude); font-size: 13px; }
+.term { padding: 10px 12px; font: 12.5px/1.55 "JetBrains Mono"; color: var(--term-fg); white-space: pre; overflow: hidden; }
+.term .c1 { color: var(--acc); } .term .c2 { color: var(--fg3); } .term .c3 { color: var(--wait); } .term .c4 { color: var(--run); } .term .c5 { color: var(--ok); }
+.term .box { display: inline-block; border: 1px solid var(--line2); border-radius: 6px; padding: 4px 10px; white-space: pre; width: 96%; }
+.sl { height: 26px; flex: none; background: var(--bg1); border-top: 1px solid var(--line); display: flex; align-items: center; gap: 14px; padding: 0 12px; font: 11px "JetBrains Mono"; color: var(--fg3); }
+.sl .rec { color: var(--err); display: flex; align-items: center; gap: 6px; }
+
+/* ---------- Voice Composer (spec I) ---------- */
+.vc { position: absolute; left: 10px; right: 10px; bottom: 10px; max-width: 760px; margin: 0 auto;
+  background: var(--bg2); border: 1px solid var(--line2); border-radius: 8px; box-shadow: var(--shadow);
+  display: flex; flex-direction: column; overflow: hidden; }
+.vc.listening { border-color: var(--acc-line); box-shadow: var(--shadow), var(--glow); }
+.vc-h { height: 34px; display: flex; align-items: center; gap: 8px; padding: 0 6px 0 12px; border-bottom: 1px solid var(--line); }
+.vc-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.vc-dot.rec { background: var(--err); box-shadow: 0 0 0 3px color-mix(in srgb, var(--err) 22%, transparent); }
+.vc-dot.run { background: var(--run); }
+.vc-dot.ready { background: var(--acc); }
+.vc-dot.err { background: var(--err); }
+.vc-state { font: 600 12px Inter; color: var(--fg); }
+.vc-time { font: 11px "JetBrains Mono"; color: var(--fg3); }
+.vc-meter { display: flex; align-items: center; gap: 2px; height: 16px; margin-left: 4px; }
+.vc-meter i { width: 2px; border-radius: 1px; background: var(--acc); display: block; }
+.vc-meter.off i { background: var(--bg4); }
+.vc-target { margin-left: auto; display: flex; align-items: center; gap: 6px; font: 11px "JetBrains Mono"; color: var(--fg3); }
+.vc-target .glyph { font-size: 12px; }
+.vc-target b { color: var(--fg2); font-weight: 500; }
+.vc-x { width: 22px; height: 22px; display: grid; place-items: center; color: var(--fg3); border-radius: 4px; }
+
+.vc-heard { display: flex; gap: 8px; padding: 8px 12px 8px; font: italic 12.5px/1.5 Inter; color: var(--fg2); }
+.vc-heard .ph { font-style: normal; color: var(--fg3); font-size: 14px; margin-top: 2px; flex: none; }
+.vc-heard .tent { color: var(--fg3); }
+.vc-heard.folded span.t { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; }
+.vc-heard .more { font: normal 11px "JetBrains Mono"; color: var(--fg3); margin-left: auto; flex: none; margin-top: 2px; }
+
+.vc-draft { margin: 0 12px; background: var(--bg0); border: 1px solid var(--line); border-radius: 6px; padding: 9px 11px;
+  font: 13.5px/1.55 Inter; color: var(--fg); min-height: 70px; white-space: pre-wrap; }
+.vc-draft.focus { border-color: var(--acc-line); }
+.vc-draft.empty { color: var(--fg3); }
+.vc-draft code { font: 12.5px "JetBrains Mono"; background: var(--bg3); border-radius: 3px; padding: 0 4px; color: var(--fg); }
+.vc-draft .chg { background: var(--acc-dim); box-shadow: 0 1px 0 var(--acc-bar); border-radius: 2px; }
+.vc-draft .unsure { color: var(--wait); background: var(--wait-dim); border-radius: 3px; padding: 0 4px; font: 500 12px "JetBrains Mono"; }
+.vc-draft .caret { display: inline-block; width: 2px; height: 15px; background: var(--acc); vertical-align: -3px; }
+.vc-draft .stale { opacity: .5; }
+
+.vc-act { display: flex; align-items: center; gap: 8px; padding: 7px 12px 0; font: 11px "JetBrains Mono"; color: var(--fg3); min-height: 24px; }
+.vc-act .ph { font-size: 13px; }
+.vc-act .step { margin-left: auto; }
+.vc-act.err { color: var(--err); }
+.vc-act.err a { color: var(--acc); text-decoration: none; }
+
+.vc-f { display: flex; align-items: center; gap: 14px; padding: 8px 8px 8px 12px; margin-top: 8px; border-top: 1px solid var(--line); font: 11.5px Inter; color: var(--fg3); }
+.vc-f .hint { display: flex; align-items: center; gap: 6px; }
+.vc-f .sp { flex: 1; }
+.btn { height: 26px; display: inline-flex; align-items: center; gap: 6px; padding: 0 10px; border-radius: 6px; font: 600 12px Inter; }
+.btn.sec { background: var(--bg2); border: 1px solid var(--line2); color: var(--fg); }
+.btn.pri { background: var(--acc); color: var(--acc-fg); }
+.btn.pri kbd { background: transparent; border-color: color-mix(in srgb, var(--acc-fg) 30%, transparent); color: var(--acc-fg); }
+.btn[disabled] { opacity: .45; }
+.btn .ph { font-size: 14px; }
+
+/* gallery (#all) */
+.gallery { display: none; padding: 24px; gap: 24px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.gallery.on { display: grid; }
+.gallery .cell { position: relative; }
+.gallery .cell h3 { font: 600 10.5px "JetBrains Mono"; letter-spacing: .12em; color: var(--fg3); margin-bottom: 8px; text-transform: uppercase; }
+.gallery .vc { position: relative; left: 0; right: 0; bottom: 0; }
+</style>
+</head>
+<body>
+
+<template id="chrome">
+  <div class="tb"><i class="ph ph-squares-four" style="color:var(--acc)"></i><span class="crumb"><b>Shop</b> / shop-web / checkout-v2</span>
+    <div class="cmd"><i class="ph ph-magnifying-glass"></i>Search or run a command<span style="margin-left:auto"><kbd>Ctrl ⇧ P</kbd></span></div>
+    <i class="ph ph-sidebar-simple"></i></div>
+  <div class="body">
+    <div class="nav">
+      <div class="lbl">SHOP</div>
+      <div class="nr"><i class="ph ph-git-branch" style="color:var(--fg3)"></i>shop-web<span class="m">main</span></div>
+      <div class="nr d1"><i class="ph ph-git-fork" style="color:var(--wt)"></i>checkout-v2<span class="m">↑3</span></div>
+      <div class="nr d2 sel"><i class="ph ph-robot" style="color:var(--agent-claude)"></i>planner<span class="m">idle</span></div>
+      <div class="nr d2"><i class="ph ph-robot"></i>tests<span class="m">done</span></div>
+      <div class="nr"><i class="ph ph-git-branch" style="color:var(--fg3)"></i>shop-api<span class="m">develop</span></div>
+    </div>
+    <div class="center">
+      <div class="tabs"><div class="tab on"><i class="ph ph-terminal-window"></i>checkout-v2</div><div class="tab">api</div></div>
+      <div class="panes">
+        <div class="pane focus">
+          <div class="pane-h"><i class="ph ph-asterisk glyph"></i><span class="n">planner</span><span>claude · opus</span>
+            <span class="st">idle</span><span class="pb mic slot"><i class="ph ph-microphone"></i></span><span class="pb"><i class="ph ph-corners-out"></i></span><span class="pb"><i class="ph ph-dots-three"></i></span></div>
+          <div class="term"><span class="c1">✻</span> Welcome to Claude Code
+
+<span class="c2">  cwd: ~/ws/acme/.rade/worktrees/shop-web/checkout-v2</span>
+
+<span class="c2">&gt;</span> look at the checkout form, the totals look off after a promo code
+
+<span class="c1">●</span> I read <span class="c4">src/checkout/CheckoutForm.tsx</span> and <span class="c4">useTotals.ts</span>.
+  The promo discount is applied in <span class="c4">applyPromo()</span>, then again in
+  <span class="c4">useTotals()</span> when <span class="c3">promo.kind === "percent"</span>.
+
+<span class="c2">  Want me to fix it?</span>
+
+<span class="box"><span class="c2">&gt;</span> <span class="cursor" style="display:inline-block;width:8px;height:15px;background:var(--acc);vertical-align:-3px"></span></span>
+<span class="c2">  ? for shortcuts</span></div>
+          <div class="vc-slot"></div>
+        </div>
+        <div class="pane">
+          <div class="pane-h"><i class="ph ph-robot"></i><span class="n">tests</span><span>codex · gpt-5</span><span class="st" style="color:var(--ok)"><i class="ph ph-check-circle"></i>done</span><span class="pb mic"><i class="ph ph-microphone"></i></span><span class="pb"><i class="ph ph-dots-three"></i></span></div>
+          <div class="term"><span class="c4">codex</span> <span class="c2">›</span> run the checkout tests
+
+<span class="c2">•</span> Ran <span class="c2">pnpm test --filter checkout</span>
+<span class="c2">  └ 41 passed, 3 skipped</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="sl"><span>Shop</span><span>checkout-v2</span><span class="slrec"></span><span style="margin-left:auto">5h 62% · wk 41%</span></div>
+</template>
+
+<script>
+const meter = (on, n = 28) => {
+  const h = [3,5,8,12,9,6,10,14,11,7,4,6,9,13,10,8,5,3,6,10,12,8,5,4,3,5,7,4];
+  return `<span class="vc-meter${on ? "" : " off"}">${h.slice(0, n).map(x => `<i style="height:${on ? x : 3}px"></i>`).join("")}</span>`;
+};
+const target = `<span class="vc-target">→ <i class="ph ph-asterisk glyph"></i><b>planner</b> · checkout-v2</span><span class="vc-x"><i class="ph ph-x"></i></span>`;
+const heardFull = `ừ thì cái phần promo code á, nó đang bị trừ hai lần, à ở cái <span>useTotals</span> á, sửa cho nó chỉ trừ một lần thôi, à mà nhớ viết test cho cái trường hợp percent luôn`;
+
+const S = {
+  // A — first hold on an empty composer: listening, live words, nothing drafted yet
+  a: { cls: "listening", mic: "rec",
+    head: `<span class="vc-dot rec"></span><span class="vc-state">Listening</span><span class="vc-time">0:06</span>${meter(true)}${target}`,
+    heard: `<i class="ph ph-quotes"></i><span class="t">ừ thì cái phần promo code á, nó đang bị trừ hai lần, à ở cái use totals <span class="tent">á sửa cho nó</span></span>`,
+    draft: `<div class="vc-draft empty">The prompt appears here when you let go of F8.</div>`,
+    act: `<div class="vc-act"><i class="ph ph-info"></i>Reading the session and checkout-v2 while you speak</div>`,
+    foot: `<span class="hint">Release <kbd>F8</kbd> to draft</span><span class="hint"><kbd>Esc</kbd> cancel</span><span class="sp"></span><span class="btn sec" disabled>Paste only <kbd>Alt ↵</kbd></span><span class="btn pri" disabled><i class="ph ph-arrow-elbow-down-left"></i>Send</span>` },
+  // B — released: final words, the agent reads code and streams the draft
+  b: { cls: "", mic: "open",
+    head: `<span class="vc-dot run"></span><span class="vc-state">Drafting</span><span class="vc-time">0:11</span>${meter(false)}${target}`,
+    heard: `<i class="ph ph-quotes"></i><span class="t">${heardFull}</span>`,
+    draft: `<div class="vc-draft">Fix the promo discount being applied twice: <code>useTotals()</code> subtracts it again after <code>applyPromo()</code> for <code>promo.kind === "percent"</code>.
+- Apply it once, in <span class="caret"></span></div>`,
+    act: `<div class="vc-act"><i class="ph ph-file-text"></i>Read src/checkout/useTotals.ts<span class="step">2 / 6</span></div>`,
+    foot: `<span class="hint"><kbd>Esc</kbd> stop</span><span class="sp"></span><span class="btn sec" disabled>Paste only <kbd>Alt ↵</kbd></span><span class="btn pri" disabled><i class="ph ph-arrow-elbow-down-left"></i>Send</span>` },
+  // C — ready: what you said folded to one line, draft editable, Send primary
+  c: { cls: "", mic: "open",
+    head: `<span class="vc-dot ready"></span><span class="vc-state">Ready</span><span class="vc-time">0:11 · 3.2 s</span>${target}`,
+    heard: `<i class="ph ph-quotes"></i><span class="t">${heardFull}</span><span class="more">show</span>`, heardFold: true,
+    draft: `<div class="vc-draft focus">Fix the promo discount being applied twice: <code>useTotals()</code> subtracts it again after <code>applyPromo()</code> for <code>promo.kind === "percent"</code>.
+- Apply it once, in <code>applyPromo()</code> (<code>src/checkout/promo.ts:31</code>).
+- Add a test for a percent promo in <code>useTotals.test.ts</code>.</div>`,
+    act: ``,
+    foot: `<span class="hint">Hold <kbd>F8</kbd> to revise</span><span class="hint"><kbd>Esc</kbd> discard</span><span class="sp"></span><span class="btn sec">Paste only <kbd>Alt ↵</kbd></span><span class="btn pri"><i class="ph ph-arrow-elbow-down-left"></i>Send <kbd>↵</kbd></span>` },
+  // D — holding F8 again over a draft: revising (the draft stays, dimmed)
+  d: { cls: "listening", mic: "rec",
+    head: `<span class="vc-dot rec"></span><span class="vc-state">Revising</span><span class="vc-time">0:03</span>${meter(true)}${target}`,
+    heard: `<i class="ph ph-quotes"></i><span class="t">à không, test thì để cho agent tests làm, bỏ cái dòng test đi, <span class="tent">thêm là đừng đổi</span></span>`,
+    draft: `<div class="vc-draft stale">Fix the promo discount being applied twice: <code>useTotals()</code> subtracts it again after <code>applyPromo()</code> for <code>promo.kind === "percent"</code>.
+- Apply it once, in <code>applyPromo()</code> (<code>src/checkout/promo.ts:31</code>).
+- Add a test for a percent promo in <code>useTotals.test.ts</code>.</div>`,
+    act: ``,
+    foot: `<span class="hint">Release <kbd>F8</kbd> to apply</span><span class="hint"><kbd>Esc</kbd> keep the draft</span><span class="sp"></span><span class="btn sec" disabled>Paste only <kbd>Alt ↵</kbd></span><span class="btn pri" disabled><i class="ph ph-arrow-elbow-down-left"></i>Send</span>` },
+  // E — revised: changed words marked, one unsure word flagged
+  e: { cls: "", mic: "open",
+    head: `<span class="vc-dot ready"></span><span class="vc-state">Ready</span><span class="vc-time">revision 2 · 1.9 s</span>${target}`,
+    heard: `<i class="ph ph-quotes"></i><span class="t">à không, test thì để cho agent tests làm, bỏ cái dòng test đi, thêm là đừng đổi cái API của applyPromo</span><span class="more">show</span>`, heardFold: true,
+    draft: `<div class="vc-draft focus">Fix the promo discount being applied twice: <code>useTotals()</code> subtracts it again after <code>applyPromo()</code> for <code>promo.kind === "percent"</code>.
+- Apply it once, in <code>applyPromo()</code> (<code>src/checkout/promo.ts:31</code>).
+- <span class="chg">Keep <code>applyPromo()</code>'s signature unchanged.</span>
+- <span class="chg">No tests in this change (the tests agent writes them).</span> <span class="unsure">[?] "agent tests"</span></div>`,
+    act: ``,
+    foot: `<span class="hint">Hold <kbd>F8</kbd> to revise</span><span class="hint"><kbd>Esc</kbd> discard</span><span class="sp"></span><span class="btn sec">Paste only <kbd>Alt ↵</kbd></span><span class="btn pri"><i class="ph ph-arrow-elbow-down-left"></i>Send <kbd>↵</kbd></span>` },
+  // F — no speech-to-text server: an error with the fix, nothing lost
+  f: { cls: "", mic: "open",
+    head: `<span class="vc-dot err"></span><span class="vc-state">Can't transcribe</span><span class="vc-time">0:05</span>${target}`,
+    heard: ``,
+    draft: `<div class="vc-draft empty">Nothing heard yet.</div>`,
+    act: `<div class="vc-act err"><i class="ph ph-warning-diamond"></i>No speech-to-text server at 127.0.0.1:8178 · <a>Set up voice…</a></div>`,
+    foot: `<span class="hint">Hold <kbd>F8</kbd> to try again</span><span class="hint"><kbd>Esc</kbd> close</span><span class="sp"></span><span class="btn sec" disabled>Paste only <kbd>Alt ↵</kbd></span><span class="btn pri" disabled><i class="ph ph-arrow-elbow-down-left"></i>Send</span>` },
+};
+const CAPS = { a: "A · Listening (first hold)", b: "B · Drafting (released)", c: "C · Ready", d: "D · Revising (hold again)", e: "E · Revised", f: "F · No STT server" };
+
+const composer = s => `<div class="vc ${s.cls}">
+  <div class="vc-h">${s.head}</div>
+  ${s.heard ? `<div class="vc-heard${s.heardFold ? " folded" : ""}">${s.heard}</div>` : `<div style="height:8px"></div>`}
+  ${s.draft}
+  ${s.act || `<div style="height:0"></div>`}
+  <div class="vc-f">${s.foot}</div></div>`;
+
+const [f, theme] = (location.hash.slice(1) || "c").split("-");
+if (theme === "light") document.body.classList.add("light");
+if (f === "all") {
+  const g = document.createElement("div"); g.className = "gallery on";
+  for (const k of Object.keys(S)) g.insertAdjacentHTML("beforeend", `<div class="cell"><h3>${CAPS[k]}</h3>${composer(S[k])}</div>`);
+  document.body.appendChild(g);
+} else {
+  const s = S[f] || S.c;
+  const fr = document.createElement("div"); fr.className = "frame on";
+  fr.appendChild(document.getElementById("chrome").content.cloneNode(true));
+  fr.querySelector(".vc-slot").outerHTML = composer(s);
+  const mic = fr.querySelector(".pb.mic.slot");
+  mic.classList.add(s.mic);
+  if (s.mic === "rec") { mic.innerHTML = `<i class="ph-fill ph-microphone"></i>`; fr.querySelector(".slrec").outerHTML = `<span class="rec"><i class="ph-fill ph-microphone"></i>REC 0:06</span>`; }
+  fr.insertAdjacentHTML("beforeend", `<div class="cap">${CAPS[f] || CAPS.c}</div>`);
+  document.body.appendChild(fr);
+}
+</script>
+</body>
+</html>
