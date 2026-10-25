@@ -32,11 +32,14 @@ impl Layer {
     }
 
     /// Why `key` (dotted) of this layer is ignored: `app-wide` below the
-    /// user file, `removed in 1.0.0` in any file (R101.4).
+    /// user file (`user config only` for `[voice]`, R124), `removed in 1.0.0`
+    /// in any file (R101.4).
     pub fn ignores(&self, key: &str) -> Option<&'static str> {
         let root = key.split('.').next().unwrap_or("");
         if REMOVED.contains(&root) {
             Some("removed in 1.0.0")
+        } else if self.below_user() && root == "voice" {
+            Some("user config only")
         } else if self.below_user() && APP_WIDE.contains(&root) {
             Some("app-wide")
         } else {
@@ -523,6 +526,105 @@ mod tests {
             a,
             toml::from_str::<toml::Table>("x = [2, 3]\n[t]\na = 1\nb = 9\nc = 3").unwrap()
         );
+    }
+
+    #[test]
+    fn r124_j_voice_config_defaults_settings_and_layers() {
+        use crate::config::{DraftLanguage, VoiceAgent, VoiceTools};
+        use crate::settings;
+        let c = Config::default();
+        let v = &c.voice;
+        assert_eq!(
+            (v.agent, v.model.as_str(), v.agent_command.as_str(), v.tools),
+            (VoiceAgent::Claude, "", "", VoiceTools::Read)
+        );
+        assert_eq!(
+            (v.max_turns, v.timeout_secs, v.max_recording_secs),
+            (6, 60, 120)
+        );
+        assert!(v.live_preview);
+        assert_eq!(v.draft_language, DraftLanguage::Same);
+        assert_eq!(v.stt_url, "http://127.0.0.1:8178/v1/audio/transcriptions");
+        assert_eq!(
+            (v.stt_model.as_str(), v.stt_language.as_str()),
+            ("whisper-1", "auto")
+        );
+        assert_eq!(v.stt_key_command, "");
+        assert_eq!(
+            v.record_command,
+            "pw-record --rate 16000 --channels 1 --format s16 -"
+        );
+        assert!(c
+            .keybindings()
+            .iter()
+            .any(|(a, k)| a == "voice" && k == "F8"));
+        // Read through the clamps.
+        let c = Config::parse("[voice]\nmax_turns = 99\ntimeout_secs = 1\nmax_recording_secs = 9999\nagent = \"codex\"\ntools = \"none\"\ndraft_language = \"en\"\n").unwrap();
+        assert_eq!(c.voice.max_turns(), 20);
+        assert_eq!(c.voice.timeout().as_secs(), 10);
+        assert_eq!(c.voice.max_recording().as_secs(), 600);
+        assert_eq!(
+            (c.voice.agent, c.voice.tools, c.voice.draft_language),
+            (VoiceAgent::Codex, VoiceTools::None, DraftLanguage::En)
+        );
+        assert!(Config::parse("[voice]\nbogus = 1\n").is_err());
+        let lang = |l: &str| {
+            Config::parse(&format!("[voice]\nstt_language = \"{l}\"\n"))
+                .unwrap()
+                .voice
+                .stt_language()
+                .to_string()
+        };
+        assert_eq!(c.voice.stt_language(), "auto");
+        for (set, read) in [
+            ("vi", "vi"),
+            ("ja", "ja"),
+            ("yue", "yue"),
+            ("VI", "auto"),
+            ("english", "auto"),
+            ("v", "auto"),
+            ("v1", "auto"),
+            ("", "auto"),
+        ] {
+            assert_eq!(lang(set), read, "{set}");
+        }
+        // Settings rows: the Voice category sits between Agents and Statusline.
+        let cats = settings::CATEGORIES;
+        let at = |n: &str| cats.iter().position(|c| *c == n).unwrap();
+        assert_eq!(at("Voice"), at("Agents") + 1);
+        assert_eq!(at("Statusline"), at("Voice") + 1);
+        let rows: Vec<_> = settings::SETTINGS
+            .iter()
+            .filter(|s| s.category == "Voice")
+            .collect();
+        assert_eq!(rows.len(), 8);
+        let kind = |k: &str| settings::find(k).unwrap().kind;
+        assert_eq!(
+            kind("voice.max_turns"),
+            settings::Kind::Integer { min: 1, max: 20 }
+        );
+        assert_eq!(
+            kind("voice.timeout_secs"),
+            settings::Kind::Integer { min: 10, max: 300 }
+        );
+        assert_eq!(
+            kind("voice.max_recording_secs"),
+            settings::Kind::Integer { min: 10, max: 600 }
+        );
+        assert_eq!(
+            kind("voice.stt_language"),
+            settings::Kind::Choice(&["auto", "vi", "en"])
+        );
+        // User config only: a `.rade.toml` `[voice]` is explained as ignored.
+        assert!(!LAYERED.contains(&"voice") && APP_WIDE.contains(&"voice"));
+        let user = builtin();
+        assert_eq!(user.ignores("voice.agent"), None);
+        let text = "[voice]\nstt_url = \"http://x\"\n";
+        let src = layer("source", text);
+        assert_eq!(src.ignores("voice.stt_url"), Some("user config only"));
+        assert_eq!(src.ignored(), vec!["voice.stt_url".to_string()]);
+        let eff = effective(&[user, src]);
+        assert_eq!(eff.voice.stt_url, Config::default().voice.stt_url);
     }
 
     #[test]
