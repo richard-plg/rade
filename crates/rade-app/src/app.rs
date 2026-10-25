@@ -432,6 +432,9 @@ impl App {
         for (id, t) in dead {
             crate::layout_view::detach(&t.root);
             panes::retire(&id, t);
+            // R124: a Voice Composer on a Pane that is gone ends (not inside
+            // the sync: closing it moves focus).
+            glib::idle_add_local_once(move || crate::voice::pane_closed(&id));
         }
         self.viewers.borrow_mut().retain(|id, v| {
             let keep = live.contains(id);
@@ -640,7 +643,7 @@ impl App {
     /// Agent Account's variable and `RADE_ACCOUNT`, which win over `[env]`
     /// (R108.2, R108.7). An account no longer declared adds nothing (the
     /// spawn or restore that made the Pane already said why).
-    fn terminal_env(
+    pub(crate) fn terminal_env(
         &self,
         model: &State,
         pane: &rade_core::Pane,
@@ -752,6 +755,7 @@ impl App {
     }
 
     pub fn quit(&self) {
+        crate::voice::shutdown();
         self.save_now();
         self.gtk_app.quit();
     }

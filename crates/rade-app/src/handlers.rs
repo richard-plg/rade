@@ -638,6 +638,7 @@ fn handle(method: &str, p: Value) -> Result<Value> {
         }
         "debug.tabs" => crate::titles::debug(&p),
         "debug.ui" => crate::debug::ui(&app, &p),
+        "debug.voice" => crate::voice::debug(&p),
         "debug.scm" => crate::changes::debug(&p),
         "debug.find" => crate::search_view::debug(&p),
         "debug.menu" => crate::menus::debug_menu(&p),
