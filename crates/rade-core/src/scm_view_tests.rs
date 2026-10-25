@@ -293,9 +293,13 @@ fn discard_dialog_texts() {
         discard_dialog(&[], 2, 1),
         (
             "Discard changes in 3 files?".into(),
-            "Unstaged changes in 2 tracked files are lost; 1 untracked files go to the trash. Staged changes stay.".into(),
+            "Unstaged changes in 2 tracked files are lost; 1 untracked file goes to the trash. Staged changes stay.".into(),
             "Discard 3 Files".into()
         )
+    );
+    assert_eq!(
+        discard_dialog(&[], 1, 1).1,
+        "Unstaged changes in 1 tracked file are lost; 1 untracked file goes to the trash. Staged changes stay."
     );
     assert_eq!(
         discard_dialog(&[], 3, 0).1,

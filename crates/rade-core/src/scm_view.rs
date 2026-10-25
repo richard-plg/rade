@@ -361,12 +361,18 @@ pub fn discard_dialog(
     }
     let mut clauses = Vec::new();
     if tracked > 0 {
-        clauses.push(format!(
-            "Unstaged changes in {tracked} tracked files are lost"
-        ));
+        clauses.push(if tracked == 1 {
+            "Unstaged changes in 1 tracked file are lost".to_string()
+        } else {
+            format!("Unstaged changes in {tracked} tracked files are lost")
+        });
     }
     if untracked > 0 {
-        clauses.push(format!("{untracked} untracked files go to the trash"));
+        clauses.push(if untracked == 1 {
+            "1 untracked file goes to the trash".to_string()
+        } else {
+            format!("{untracked} untracked files go to the trash")
+        });
     }
     (
         format!("Discard changes in {n} files?"),
