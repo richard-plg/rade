@@ -57,6 +57,7 @@ mod perf;
 mod project_dialogs;
 mod project_settings;
 mod projects;
+mod quick_diff;
 mod review;
 mod review_view;
 mod search_view;

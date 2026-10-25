@@ -761,6 +761,7 @@ toast > button.circular image { -gtk-icon-size: 16px; }
 .diff-filler { background: @bg1; }
 .diff-current { box-shadow: inset 2px 0 0 @acc; }
 .quick-diff-peek { padding: 6px; font-family: "JetBrains Mono", monospace; font-size: 11.5px; }
+.quick-diff-peek button { font-family: "Inter", sans-serif; font-size: 11.5px; }
 .status-cell-identity.wait, .status-cell-identity.wait label, .status-cell-identity.wait image { color: @wait; }
 
 /* ---- Usage (R110, spec E, A.74, F.8–F.10, F.15–F.18) --------------------------- */

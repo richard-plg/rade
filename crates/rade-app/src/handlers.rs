@@ -71,7 +71,11 @@ pub fn dispatch(req: Request) -> Response {
     } else if req.method == "debug.palette" {
         crate::palette_run::debug(req.params)
     } else if req.method == "debug.viewer" {
-        params(req.params).and_then(crate::debug::viewer)
+        // Quick Diff's peek (R123) is the Viewer's own; the rest is debug.rs's.
+        match crate::quick_diff::debug(&req.params) {
+            Some(r) => r,
+            None => params(req.params).and_then(crate::debug::viewer),
+        }
     } else {
         on_main(move || handle(&req.method, req.params))
     };

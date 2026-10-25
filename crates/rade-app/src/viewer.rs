@@ -79,6 +79,8 @@ pub struct Viewer {
     /// The name shown as a link while Ctrl is held over it: (0-based line,
     /// first and past-the-end character).
     link: Cell<Option<(i32, i32, i32)>>,
+    /// Gutter marks of the lines changed against the index (R123).
+    quick: Rc<crate::quick_diff::QuickDiff>,
 }
 
 pub fn is_dark() -> bool {
@@ -267,6 +269,7 @@ impl Viewer {
             outline: outline.clone(),
             open: open.clone(),
             stack,
+            quick: crate::quick_diff::QuickDiff::attach(id, &source, &buffer),
             source,
             buffer,
             picture,
@@ -579,7 +582,7 @@ impl Viewer {
         use gdk::ModifierType as M;
         let mods = state & (M::CONTROL_MASK | M::SHIFT_MASK | M::ALT_MASK);
         let text = self.stack.visible_child_name().as_deref() == Some("text");
-        if key == gdk::Key::Escape && crate::code_pop::close() {
+        if key == gdk::Key::Escape && (crate::code_pop::close() || self.quick.close_peek()) {
             return true;
         }
         // Ctrl pressed with the pointer already resting on a name (R90.1).
@@ -909,6 +912,11 @@ impl Viewer {
         self.pending_col.set(Some((line, col)));
     }
 
+    /// Quick Diff (R123): the gutter marks and their peek.
+    pub fn quick_diff(&self) -> &Rc<crate::quick_diff::QuickDiff> {
+        &self.quick
+    }
+
     pub fn path(&self) -> Option<PathBuf> {
         self.shown.borrow().as_ref().map(|s| s.0.clone())
     }
@@ -1004,6 +1012,10 @@ impl Viewer {
             self.stack.set_visible_child_name("message");
         };
         let kind = classify(&path);
+        // Quick Diff marks a code file only (R123.1); set again below.
+        if !matches!(kind, Content::Text) {
+            self.quick.set_file(None);
+        }
         self.pdf.set(kind == Content::Pdf);
         self.source_toggle.set_visible(kind == Content::Html);
         let show_source = kind == Content::Html && self.html_source.get();
@@ -1060,6 +1072,7 @@ impl Viewer {
                 self.buffer.set_style_scheme(scheme_for(is_dark()).as_ref());
                 self.link.set(None);
                 self.buffer.set_text(&text);
+                self.quick.set_file(Some(&path));
                 self.stack.set_visible_child_name("text");
                 match (keep_place, vadj) {
                     (true, Some(y)) => {
@@ -1161,6 +1174,7 @@ impl Viewer {
     /// Re-apply the light/dark appearance (adw StyleManager changed).
     pub fn restyle(self: &Rc<Self>) {
         self.buffer.set_style_scheme(scheme_for(is_dark()).as_ref());
+        self.quick.restyle();
         if self.stack.visible_child_name().as_deref() == Some("markdown") {
             self.load(true);
         }
@@ -1259,6 +1273,7 @@ impl Viewer {
                 v["link"] = l["link"].clone();
                 v["pointer_cursor"] = l["cursor"].clone();
                 v["lines"] = json!(self.buffer.line_count());
+                v["quick_diff"] = self.quick.marks();
                 v["language"] = json!(self.buffer.language().map(|l| l.id().to_string()));
                 v["scheme"] = json!(self.buffer.style_scheme().map(|s| s.id().to_string()));
                 done(v)
