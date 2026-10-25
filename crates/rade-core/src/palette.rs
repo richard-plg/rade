@@ -437,6 +437,10 @@ fn pane_title(p: &crate::Pane) -> String {
             .file_name()
             .map_or("Viewer".into(), |n| n.to_string_lossy().into_owned()),
         PaneKind::Review { .. } => "Review".into(),
+        PaneKind::Diff { path, .. } => format!(
+            "Diff · {}",
+            path.rsplit('/').next().unwrap_or(path.as_str())
+        ),
         PaneKind::Browser { url, .. } => {
             // The host, or a file's name: never a local path.
             let rest = url.split_once("://").map_or(url.as_str(), |(_, r)| r);

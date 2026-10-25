@@ -3,6 +3,11 @@
 //! model. GTK-free; the widgets live in `rade-app`.
 
 use crate::diff::{Hunk, LineKind};
+use crate::layout::{Pane, PaneKind, SplitDir};
+use crate::model::State;
+use crate::rpc::{Error, Result};
+use crate::scm::Section;
+use std::path::Path;
 
 /// A side-by-side row: indices into `Hunk::lines`; `None` = filler.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -132,6 +137,80 @@ pub fn quick_marks(u0: &str) -> Vec<Mark> {
     }
     out.sort_by_key(|m| m.line);
     out
+}
+
+impl State {
+    /// R122.1: the active Tab of (source, worktree) — its Diff Pane
+    /// navigates; else a new one split right of the Tab's focused Pane; else
+    /// a new Tab. `focus` also focuses it. Returns the Pane's id.
+    pub fn open_diff(
+        &mut self,
+        source: &str,
+        worktree: &str,
+        root: &Path,
+        path: &str,
+        section: Section,
+        focus: bool,
+    ) -> Result<String> {
+        self.check_not_paused(source)?;
+        let wt = self
+            .worktree(source, worktree)
+            .ok_or_else(|| Error::not_found(format!("no worktree {source}/{worktree}")))?;
+        let tab = wt.active_tab.as_deref().and_then(|t| wt.tab(t));
+        let existing = tab.and_then(|t| {
+            t.panes()
+                .into_iter()
+                .find(|p| p.is_diff())
+                .map(|p| p.id.clone())
+        });
+        let from = tab.map(|t| t.focused.clone());
+        let id = match (existing, from) {
+            (Some(id), _) => {
+                self.diff_navigate(&id, root, path, section)?;
+                id
+            }
+            (None, Some(from)) => {
+                let pane = Pane::diff(self.next("p"), root.into(), path.into(), section);
+                self.split_with(&from, SplitDir::Right, pane, false)?
+            }
+            (None, None) => {
+                let pane = Pane::diff(self.next("p"), root.into(), path.into(), section);
+                let (tab, id) = self.new_tab_with(source, worktree, pane)?;
+                if focus {
+                    self.select_tab(&tab)?;
+                }
+                id
+            }
+        };
+        if focus {
+            self.focus_pane(&id)?;
+        }
+        Ok(id)
+    }
+
+    /// Show another file or section in a Diff Pane.
+    pub fn diff_navigate(
+        &mut self,
+        pane: &str,
+        to_root: &Path,
+        to_path: &str,
+        to_section: Section,
+    ) -> Result<()> {
+        let loc = self.locate_or_err(pane)?;
+        match &mut self.tab_mut(&loc)?.pane_mut(pane).unwrap().kind {
+            PaneKind::Diff {
+                root,
+                path,
+                section,
+            } => {
+                *root = to_root.into();
+                *path = to_path.into();
+                *section = to_section;
+                Ok(())
+            }
+            _ => Err(Error::usage(format!("pane {pane} is not a Diff Pane"))),
+        }
+    }
 }
 
 #[cfg(test)]

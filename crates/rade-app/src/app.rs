@@ -352,6 +352,7 @@ impl App {
                                 .entry(pane.id.clone())
                                 .or_insert_with(|| crate::review_view::ReviewView::new(&pane.id))
                                 .sync(),
+                            PaneKind::Diff { .. } => {} // T9: Diff Pane view
                             // Navigation is the view's own (links, history);
                             // the model only records where it is.
                             PaneKind::Browser { url, annotations } => {

@@ -96,6 +96,9 @@ pub fn tab_special(panes: &[&Pane]) -> Option<String> {
     if panes.iter().all(|p| p.is_review()) {
         return Some("Review".into());
     }
+    if panes.iter().all(|p| p.is_diff()) {
+        return Some("Diff".into());
+    }
     let hosts: Vec<String> = panes
         .iter()
         .filter_map(|p| match &p.kind {
