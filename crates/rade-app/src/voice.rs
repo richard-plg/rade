@@ -179,7 +179,7 @@ pub fn on_ui(event: Event) {
 /// focused Pane): a tap (D2 toggle, D3).
 pub fn tap(pane_id: &str) {
     if route(pane_id) {
-        feed(Event::Tap);
+        feed(Event::Tap { at_ms: 0 });
     }
 }
 
@@ -443,6 +443,7 @@ fn normalize(ev: Event) -> Event {
         Event::KeyUp { .. } => Event::KeyUp { at_ms },
         Event::Escape { .. } => Event::Escape { at_ms },
         Event::Tick { .. } => Event::Tick { at_ms },
+        Event::Tap { .. } => Event::Tap { at_ms },
         e => e,
     }
 }
@@ -997,9 +998,20 @@ fn pairs(r: &[std::ops::Range<usize>]) -> Value {
 
 fn info() -> Value {
     let (v, pane, edited, agent, recorder, requests) = with(|c| {
+        let mut v = c.composer.view();
+        let mut pane = c.pane.clone();
+        // A `debug.voice scene` shows a composer the controller knows nothing of.
+        if !v.open {
+            if let Some(scene) =
+                crate::voice_view::last_view().filter(|_| crate::voice_view::is_open())
+            {
+                v = scene;
+                pane = pane.or_else(crate::voice_view::pane);
+            }
+        }
         (
-            c.composer.view(),
-            c.pane.clone(),
+            v,
+            pane,
             c.edited,
             c.agent
                 .as_ref()

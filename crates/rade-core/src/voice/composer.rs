@@ -57,7 +57,9 @@ pub enum Event {
         at_ms: u64,
     },
     /// The mic button or the palette action.
-    Tap,
+    Tap {
+        at_ms: u64,
+    },
     FocusLost,
     PaneClosed,
     /// The close button: discard without asking.
@@ -465,11 +467,14 @@ impl Composer {
                     }
                 }
             }
-            Event::Tap => match (self.open, self.state) {
-                (true, State::Listening) => self.end_take(&mut a),
-                (true, State::Transcribing | State::Drafting) => {}
-                _ => self.begin_take(Mode::Toggle, &mut a),
-            },
+            Event::Tap { at_ms } => {
+                self.now = at_ms;
+                match (self.open, self.state) {
+                    (true, State::Listening) => self.end_take(&mut a),
+                    (true, State::Transcribing | State::Drafting) => {}
+                    _ => self.begin_take(Mode::Toggle, &mut a),
+                }
+            }
             Event::FocusLost => {
                 if self.open && self.state == State::Listening {
                     self.end_take(&mut a);

@@ -204,14 +204,16 @@ fn r124_g_composer_states() {
     assert_eq!(c.state(), Some(State::Transcribing));
     // The button and palette are taps; FocusLost and the cap end a take.
     let mut c = composer();
-    c.on(Event::Tap);
+    c.on(Event::Tap { at_ms: 0 });
     assert_eq!(c.view().mode, Some(Mode::Toggle));
-    assert!(c.on(Event::Tap).contains(&Action::SttFinal));
+    assert!(c
+        .on(Event::Tap { at_ms: 1_000 })
+        .contains(&Action::SttFinal));
     let mut c = composer();
     c.on(key_down(0));
     assert!(c.on(Event::FocusLost).contains(&Action::SttFinal));
     let mut c = composer();
-    c.on(Event::Tap);
+    c.on(Event::Tap { at_ms: 0 });
     assert!(c
         .on(Event::Tick { at_ms: 119_900 })
         .iter()
@@ -477,4 +479,22 @@ fn r124_g_composer_states() {
         turns(&a)[0].contains("CURRENT DRAFT\nDraft.")
             && turns(&a)[0].ends_with("Rewrite the whole prompt with this change.")
     );
+}
+
+/// A tap late in the app's life starts a take that runs from that tap: the
+/// take's clock is the tap's, not the last event's (R124-q).
+#[test]
+fn a_tap_stamps_the_take_clock() {
+    let mut c = composer();
+    c.on(Event::Tick { at_ms: 50_000_000 });
+    c.on(Event::Tap { at_ms: 50_000_000 });
+    assert_eq!(c.state(), Some(State::Listening));
+    assert!(c
+        .on(Event::Tick { at_ms: 50_001_200 })
+        .iter()
+        .all(|a| *a != Action::SttFinal));
+    assert_eq!(c.view().time, "0:01");
+    assert!(c
+        .on(Event::Tap { at_ms: 50_002_000 })
+        .contains(&Action::SttFinal));
 }

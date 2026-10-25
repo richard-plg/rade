@@ -100,6 +100,11 @@ pub fn is_open() -> bool {
     CARD.with(|c| c.borrow().is_some())
 }
 
+/// The view last rendered (a `debug.voice scene` has no controller state).
+pub fn last_view() -> Option<ComposerView> {
+    card().and_then(|c| c.last.borrow().clone())
+}
+
 /// The Pane the composer belongs to.
 pub fn pane() -> Option<String> {
     card().map(|c| c.pane.clone())
@@ -1146,6 +1151,18 @@ pub fn debug_info() -> Value {
             .collect::<Vec<_>>()
     };
     let t = c.tags.borrow();
+    // The pitch between display lines (CSS `line-height`; lines holding a
+    // code span are taller, so the least pitch is the plain-text one).
+    let mut line_pitches = Vec::new();
+    let mut it = c.buffer.start_iter();
+    for _ in 0..12 {
+        let y0 = c.draft.iter_location(&it).y();
+        let at = it.offset();
+        if !c.draft.forward_display_line(&mut it) || it.offset() == at {
+            break;
+        }
+        line_pitches.push(c.draft.iter_location(&it).y() - y0);
+    }
     json!({
         "heard_folded": c.fold_override.get().unwrap_or(c.model_fold.get()),
         "draft_tags": {
@@ -1154,6 +1171,27 @@ pub fn debug_info() -> Value {
             "unsure": pairs(&t.unsure),
         },
         "hints": *c.hint_texts.borrow(),
+        "draft_font": {
+            "family": c.draft.pango_context().font_description().and_then(|d| d.family().map(|f| f.to_string())),
+            "size": c.draft.pango_context().font_description().map(|d| {
+                let size = f64::from(d.size()) / f64::from(gtk::pango::SCALE);
+                if d.is_size_absolute() {
+                    size
+                } else {
+                    size * f64::from(c.draft.settings().gtk_xft_dpi()) / 1024.0 / 72.0
+                }
+            }),
+            "line_pitches": line_pitches,
+        },
+        "target": format!(
+            "\u{2192} {}{}",
+            c.target_name.label(),
+            if c.target_where.is_visible() {
+                format!(" \u{b7} {}", c.target_where.label())
+            } else {
+                String::new()
+            }
+        ),
         "compact": c.compact.get(),
         "focus": if c.draft.is_focus() { "draft" } else if c.composer.is_focus() { "card" } else { "elsewhere" },
     })
