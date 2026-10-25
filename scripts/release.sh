@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Cut a release (docs/RELEASING.md, ADR-0012, ADR-0043):
+# Cut a release (docs/RELEASING.md, ADR-0012, ADR-0043, ADR-0044):
 #   scripts/release.sh X.Y.Z [git-commit args, e.g. --trailer "Co-Authored-By: …"]
 # On a clean main (or release/* for a hotfix) in sync with origin:
 #   Cargo.toml + Cargo.lock version → X.Y.Z, CHANGELOG section [X.Y.Z] =
@@ -22,6 +22,12 @@ git diff --quiet && git diff --cached --quiet || fail "uncommitted changes"
 git fetch -q --tags origin
 [[ $(git rev-parse HEAD) == $(git rev-parse '@{u}') ]] || fail "$branch is not in sync with its upstream"
 ! git rev-parse -q --verify "refs/tags/v$V" >/dev/null || fail "tag v$V exists"
+# release.yml does not rerun CI: it requires CI to have passed on the commit
+# the release commit sits on (ADR-0044). Check it here, before tagging.
+head=$(git rev-parse HEAD)
+ci=$(gh api "repos/${REPO#https://github.com/}/actions/workflows/ci.yml/runs?head_sha=$head&per_page=1" \
+     --jq '.workflow_runs[0] | "\(.status) \(.conclusion)"' 2>/dev/null || true)
+[[ $ci == "completed success" ]] || fail "CI on ${head:0:7} is '${ci:-not found}': release once it is green ($REPO/actions)"
 OLD=$(scripts/version.sh --base)
 [[ $OLD != "$V" && $(printf '%s\n%s\n' "$OLD" "$V" | sort -V | tail -1) == "$V" ]] || fail "$V is not above $OLD"
 have=$(git cliff --version 2>/dev/null | awk '{print $2}' || true)

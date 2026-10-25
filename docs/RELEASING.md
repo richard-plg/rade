@@ -32,7 +32,7 @@ Why it works this way: [ADR-0012](internals/adr/0012-releases-semver-keep-a-chan
 
 ## Cut a release
 
-1. On `main`, clean and pushed; CI green on the head commit ([Actions](https://github.com/richard-plg/rade/actions/workflows/ci.yml)).
+1. On `main`, clean and pushed; CI green on the head commit ([Actions](https://github.com/richard-plg/rade/actions/workflows/ci.yml)). `scripts/release.sh` refuses otherwise: the release workflow does not test the code again (ADR-0044).
 2. Preview the section (`git cliff --unreleased --strip all`, plus anything under `[Unreleased]`); pick the version by the rules above.
 3. Run:
    ```sh
@@ -41,7 +41,7 @@ Why it works this way: [ADR-0012](internals/adr/0012-releases-semver-keep-a-chan
    # NO_PUSH=1 to inspect first, then: git push --atomic origin HEAD v0.2.0
    ```
    It bumps `Cargo.toml` + `Cargo.lock`, writes `## [0.2.0] - <date>` (the `[Unreleased]` text + the generated items) with compare links, commits `chore(release): v0.2.0`, tags `v0.2.0` and pushes both.
-4. The tag runs [release.yml](../.github/workflows/release.yml): the full CI from the tag (fmt, clippy, unit, every E2E suite, `.deb` + m10), then a GitHub Release `RADE v0.2.0` with `rade_0.2.0_amd64.deb`, `SHA256SUMS` and the changelog section as notes. Watch: `gh run watch -R richard-plg/rade` (or `gh-watch`).
+4. The tag runs [release.yml](../.github/workflows/release.yml), ~6–8 min: it checks that the tag's commit is `chore(release): v0.2.0`, changes only `Cargo.toml`, `Cargo.lock` and `CHANGELOG.md`, and sits on a commit CI passed; then builds the `.deb` from the tag ([package.yml](../.github/workflows/package.yml): lintian, m10), attests it and publishes a GitHub Release `RADE v0.2.0` with `rade_0.2.0_amd64.deb`, `SHA256SUMS` and the changelog section as notes. The release commit itself is skipped by CI on `main`, so nothing runs twice. Watch: `gh run watch -R richard-plg/rade` (or `gh-watch`).
 5. Check: `gh release view v0.2.0 -R richard-plg/rade`, then
    ```sh
    gh release download v0.2.0 -R richard-plg/rade -D /tmp/rade-v0.2.0
@@ -72,7 +72,7 @@ gh release download -R richard-plg/rade -p 'rade_*_amd64.deb' -p SHA256SUMS -D /
 
 ## CI
 
-[ci.yml](../.github/workflows/ci.yml) runs on push to `main`, on PRs (a newer push cancels the older run) and by hand, on GitHub-hosted runners (`ubuntu-latest`; never self-hosted, the repo is public: ADR-0042). Everything builds in `ci/Dockerfile`; reproduce a job locally with the same commands:
+[ci.yml](../.github/workflows/ci.yml) runs on push to `main` and `release/**`, on PRs (a newer push cancels the older run) and by hand, on GitHub-hosted runners (`ubuntu-latest`; never self-hosted, the repo is public: ADR-0042). Jobs, in parallel: commit lint, `check` (fmt, clippy, unit, contrast, trace, removed names), E2E in three shards (`a`, `b`, `c`, split by suite durations; a new suite goes into the lightest), and the `.deb` + m10 + lintian ([package.yml](../.github/workflows/package.yml), shared with release.yml). Image layers are cached on `ghcr.io/richard-plg/rade-ci` (`cache-check`, `cache-e2e`, `cache-deb`; registry cache, `mode=max`): pushes write it, pull requests only read it. Everything builds in `ci/Dockerfile`; reproduce a job locally with the same commands:
 
 ```sh
 docker build --network=host -f ci/Dockerfile --target check .                       # fmt, clippy -D warnings, unit tests
@@ -83,9 +83,9 @@ docker build --network=host -f ci/Dockerfile --target deb -t rade-ci:deb \
 ```
 
 - Not in CI: `tests/live` (needs the real desktop, keyboard and mouse) — run it by hand before a release that changes UI behaviour.
-- The release workflow is the gate: it publishes nothing unless the full CI passes on the tag. (A public repo can also protect `main` with required checks.)
+- The gate is CI on the release's parent commit: release.yml refuses a tag without it, and checks that the release commit changes only the version and changelog. (A public repo can also protect `main` with required checks.)
 - **Flaky E2E**: m6's "one desktop banner, replaced in place" can fail when the machine is loaded (GLib's freedesktop backend sends a new banner if the first `Notify` reply hasn't arrived yet). `ci/e2e.sh` retries a failed suite once, alone, and leaves a warning annotation. A suite that fails twice fails the job.
-- Disk: locally the build cache (cargo/zig cache mounts, ~4 GB, plus image layers) lives in your Docker; `docker builder prune` makes the next run cold. On GitHub-hosted runners the image layers (toolchain, libghostty) come from the Actions cache (`type=gha`, one scope per target, 10 GB per repo), so only a toolchain or `ghostty` submodule change rebuilds them; Rust builds cold every run (cache mounts are not exported).
+- Disk: locally the build cache (cargo/zig cache mounts, ~4 GB, plus image layers) lives in your Docker; `docker builder prune` makes the next run cold. In CI the image layers (toolchain, libghostty, release builds) come from the GHCR registry cache, so only a toolchain or `ghostty` submodule change rebuilds libghostty; Rust builds cold every run (cache mounts are not exported). The `rade-ci` package must stay public (Settings → Packages) so pull requests from forks can read it.
 
 ### Timings (a 24-core workstation, measured 2026-10-01; a 4-vCPU hosted runner is slower: libghostty alone took ~9 min there before the layer cache)
 

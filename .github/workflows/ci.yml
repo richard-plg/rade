@@ -1,46 +1,47 @@
-# CI for RADE (ADR-0012, ADR-0042). Public repo → GitHub-hosted runners
-# (ubuntu-latest), never a self-hosted one: a pull request from a fork must
-# not run code on the owner's machine. Every build and test runs inside
-# ci/Dockerfile via the runner's Docker daemon. Nothing is bind-mounted; the
-# repo goes in as the build context and results come out with `docker cp`.
-# Hosted runners start empty; image layers come from the Actions cache (below).
+# CI for RADE (ADR-0012, ADR-0042, ADR-0044). Public repo → GitHub-hosted
+# runners (ubuntu-latest), never a self-hosted one: a pull request from a fork
+# must not run code on the owner's machine. Every build and test runs inside
+# ci/Dockerfile via the runner's Docker daemon; the repo goes in as the build
+# context and results come out with `docker cp`.
 #
-# Also called by release.yml on a v* tag, so a release passes the same gates.
+# Image layers (toolchain, libghostty, the release build) are cached on
+# ghcr.io/richard-plg/rade-ci as a registry cache, one tag per target: unlike
+# the 10 GB Actions cache it isn't evicted. Pushes write it; pull requests only
+# read it. Cache mounts (cargo, zig caches) are not exported, so Rust builds
+# cold. Host network: Zig's resolver can't parse a scoped IPv6 nameserver
+# Docker may copy into bridge-network build containers; see ci/Dockerfile.
+#
+# A release commit (`chore(release): vX.Y.Z`, pushed with its tag by
+# scripts/release.sh) is not tested here: it only bumps the version and the
+# changelog, release.yml checks that, requires this workflow to have passed on
+# its parent commit, and builds the .deb from the tag.
 name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, 'release/**']
   pull_request:
   workflow_dispatch:
-  workflow_call:
 
 # A newer push to the same PR cancels the old run; runs on main all finish.
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
+  group: ci-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
 
 env:
-  # Image layers are cached in the GitHub Actions cache (type=gha), one scope
-  # per target, each job reading all three: the toolchain and libghostty
-  # layers (ci/Dockerfile) are rebuilt only when they change. Cache mounts
-  # (cargo, zig caches) are not exported, so Rust still builds cold.
-  # Host network: Zig's resolver can't parse a scoped IPv6 nameserver Docker
-  # may copy into bridge-network build containers; see ci/Dockerfile.
-  CACHE_FROM: |
-    type=gha,scope=rade-check
-    type=gha,scope=rade-e2e
-    type=gha,scope=rade-deb
   DOCKER_BUILD_RECORD_UPLOAD: false
 
 jobs:
+  # Every other job needs this one: it decides whether the push is a release
+  # commit (then nothing runs) and lints the new commits.
   commits:
     name: commit messages
-    # Not for tags (release.yml calls this on the tag push): main already ran it.
-    if: (github.event_name == 'push' || github.event_name == 'pull_request') && !startsWith(github.ref, 'refs/tags/')
+    if: >-
+      ${{ !(github.event_name == 'push'
+      && startsWith(github.event.head_commit.message, 'chore(release): v')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -48,6 +49,7 @@ jobs:
         with:
           fetch-depth: 0
       - name: Conventional Commits with R-IDs (scripts/lint-commits.sh)
+        if: github.event_name != 'workflow_dispatch'
         env:
           BEFORE: ${{ github.event.before }}
           BASE: ${{ github.event.pull_request.base.sha }}
@@ -64,12 +66,21 @@ jobs:
 
   check:
     name: fmt + clippy + unit tests
+    needs: commits
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: write # the layer cache on ghcr.io (read-only on a fork's PR)
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           submodules: recursive
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
         with:
           buildkitd-flags: --allow-insecure-entitlement network.host
@@ -80,13 +91,31 @@ jobs:
           target: check
           network: host
           allow: network.host
-          cache-from: ${{ env.CACHE_FROM }}
-          cache-to: type=gha,scope=rade-check,mode=min
+          cache-from: |
+            type=registry,ref=ghcr.io/richard-plg/rade-ci:cache-check
+            type=registry,ref=ghcr.io/richard-plg/rade-ci:cache-e2e
+          cache-to: ${{ github.event_name == 'push' && 'type=registry,ref=ghcr.io/richard-plg/rade-ci:cache-check,mode=max' || '' }}
 
+  # The suites in three shards, split by their CI durations (greedy, slowest
+  # first; ~5 min of suites each). A new suite goes into the lightest shard.
   e2e:
-    name: E2E (headless Weston)
+    name: E2E ${{ matrix.shard }} (headless Weston)
+    needs: commits
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - shard: a
+            suites: m37 m29 m14 m13 m2 m7 product-recovery m3 m12 m34
+          - shard: b
+            suites: m6 m8 m14b m11 m4 m9 titles m26 m15 m36 m5
+          - shard: c
+            suites: m30 m28 m39 m15b m24 m31 m38 m16 run settings
     env:
       E2E_JOBS: 2 # a hosted runner has 4 vCPUs
       E2E_SKIP_PERF: 1 # ms budgets need real hardware (tests/e2e/lib.sh perf_check)
@@ -94,6 +123,11 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           submodules: recursive
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
         with:
           buildkitd-flags: --allow-insecure-entitlement network.host
@@ -106,83 +140,26 @@ jobs:
           allow: network.host
           load: true
           tags: rade-ci:e2e-${{ github.run_id }}
-          cache-from: ${{ env.CACHE_FROM }}
-          cache-to: type=gha,scope=rade-e2e,mode=min
+          cache-from: |
+            type=registry,ref=ghcr.io/richard-plg/rade-ci:cache-e2e
+            type=registry,ref=ghcr.io/richard-plg/rade-ci:cache-check
+          # One shard writes; the three build the same layers.
+          cache-to: ${{ github.event_name == 'push' && matrix.shard == 'a' && 'type=registry,ref=ghcr.io/richard-plg/rade-ci:cache-e2e,mode=max' || '' }}
       - name: Suites (each in a fresh container; ci/e2e.sh)
-        run: ci/e2e.sh "rade-ci:e2e-$GITHUB_RUN_ID" run m2 m3 m4 m5 m6 m7 m8 m9 m11 m12 m13 m14 m14b m15 m15b m16 m24 m26 m28 m29 m30 m31 m34 m36 m37 m38 m39 titles product-recovery settings
+        run: ci/e2e.sh "rade-ci:e2e-$GITHUB_RUN_ID" ${{ matrix.suites }}
       - if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: e2e-output
+          name: e2e-output-${{ matrix.shard }}
           path: ci-out/
           retention-days: 7
           if-no-files-found: ignore
-      - if: always()
-        run: docker image rm "rade-ci:e2e-$GITHUB_RUN_ID" >/dev/null 2>&1 || true
 
   package:
-    name: .deb + package E2E (m10)
-    runs-on: ubuntu-latest
-    timeout-minutes: 120
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          submodules: recursive
-      - name: Version and date from git (.git is not in the build context)
-        id: version
-        run: |
-          echo "version=$(scripts/version.sh)" >> "$GITHUB_OUTPUT"
-          echo "epoch=$(git log -1 --format=%ct)" >> "$GITHUB_OUTPUT"
-      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
-        with:
-          buildkitd-flags: --allow-insecure-entitlement network.host
-      - name: Build the .deb (scripts/package-deb.sh in the CI image)
-        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
-        with:
-          context: .
-          file: ci/Dockerfile
-          target: deb
-          network: host
-          allow: network.host
-          load: true
-          tags: rade-ci:deb-${{ github.run_id }}
-          build-args: |
-            RADE_VERSION=${{ steps.version.outputs.version }}
-            SOURCE_DATE_EPOCH=${{ steps.version.outputs.epoch }}
-          cache-from: ${{ env.CACHE_FROM }}
-          cache-to: type=gha,scope=rade-deb,mode=min
-      - name: Copy the .deb out of the image
-        env:
-          version: ${{ steps.version.outputs.version }}
-        run: |
-          set -euo pipefail
-          c=$(docker create "rade-ci:deb-$GITHUB_RUN_ID")
-          mkdir -p dist && docker cp "$c:/src/target/debian/." dist/ && docker rm "$c" >/dev/null
-          ls -l dist
-          test "$(ls dist/*.deb)" = "dist/rade_${version}_amd64.deb"
-      # Debian packaging lint, reported but not blocking yet (lintian in the
-      # CI image, so the same version as a local run).
-      - name: lintian (warnings only)
-        continue-on-error: true
-        run: |
-          docker run --rm -v "$PWD/dist:/dist:ro" "rade-ci:deb-$GITHUB_RUN_ID" \
-            sh -c 'lintian --info --display-info --pedantic /dist/*.deb' | tee lintian.txt
-          echo "### lintian" >> "$GITHUB_STEP_SUMMARY"
-          echo '```' >> "$GITHUB_STEP_SUMMARY"; cat lintian.txt >> "$GITHUB_STEP_SUMMARY"; echo '```' >> "$GITHUB_STEP_SUMMARY"
-      - name: Package E2E (tests/e2e/m10.sh)
-        run: ci/e2e.sh "rade-ci:deb-$GITHUB_RUN_ID" m10
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: rade-deb
-          path: dist/*.deb
-          retention-days: 30
-          if-no-files-found: error
-      - if: failure()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: m10-output
-          path: ci-out/
-          retention-days: 7
-          if-no-files-found: ignore
-      - if: always()
-        run: docker image rm "rade-ci:deb-$GITHUB_RUN_ID" >/dev/null 2>&1 || true
+    needs: commits
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/package.yml
+    with:
+      write-cache: ${{ github.event_name == 'push' }}

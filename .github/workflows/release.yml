@@ -1,7 +1,10 @@
 # Release on a vX.Y.Z tag (pushed by scripts/release.sh; docs/RELEASING.md,
-# ADR-0012): the full CI from the tag (same image, same gates, the .deb built
-# from the tag), then a GitHub Release with the .deb, SHA256SUMS and the
-# CHANGELOG section as notes. Re-running this workflow rebuilds from the tag.
+# ADR-0012, ADR-0044). The tag's commit only bumps the version and writes the
+# changelog, and its parent passed the full CI on its branch, so the release
+# does not test the same code again: it checks exactly that, builds the .deb
+# from the tag (package.yml: lintian, m10), attests it and publishes a GitHub
+# Release with the .deb, SHA256SUMS and the CHANGELOG section as notes.
+# Re-running this workflow rebuilds from the tag.
 name: Release
 
 on:
@@ -16,14 +19,17 @@ permissions:
   contents: read
 
 jobs:
-  # Before the ~20 min CI: a tag must name the Cargo.toml version and have its
-  # CHANGELOG.md section (scripts/release.sh writes both; ADR-0043).
   verify:
-    name: tag, version and changelog
+    name: release commit, version, changelog, parent CI
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read # CI runs of the parent commit
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 2
       - name: The tag matches Cargo.toml and has a CHANGELOG section
         run: |
           set -euo pipefail
@@ -32,13 +38,32 @@ jobs:
           notes=$(awk -v v="$V" '$0 ~ "^## \\[" {f = index($0, "## [" v "]") == 1; next} /^\[[^]]+\]: / {next} f' CHANGELOG.md)
           [[ -n ${notes//[[:space:]]/} ]] || { echo "::error::CHANGELOG.md has no section for [$V]"; exit 1; }
           echo "ok: $GITHUB_REF_NAME, CHANGELOG [$V] has $(grep -c '^- ' <<<"$notes") items"
+      - name: The tag is a release commit on top of code CI passed
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          subject=$(git log -1 --format=%s)
+          [[ $subject == "chore(release): $GITHUB_REF_NAME" ]] \
+            || { echo "::error::the tag's commit is '$subject', not 'chore(release): $GITHUB_REF_NAME' (scripts/release.sh)"; exit 1; }
+          other=$(git diff --name-only HEAD~1 HEAD | grep -vxE 'Cargo\.toml|Cargo\.lock|CHANGELOG\.md' || true)
+          [[ -z $other ]] || { echo "::error::the release commit changes more than the version and changelog: $other"; exit 1; }
+          parent=$(git rev-parse HEAD~1)
+          n=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$parent&status=success&per_page=1" --jq .total_count)
+          [[ $n -gt 0 ]] || { echo "::error::no successful CI run for the parent commit ${parent:0:7}: release after CI is green"; exit 1; }
+          echo "ok: release commit on ${parent:0:7}, CI green there"
 
-  ci:
+  package:
     needs: verify
-    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/package.yml
+    with:
+      write-cache: true
 
   publish:
-    needs: ci
+    needs: package
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:

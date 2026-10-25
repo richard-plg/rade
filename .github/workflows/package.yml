@@ -1,0 +1,94 @@
+# The .deb (ADR-0044): build it in ci/Dockerfile's `deb` stage, lint it, run
+# the package E2E (m10) and upload it as the `rade-deb` artifact. Called by
+# ci.yml (every push / PR) and release.yml (the tag), so both build it the
+# same way.
+name: Package
+
+on:
+  workflow_call:
+    inputs:
+      write-cache:
+        description: Export image layers to the GHCR cache (pushes only; a PR's token can't).
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    name: .deb + package E2E (m10)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: write # the layer cache on ghcr.io (read-only on a fork's PR)
+    env:
+      DOCKER_BUILD_RECORD_UPLOAD: false
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: recursive
+      - name: Version and date from git (.git is not in the build context)
+        id: version
+        run: |
+          echo "version=$(scripts/version.sh)" >> "$GITHUB_OUTPUT"
+          echo "epoch=$(git log -1 --format=%ct)" >> "$GITHUB_OUTPUT"
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+        with:
+          buildkitd-flags: --allow-insecure-entitlement network.host
+      - name: Build the .deb (scripts/package-deb.sh in the CI image)
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: ci/Dockerfile
+          target: deb
+          network: host
+          allow: network.host
+          load: true
+          tags: rade-ci:deb-${{ github.run_id }}
+          build-args: |
+            RADE_VERSION=${{ steps.version.outputs.version }}
+            SOURCE_DATE_EPOCH=${{ steps.version.outputs.epoch }}
+          cache-from: |
+            type=registry,ref=ghcr.io/richard-plg/rade-ci:cache-deb
+            type=registry,ref=ghcr.io/richard-plg/rade-ci:cache-e2e
+          cache-to: ${{ inputs.write-cache && 'type=registry,ref=ghcr.io/richard-plg/rade-ci:cache-deb,mode=max' || '' }}
+      - name: Copy the .deb out of the image
+        env:
+          version: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          c=$(docker create "rade-ci:deb-$GITHUB_RUN_ID")
+          mkdir -p dist && docker cp "$c:/src/target/debian/." dist/ && docker rm "$c" >/dev/null
+          ls -l dist
+          test "$(ls dist/*.deb)" = "dist/rade_${version}_amd64.deb"
+      # Debian packaging lint, reported but not blocking yet (lintian in the
+      # CI image, so the same version as a local run).
+      - name: lintian (warnings only)
+        continue-on-error: true
+        run: |
+          docker run --rm -v "$PWD/dist:/dist:ro" "rade-ci:deb-$GITHUB_RUN_ID" \
+            sh -c 'lintian --info --display-info --pedantic /dist/*.deb' | tee lintian.txt
+          echo "### lintian" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"; cat lintian.txt >> "$GITHUB_STEP_SUMMARY"; echo '```' >> "$GITHUB_STEP_SUMMARY"
+      - name: Package E2E (tests/e2e/m10.sh)
+        run: ci/e2e.sh "rade-ci:deb-$GITHUB_RUN_ID" m10
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: rade-deb
+          path: dist/*.deb
+          retention-days: 30
+          if-no-files-found: error
+      - if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: m10-output
+          path: ci-out/
+          retention-days: 7
+          if-no-files-found: ignore
