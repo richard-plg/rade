@@ -123,7 +123,7 @@ A named entry in the registry describing how to launch, resume, and observe one 
 _Avoid_: Agent config, profile, account (that is which login it runs under)
 
 **Agent Account**:
-One login of one kind of Agent: agent + config dir (`CLAUDE_CONFIG_DIR` / `CODEX_HOME`) + name (`acme-work`), declared per Workspace in `workspace.toml` `[[account]]`, one default per agent; a name is unique per Workspace and agent. A Pane runs under exactly one, and its config dir is never overridden by `[env]` or a command prefix (a prefix naming another dir is refused), gets `RADE_ACCOUNT`, and a Subagent inherits its Parent's. Only the Pane's own Workspace's accounts can be used (`FORBIDDEN` otherwise).
+One login of one kind of Agent: agent + config dir (`CLAUDE_CONFIG_DIR` / `CODEX_HOME`) + name (`acme-work`), declared per Workspace in `workspace.toml` `[[account]]` or for every Workspace in `accounts.toml` (a Workspace with `accounts = "own"` uses only its own), with optional extra env (`[account.env]`, an `env_file` read at spawn); one default per agent; a name is unique per Workspace and agent. A Pane where an Agent was started by hand gets the account whose config dir it runs with (detected). A Pane runs under exactly one, and its config dir is never overridden by `[env]` or a command prefix (a prefix naming another dir is refused), gets `RADE_ACCOUNT`, and a Subagent inherits its Parent's. Only the Pane's own Workspace's accounts and the user accounts it allows can be used (`FORBIDDEN` otherwise).
 _Avoid_: Profile, user, identity (that is the Workspace's), subscription
 
 **Subagent**:
