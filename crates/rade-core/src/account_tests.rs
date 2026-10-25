@@ -1306,3 +1306,17 @@ fn r125_i_token_logins_get_no_detailed_limits() {
     assert!(!token_login(&parse("acme", ACME).unwrap()[0]));
     let _ = std::fs::remove_dir_all(f.parent().unwrap());
 }
+
+#[test]
+fn edit_default_on_and_off() {
+    let on = edit_in_toml(USER, AgentKind::Claude, "clw", &Edit::Default(true)).unwrap();
+    let d = WorkspaceFile::parse(&on).unwrap().account;
+    assert!(!d[0].default && d[1].default);
+    let off = edit_in_toml(&on, AgentKind::Claude, "clw", &Edit::Default(false)).unwrap();
+    assert!(!WorkspaceFile::parse(&off)
+        .unwrap()
+        .account
+        .iter()
+        .any(|a| a.default));
+    assert!(off.starts_with("# my logins\n"));
+}

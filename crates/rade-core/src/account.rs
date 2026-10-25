@@ -758,6 +758,9 @@ pub enum Edit {
     EnvFile(Option<String>),
     SetEnv(String, String),
     UnsetEnv(String),
+    /// `true`: `default = true` here, off the agent's other tables;
+    /// `false`: no `default` line (the first listed becomes the default).
+    Default(bool),
     /// Delete the whole `[[account]]` table.
     Remove,
 }
@@ -776,6 +779,9 @@ pub fn edit_in_toml(text: &str, agent: AgentKind, name: &str, edit: &Edit) -> Re
                 agent.as_str()
             ))
         })?;
+    if *edit == Edit::Default(true) {
+        return set_default_in_toml(text, Some(agent), name);
+    }
     let mut doc = document(text)?;
     let tables = doc
         .get_mut("account")
@@ -854,6 +860,9 @@ pub fn edit_in_toml(text: &str, agent: AgentKind, name: &str, edit: &Edit) -> Re
             if empty {
                 t.remove("env");
             }
+        }
+        Edit::Default(_) => {
+            t.remove("default");
         }
         Edit::Remove => unreachable!(),
     }

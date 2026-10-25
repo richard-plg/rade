@@ -416,6 +416,9 @@ pub fn ui(app: &App, p: &Value) -> Result<Value> {
         return crate::overview_view::debug(p);
     }
     // R112: the app's Settings page.
+    if op == "app_settings_accounts" {
+        return crate::settings_accounts::debug(p);
+    }
     if op.starts_with("app_settings") {
         return crate::settings_view::debug(p);
     }

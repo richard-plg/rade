@@ -4,7 +4,9 @@
 //! Every change is one `rade_core::settings::set` / `reset` of the file
 //! (comments kept), applied at once: Terminals reload their Ghostty config,
 //! the color scheme follows. The Terminal category ends with a live
-//! preview, a real Terminal. `debug.ui {"op": "app_settings…"}` drives it.
+//! preview, a real Terminal. The Accounts category (R126) edits the user's
+//! `accounts.toml` instead (`crate::settings_accounts`).
+//! `debug.ui {"op": "app_settings…"}` drives it.
 
 use crate::app::{app, try_app};
 use adw::prelude::*;
@@ -234,7 +236,11 @@ fn open() {
             return;
         };
         let name = row.widget_name().to_string();
-        *v.category.borrow_mut() = st::CATEGORIES.iter().copied().find(|c| *c == name);
+        *v.category.borrow_mut() = st::CATEGORIES
+            .iter()
+            .copied()
+            .chain([ACCOUNTS])
+            .find(|c| *c == name);
         scroll_to(&v, &name);
     });
 
@@ -245,6 +251,23 @@ fn open() {
     search.grab_focus();
 }
 
+const ACCOUNTS: &str = rade_core::settings_accounts::CATEGORY;
+
+/// After a change made outside [`apply`] (Settings → Accounts): its error
+/// on the page's error line, or none; then the page redraws.
+pub fn show_result(r: std::result::Result<(), String>) {
+    if let Some(v) = OPEN.with(|o| o.borrow().clone()) {
+        match r {
+            Ok(()) => v.error.set_visible(false),
+            Err(e) => {
+                v.error.set_text(&e);
+                v.error.set_visible(true);
+            }
+        }
+    }
+    glib::idle_add_local_once(render);
+}
+
 /// Rebuilds the categories and rows for the search text and the config
 /// the app runs with now.
 fn render() {
@@ -253,7 +276,19 @@ fn render() {
     };
     let config = app().config.borrow().clone();
     let query = v.search.text().to_string();
-    let shown = st::categories(&query);
+    let mut shown = st::categories(&query);
+    // R126: the Accounts category, after the config.toml ones.
+    let (account_cards, accounts_error) = crate::settings_accounts::cards();
+    let account_cards: Vec<_> = account_cards
+        .into_iter()
+        .filter(|c| rade_core::settings_accounts::matches(c, &query))
+        .collect();
+    let accounts_named = query
+        .split_whitespace()
+        .all(|w| ACCOUNTS.to_lowercase().contains(&w.to_lowercase()));
+    if !account_cards.is_empty() || accounts_named {
+        shown.push(ACCOUNTS);
+    }
 
     while let Some(c) = v.categories.first_child() {
         v.categories.remove(&c);
@@ -294,6 +329,25 @@ fn render() {
             // The one persistent About widget (R127, §5.1), kept current.
             crate::update::render();
             v.rows.append(&crate::update_view::about_block());
+        }
+        if *c == ACCOUNTS {
+            if let Some(e) = &accounts_error {
+                let l = label(e, &["settings-account-env-error"]);
+                l.set_wrap(true);
+                v.rows.append(&l);
+            }
+            v.rows.append(&label(
+                &format!(
+                    "Agent Accounts for this Workspace. Yours are in {} and offered in every Workspace unless it sets accounts = \"own\".",
+                    tilde(&crate::accounts::user_file())
+                ),
+                &["settings-description", "settings-accounts-intro"],
+            ));
+            for card in &account_cards {
+                v.rows.append(&crate::settings_accounts::card(card));
+            }
+            v.rows.append(&crate::settings_accounts::add_row());
+            continue;
         }
         for s in st::SETTINGS
             .iter()

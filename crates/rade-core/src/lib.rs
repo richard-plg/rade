@@ -48,6 +48,7 @@ pub mod scm_view;
 pub mod search;
 pub mod server;
 pub mod settings;
+pub mod settings_accounts;
 pub mod setup;
 pub mod shell_env;
 pub mod status;
