@@ -154,14 +154,68 @@ pub struct ScmConfig {
     /// Generate's Draft command, run with `sh -c` in the Worktree, the
     /// prompt on stdin, the Draft on stdout (ADR-0013).
     pub draft_command: String,
+    /// The Changes page as a list or a tree (R120.6).
+    pub view: ScmView,
+    /// Sort of the list view (R120.6).
+    pub sort: ScmSort,
+    /// Fetch every Changes card's remote in the background (R121.4).
+    pub autofetch: bool,
+    /// Seconds between auto-fetches; read through `autofetch_secs()`.
+    pub autofetch_period: u32,
+    /// Diff Pane layout (R122.2).
+    pub diff_layout: DiffLayout,
+    /// Quick Diff marks in the Viewer's gutter (R123).
+    pub quick_diff: bool,
 }
 
 impl Default for ScmConfig {
     fn default() -> Self {
         Self {
             draft_command: crate::scm::DEFAULT_DRAFT_COMMAND.into(),
+            view: ScmView::default(),
+            sort: ScmSort::default(),
+            autofetch: false,
+            autofetch_period: 180,
+            diff_layout: DiffLayout::default(),
+            quick_diff: true,
         }
     }
+}
+
+impl ScmConfig {
+    /// `autofetch_period` clamped to 60..=3600 s.
+    pub fn autofetch_secs(&self) -> u32 {
+        self.autofetch_period.clamp(60, 3600)
+    }
+}
+
+/// `[scm] view`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ScmView {
+    #[default]
+    List,
+    Tree,
+}
+
+/// `[scm] sort`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ScmSort {
+    #[default]
+    Path,
+    Name,
+    Status,
+}
+
+/// `[scm] diff_layout`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DiffLayout {
+    #[default]
+    Auto,
+    Inline,
+    SideBySide,
 }
 
 /// `[sources.<id or name>]` (R12.2).
@@ -513,6 +567,29 @@ impl Config {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn r120_f_scm_config_defaults_and_parse() {
+        use super::{Config, DiffLayout, ScmSort, ScmView};
+        let d = Config::default().scm;
+        assert_eq!(d.view, ScmView::List);
+        assert_eq!(d.sort, ScmSort::Path);
+        assert!(!d.autofetch);
+        assert_eq!((d.autofetch_period, d.autofetch_secs()), (180, 180));
+        assert_eq!(d.diff_layout, DiffLayout::Auto);
+        assert!(d.quick_diff);
+        let c = Config::parse(
+            "[scm]\nview = \"tree\"\nsort = \"status\"\nautofetch = true\nautofetch_period = 5\ndiff_layout = \"side_by_side\"\nquick_diff = false\n",
+        )
+        .unwrap();
+        assert_eq!(c.scm.view, ScmView::Tree);
+        assert_eq!(c.scm.sort, ScmSort::Status);
+        assert!(c.scm.autofetch);
+        assert_eq!(c.scm.autofetch_secs(), 60, "clamped when read");
+        assert_eq!(c.scm.diff_layout, DiffLayout::SideBySide);
+        assert!(!c.scm.quick_diff);
+        assert!(Config::parse("[scm]\nview = \"grid\"\n").is_err());
+    }
+
     #[test]
     fn r19_8_menu_items_show_their_configured_key() {
         let mut c = super::Config::default();
