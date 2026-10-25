@@ -24,13 +24,15 @@ pub fn hook(
     else {
         return Ok(Value::Null);
     };
+    let needs_payload = session_id.is_none() || state.as_deref() == Some("done");
+    let text = payload
+        .clone()
+        .or_else(|| needs_payload.then(stdin_json).flatten());
     let session = match session_id {
         Some(id) => Some(id.clone()).filter(|s| !s.is_empty()),
-        None => payload
-            .as_deref()
-            .and_then(session_from)
-            .or_else(|| stdin_json().as_deref().and_then(session_from)),
+        None => text.as_deref().and_then(session_from),
     };
+    let state = hook_state(state, text.as_deref());
     // The report that names the Preset (session start) also records how the
     // Agent was really started, so Session Restore can re-run it (R11.2).
     let invocation = agent.as_deref().and_then(invocation);
@@ -126,6 +128,26 @@ fn session_from(text: &str) -> Option<String> {
     ["session_id", "thread-id", "conversationId"]
         .iter()
         .find_map(|k| v[k].as_str().filter(|s| !s.is_empty()).map(String::from))
+}
+
+/// The status a hook reports: Claude Code fires `Stop` when the turn ends
+/// even while its background tasks (shells, Agents, monitors) still run, and
+/// wakes the session again when they finish, so `done` with a running or
+/// pending `background_tasks` entry is still `running`.
+fn hook_state(state: &Option<String>, payload: Option<&str>) -> Option<String> {
+    let busy = || {
+        let v: Value = serde_json::from_str(payload?).ok()?;
+        Some(
+            v["background_tasks"]
+                .as_array()?
+                .iter()
+                .any(|t| matches!(t["status"].as_str(), Some("running" | "pending"))),
+        )
+    };
+    match state.as_deref() {
+        Some("done") if busy() == Some(true) => Some("running".into()),
+        _ => state.clone(),
+    }
 }
 
 /// Hook stdin, if it is a pipe that closes within a second.
@@ -271,5 +293,38 @@ mod tests {
         );
         assert_eq!(session_from(r#"{"session_id":""}"#), None);
         assert_eq!(session_from("not json"), None);
+    }
+
+    #[test]
+    fn stop_with_running_background_tasks_stays_running() {
+        let done = Some("done".to_string());
+        let bg = |s: &str| {
+            format!(
+                r#"{{"hook_event_name":"Stop","background_tasks":[{{"id":"b1","type":"shell","status":"{s}"}}]}}"#
+            )
+        };
+        assert_eq!(
+            hook_state(&done, Some(&bg("running"))).as_deref(),
+            Some("running")
+        );
+        assert_eq!(
+            hook_state(&done, Some(&bg("pending"))).as_deref(),
+            Some("running")
+        );
+        assert_eq!(
+            hook_state(&done, Some(&bg("completed"))).as_deref(),
+            Some("done")
+        );
+        let none = r#"{"hook_event_name":"Stop","background_tasks":[]}"#;
+        assert_eq!(hook_state(&done, Some(none)).as_deref(), Some("done"));
+        assert_eq!(hook_state(&done, None).as_deref(), Some("done"));
+        assert_eq!(hook_state(&done, Some("not json")).as_deref(), Some("done"));
+        // Only `done` is held back; other reports pass through.
+        let waiting = Some("waiting".to_string());
+        assert_eq!(
+            hook_state(&waiting, Some(&bg("running"))).as_deref(),
+            Some("waiting")
+        );
+        assert_eq!(hook_state(&None, Some(&bg("running"))), None);
     }
 }
