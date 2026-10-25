@@ -14,7 +14,8 @@ files next to them.
 `Ctrl+,` or *Settings* in the palette. Categories: **Terminal** (font family, style, size, line
 height, ligatures, look), **Code** (the font of the Viewer, Review and Markdown code), **Theme**
 (`system` / `dark` / `light`), **Notifications** (desktop notifications, idle time), **Agents**
-(spawn depth and children limits) and **Statusline** (show it, system monitor). Search finds a
+(spawn depth and children limits), **Voice** ([voice prompts](voice.md): voice agent, steps,
+timeout, recording, languages) and **Statusline** (show it, system monitor). Search finds a
 setting by name, description or key.
 
 Each change is one edit of `~/.config/rade/config.toml`, checked before it's written, keeping your

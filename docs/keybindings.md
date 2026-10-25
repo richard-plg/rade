@@ -27,6 +27,7 @@ to the program.
 | `Ctrl+Shift+S` | Search | `search_worktree` |
 | `Ctrl+Shift+N` | Add Source… | `add_source` |
 | `Ctrl+,` | Settings | `open_settings` |
+| hold `F8` (tap: start / stop) | Voice prompt on the focused Agent Pane ([Voice prompts](features/voice.md)) | `voice` |
 | `Alt+1` … `Alt+9` | Project 1–9 | `source_1` … |
 | `Ctrl+Alt+1` … `Ctrl+Alt+9` | Workspace 1–9 | `workspace_1` … |
 
@@ -88,6 +89,16 @@ Plus the Viewer's code-navigation keys on diff lines.
 | `Alt+P` | Keyboard previews on / off |
 | hold `Ctrl+Shift`, tap `Space` | Flip through cards; release `Ctrl` to jump |
 | `Esc` | Clear the filter, else close |
+
+## Voice Composer
+
+| Keys | Action |
+|---|---|
+| hold `F8` | Talk; let go to draft, or to revise the draft |
+| `Enter` | Send the draft to the agent |
+| `Alt+Enter` | Paste the draft without Enter |
+| `Shift+Enter` | New line in the draft |
+| `Esc` | Drop the take / stop drafting / discard (twice after edits) |
 
 ## Browser Pane
 
