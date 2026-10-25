@@ -19,15 +19,30 @@ Every other choice is fixed below (§2). **Implementers make no product or desig
 something is not covered here, or the code or a tool contradicts this plan, stop and report the
 question instead of choosing.
 
-Facts verified on 2026-10-25 (owner's machine, Claude Code CLI): `claude -p --input-format
-stream-json --output-format stream-json --verbose --no-session-persistence` keeps several user
-turns in **one process** (turn 2 remembered turn 1) and wrote **no** `.jsonl` session file (only an
-empty `projects/<slug>/memory/` dir); `--setting-sources ""` stops the user's hooks from running;
-a trivial Haiku turn took ≈ 1.3 s. Codex: `codex exec --ephemeral` and `--sandbox read-only` exist
-(`codex exec --help`). Still **UNVERIFIED** (T0 checks them): `--max-turns` counting per user
-message in stream-json mode, Claude's tool-use event shape with `--include-partial-messages`,
-Codex `exec --json` event shape, whisper.cpp server's OpenAI-compatible path, the Phosphor icon
-names of §5.4.
+Facts verified on 2026-10-25 (T0, owner's machine, Claude Code 2.1.310, codex-cli 0.164.0;
+details in `docs/internals/research/voice.md`):
+- `claude -p --input-format stream-json --output-format stream-json --verbose
+  --no-session-persistence` keeps several user turns in **one process** and writes **no** `.jsonl`
+  session file (only an empty `projects/<slug>/memory/` dir); `--setting-sources ""` stops the
+  user's hooks; a trivial Haiku turn ≈ 1.3 s.
+- `--max-turns` counts **per user message**: hitting it ends that message with `result` subtype
+  `error_max_turns`, `is_error: true`, no `result` text; the next message in the same process works.
+- With `--include-partial-messages`: `stream_event` lines carry `content_block_start`
+  (`tool_use` + `name`, `text`, `thinking`), `content_block_delta` (`text_delta`, `input_json_delta`,
+  `thinking_delta`, `signature_delta`); complete `assistant` messages carry each `tool_use` with
+  its full `input` (`file_path` absolute); `user` lines are tool results; one `result` per message.
+- Claude transcripts hold many line types (`queue-operation`, `attachment`, `api-request-blob` with
+  `message.role` = `user`/`system`, …): only `type` = `user` / `assistant` lines are turns; a
+  `user` line whose content is a list of `tool_result` is not a user turn.
+- `codex exec --ephemeral --sandbox read-only --skip-git-repo-check --json -` writes **no**
+  rollout; it reads files with shell commands (`item.started` / `item.completed` of type
+  `command_execution` with `command`), answers with `agent_message` items, ends with
+  `turn.completed`; it still loads the user's Codex hooks (harmless: no `RADE_*` env). It takes one
+  prompt per process (no multi-turn stdin).
+- Codex rollouts: the user's real words are `event_msg` `item_completed` items of type
+  `UserMessage` / `AgentMessage`; `response_item` user messages also hold injected
+  `# AGENTS.md instructions` and `<environment_context>` texts, which must be skipped.
+- The 5 icon URLs of §5.4 answer 200.
 
 ---
 
@@ -70,7 +85,7 @@ names of §5.4.
 | D6 | Live words: with `live_preview = true`, every 1200 ms while recording RADE posts the **whole take so far** (skipped while the previous request runs); the newest answer replaces the heard text; its last 3 words are *tentative* (`fg3`). After the take ends, one final request; its text is the take's words. Empty final text → state `Didn't catch that` (D14), nothing sent to the agent. |
 | D7 | Voice agent (`[voice] agent = "claude"`, default): one process per composer, **started at the first press** (it warms up and receives the context while you speak), fed by stream-json on stdin, killed on Send, Discard, composer close, Pane close and app quit. Command (built in core, §T4): `claude -p --model <model or "haiku"> --tools <"Read,Grep,Glob" or ""> --max-turns <max_turns> --no-session-persistence --setting-sources "" --input-format stream-json --output-format stream-json --include-partial-messages --verbose --append-system-prompt <§3.5>`. cwd = the Pane's cwd. Env = the Workspace env + the Pane's Agent Account env (`account::apply_env`), **minus** `RADE_PANE_ID`, `RADE_SOCKET` and every other `RADE_*` the Pane gets (so `rade status --hook` is a no-op and no Pane status changes). `[voice] agent = "codex"`: one `codex exec --ephemeral --sandbox read-only --skip-git-repo-check --json [-m <model>] -` **per turn** (the turn message carries the previous draft; no warm start). `[voice] agent_command` (non-empty) replaces the built command entirely; its protocol is still `agent`'s (tests use it). |
 | D8 | Context (built off the UI thread at the first press, sent as the first stream-json message **before** the words; Codex: prefixed to each turn): (1) the Pane: agent, model (`chrome` header logic), cwd, Worktree / link / base; (2) the session tail: Claude transcript `<claude config dir>/projects/<slug(cwd)>/<session_id>.jsonl` (slug = every char not `[A-Za-z0-9]` → `-`; fallback `projects/*/<session_id>.jsonl`), Codex `<codex home>/sessions/**/rollout-*<session_id>.jsonl` (newest); last 6 exchanges, user text + assistant text only (tool calls and results dropped), each message cut to 2,000 chars, total ≤ 16,000 chars keeping the newest; no session id or no file → the Pane's screen (last 120 lines, trailing blanks trimmed); (3) git: branch, `git status --short` (≤ 60 lines), `git diff --stat HEAD` (≤ 40 lines), `git log -5 --format=%s`; (4) rules: `scm::RULES_FILES` found at the checkout root, ≤ 6,000 chars total; (5) layout: `git ls-files` folded to directories of depth ≤ 2 with file counts, ≤ 3,000 chars; (6) the same Tab's Viewer: its path and, if any, selected line range. **Vocabulary** (also sent to STT as `prompt`): identifiers from (2) and the changed paths' file stems — tokens matching `[A-Za-z_][A-Za-z0-9_.]{2,}` that contain `_`, `.`, a digit or an inner capital — deduped, newest first, ≤ 800 chars, space-joined. |
-| D9 | Agent output = **the Voice Draft only**. Text deltas stream into the draft; tool-use events become the activity line (`Read <relative path>`, `Searched “<pattern>”`, `Listed <glob>`; other tools `<Tool>`) with `n / max_turns`; the turn's final `result` text replaces the streamed text (a surrounding code fence is stripped). |
+| D9 | Agent output = **the Voice Draft only**. Text deltas stream into the draft; tool-use events become the activity line (Claude: `Read <relative path>`, `Searched “<pattern>”`, `Listed <glob>`, other tools `<Tool>`; Codex `command_execution`: `Ran <command without the shell wrapper>`) with `n / max_turns` (Claude: tool uses counted per message); the turn's final text replaces the streamed text (Claude `result`; Codex the last `agent_message`; a surrounding code fence is stripped). **Max steps reached** (`error_max_turns`) with no text: RADE sends one more turn in the same process, `Write the prompt now from what you have; use no more tools.`; if that also fails → D17 `Voice agent failed: used all <n> steps`. Codex has no turn limit flag: `max_turns` does not apply to it (Settings description says so). |
 | D10 | Draft format (enforced by §3.5, not by code): line 1 = the goal in one sentence; then 0–5 `- ` bullets (where, constraints, done when); file references as `path:line` in backticks; the owner's language unless `draft_language = "en"`; no new requirements; ≤ 1.2 × the words of the take (fillers removed); a part it cannot resolve is kept and marked `[?] "<words>"`. |
 | D11 | Revise: holding F8 again while a draft exists starts a new take; the draft dims (`stale`); on release a turn `REVISE` (§3.5) carries the draft **as it is in the text box** (manual edits included) and the new words. The answer replaces the draft; words that differ from the previous draft are marked `changed` (word-level LCS, core) until the next keystroke in the draft. `revision n` counts revisions. Esc during a revise take = keep the draft unchanged. |
 | D12 | Send: **Enter** (focus anywhere in the composer, draft non-empty, state Ready) = `pane.send` with `paste: true, enter: true` (the existing path, so the Pane's status becomes `running`); **Alt+Enter** = paste only (no Enter); **Shift+Enter** = newline in the draft. Then the composer closes, the voice process is killed and focus returns to the Pane's Terminal. |
@@ -111,7 +126,7 @@ AC:
 - R124-c [M46] (unit): Given a checkout with `CLAUDE.md`, 3 changed files and 500 tracked files. When the context is built. Then it has the branch, `git status --short`, `git diff --stat HEAD`, the last 5 subjects, `CLAUDE.md` (≤ 6,000 chars) and a layout of ≤ 3,000 chars of depth-2 directories with counts.
 - R124-d [M46] (unit): Given a session tail naming `handleSubmit`, `use_totals`, `promo.ts`, `the`, `Fix` and changed path `src/checkout/applyPromo.ts`. When the vocabulary is built. Then it is `applyPromo promo.ts use_totals handleSubmit` order-by-newest, without plain words, ≤ 800 chars.
 - R124-e [M46] (unit): Given the default `[voice]` and a Pane with account `acme-work`. When the Claude command is built. Then argv is §T4's exact list with `--max-turns 6` and `--tools Read,Grep,Glob`; `max_turns = 3` and `tools = "none"` give `--max-turns 3` and `--tools ""`; the env has the account's `CLAUDE_CONFIG_DIR` and no `RADE_PANE_ID`, `RADE_SOCKET` or other `RADE_*` key.
-- R124-f [M46] (unit): Given the recorded stream fixtures `tests/fixtures/voice/claude-stream.jsonl` and `codex-exec.jsonl`. When parsed. Then the events are the deltas in order, activity `Read src/checkout/useTotals.ts` with step `1 / 6`, and a final text equal to the result without its code fence.
+- R124-f [M46] (unit): Given the recorded stream fixtures `crates/rade-core/tests/fixtures/voice/claude-stream.jsonl` (message 1 ends `error_max_turns` after 3 Reads, message 2 answers `applyPromo`) and `codex-exec.jsonl`. When parsed. Then message 1 gives activities `Read src/checkout/useTotals.ts`, `Read src/checkout/promo.ts`, `Read src/checkout/CheckoutForm.tsx` and a max-turns end, message 2 gives deltas `appl`, `yPromo` and final text `applyPromo`; Codex gives `Ran cat src/checkout/useTotals.ts` and its last agent message as final text; a final text wrapped in a code fence is unwrapped.
 - R124-g [M46] (unit): Given a Voice Composer model. When F8 is pressed and released after 400 ms, pressed and released after 100 ms twice, auto-repeat presses arrive, Esc is pressed in each state, and a turn passes `timeout_secs`. Then the states and actions follow D2, D11, D13 and D17 (table in `voice/composer_tests.rs`).
 - R124-h [M46] (unit): Given draft `Fix A in x.ts.\n- add a test` and revision `Fix A in x.ts.\n- keep the API`. When changed spans are computed. Then exactly the words `keep the API` are marked.
 - R124-i [M46] (unit): Given `stt_key_command = "echo sk-test"`. When the STT request is built. Then the key appears only in the curl config text (never in argv), the form has `model`, `prompt` and `response_format`, `language` only when not `auto`; `{"text":" ừ thì sửa cái này "}` parses to `ừ thì sửa cái này` and a partial's last 3 words are tentative.
@@ -330,7 +345,7 @@ T0 spike ─► T1 docs ─► T2 config ─► T3 context ─► T4 agent ─�
 B owns `voice.rs`, `handlers.rs`, `app.rs`, `keys.rs`; C owns `voice_view.rs`, `layout_view.rs`, `chrome.rs`, `style.css`, `tokens.toml`, icons. The contract between them is core `voice::composer` (`Composer`, `Event`, `Action`, `ComposerView`) plus this tiny app interface, which T6 adds as stubs in `voice.rs` / `voice_view.rs` so both compile from the start:
 `voice_view::open(pane_id) / close() / render(&ComposerView) / set_levels(&[f32]) / append_draft(&str) / set_draft(&str, &DraftTags) / draft_text() -> String` and `voice::on_ui(Event)`.
 
-### T0 — Spike: verify the UNVERIFIED facts (no product code)
+### T0 — Spike: verify the UNVERIFIED facts (no product code) — DONE 2026-10-25 except whisper-server (see research doc)
 1. `claude -p` stream-json with `--tools Read,Grep,Glob --max-turns 2` in a temp git repo: send a turn needing 3 reads; record whether the limit applies per user message, the exact error/`result` subtype when it is hit, and whether turn 2 still works. Record 2 turns' full output with `--include-partial-messages` → `tests/fixtures/voice/claude-stream.jsonl` (replace paths and names with `src/checkout/useTotals.ts` etc.). Check that `--tools ""` really leaves no tool, and that no `.jsonl` appears under `~/.claude/projects/` (list before / after).
 2. `codex exec --ephemeral --sandbox read-only --skip-git-repo-check --json -` with a prompt on stdin in the same repo: record output → `codex-exec.jsonl`; check no new rollout file under `$CODEX_HOME/sessions` (if one appears, report — D7 changes).
 3. A real Claude transcript and Codex rollout (from this machine, a throwaway session in the temp repo) → `claude-transcript.jsonl`, `codex-rollout.jsonl` (trimmed to ≤ 12 exchanges, names replaced).
@@ -372,7 +387,7 @@ Enums `#[serde(rename_all = "snake_case")]`, `Copy`, `Default`. `Config.voice: V
 |---|---|---|---|
 | `voice.agent` | `Voice agent` | `Who turns your words into a prompt. Claude Code is faster (one process per draft).` | `Choice(&["claude", "codex"])` |
 | `voice.tools` | `Voice agent reads files` | `Read, search and list files of the checkout to understand you. Never writes.` | `Choice(&["read", "none"])` |
-| `voice.max_turns` | `Max steps` | `File reads and searches the voice agent may take per draft (1 to 20).` | `Integer { min: 1, max: 20 }` |
+| `voice.max_turns` | `Max steps` | `Claude Code turns per draft for reading and searching files (1 to 20). Codex has no limit.` | `Integer { min: 1, max: 20 }` |
 | `voice.timeout_secs` | `Draft timeout (seconds)` | `Stop a draft that takes longer (10 to 300).` | `Integer { min: 10, max: 300 }` |
 | `voice.max_recording_secs` | `Max recording (seconds)` | `A take stops by itself after this long (10 to 600).` | `Integer { min: 10, max: 600 }` |
 | `voice.live_preview` | `Live words` | `Show what you say while you speak (one speech-to-text request per second).` | `Bool` |
