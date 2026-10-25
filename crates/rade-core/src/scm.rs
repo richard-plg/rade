@@ -762,7 +762,7 @@ pub fn gitignore_add(dir: &Path, path: &str) -> Result<()> {
 }
 
 /// `@@ -a[,b] +c[,d] @@` → (a, b, c, d); a missing count is 1.
-fn hunk_range(h: &str) -> Option<(u32, u32, u32, u32)> {
+pub(crate) fn hunk_range(h: &str) -> Option<(u32, u32, u32, u32)> {
     let mut it = h.split_whitespace();
     it.next()?;
     let one = |s: &str, sign: char| -> Option<(u32, u32)> {

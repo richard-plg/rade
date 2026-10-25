@@ -14,6 +14,7 @@ pub mod config;
 pub mod date;
 pub mod design;
 pub mod diff;
+pub mod diff_view;
 pub mod drift;
 pub mod fanout;
 pub mod filetree;
