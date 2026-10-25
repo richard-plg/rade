@@ -154,6 +154,8 @@ fn r124_g_composer_states() {
     let v = c.view();
     assert_eq!((v.label.as_str(), v.stale), ("Revising", true));
     assert_eq!(v.hints, ["Release F8 to apply", "Esc keep the draft"]);
+    // The voice agent already has the context: no "Reading the session" note.
+    assert_eq!(v.activity, "");
     let a = c.on(Event::KeyUp { at_ms: 10_500 });
     assert_eq!(
         a[..2],

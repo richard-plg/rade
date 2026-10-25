@@ -308,8 +308,10 @@ fn build(pane_id: &str) -> Rc<Card> {
     let scroller = gtk::ScrolledWindow::new();
     scroller.add_css_class("voice-draft-scroll");
     scroller.set_policy(gtk::PolicyType::Never, gtk::PolicyType::Automatic);
-    // The height follows the text (`size_draft`), 70 px to 300 px (14 lines).
-    scroller.set_propagate_natural_height(false);
+    // The height follows the text, 70 px to 300 px (14 lines); GTK sizes it
+    // from the TextView's natural height (a hand-measured height lagged the
+    // text by a frame and left the first line scrolled away).
+    scroller.set_propagate_natural_height(true);
     scroller.set_min_content_height(70);
     scroller.set_max_content_height(300);
     scroller.set_vexpand(false);
@@ -901,17 +903,16 @@ fn focus(c: &Card) {
 /// Give the draft box the height of its text at its width (70 px minimum,
 /// 300 px maximum, then it scrolls).
 fn size_draft(c: &Card) {
-    if c.compact.get() {
-        return;
-    }
-    let w = c.scroller.width();
-    if w <= 0 {
-        return;
-    }
-    let (_, nat, _, _) = c.draft.measure(gtk::Orientation::Vertical, w);
-    let h = nat.clamp(70, 300);
-    if h != c.draft_h.replace(h) {
-        c.scroller.set_min_content_height(h);
+    // Ready text starts at its first line (a streamed draft was kept scrolled
+    // to its end).
+    if c.editable.get()
+        && c.draft
+            .vadjustment()
+            .is_some_and(|a| a.value() > 0.0 && a.upper() <= 300.0)
+    {
+        if let Some(a) = c.draft.vadjustment() {
+            a.set_value(0.0);
+        }
     }
 }
 
@@ -936,6 +937,7 @@ fn fit(c: &Card) {
     c.scroller.set_vexpand(compact);
     c.scroller
         .set_min_content_height(if compact { 0 } else { 70 });
+    c.scroller.set_propagate_natural_height(!compact);
     c.draft_h.set(0);
 }
 

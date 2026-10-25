@@ -850,7 +850,7 @@ impl Composer {
                 };
                 (self.activity.clone(), icon, false)
             }
-            _ if st == State::Listening && !self.target.is_empty() => (
+            _ if st == State::Listening && !has_draft && !self.target.is_empty() => (
                 format!("Reading the session and {} while you speak", self.target),
                 ActivityIcon::Info,
                 false,
