@@ -62,7 +62,7 @@ export -f ui rpc nav rows row home chrome pane_status panes
 SOCK=$XDG_RUNTIME_DIR/rade/rade-dev.sock
 TOKENS=$ROOT/crates/rade-app/src/tokens.toml
 geo() { rpc debug.ui "{\"op\":\"geometry\",\"widget\":\"$1\"${2:+, $2}}"; }
-changes() { ui changes | jq -c .changes; }
+changes() { rpc debug.scm | jq -c .; }   # M45: one page, cards
 export -f geo changes
 # Golden masks: Terminal contents, running LEDs / spinner, times ("2m", "now").
 masks() { # file, extra selectors…
@@ -379,7 +379,7 @@ rade focus "$ps" >/dev/null
 sleep 1
 rpc debug.scm '{"op":"refresh"}' >/dev/null
 sleep 1
-rpc debug.scm '{"op":"pr"}' >/dev/null
+rpc debug.scm '{"op":"card_menu_activate","source":"shop-web","item":"Create Pull Request…"}' >/dev/null
 eventually 8 bash -c "rpc debug.scm | jq -e '.pr != null' >/dev/null"
 rpc debug.scm '{"op":"pr_fill","title":"Lazy-load product images"}' >/dev/null
 rade debug dialog respond create >/dev/null
@@ -498,32 +498,32 @@ rpc debug.ui '{"op":"nav_click","kind":"agent","title":"tests"}' >/dev/null
 [[ $(chrome | jq -r .right_panel.toggle) == true ]] || rade debug action toggle_file_tree >/dev/null
 ui right_page changes >/dev/null
 A_GROUPS="shop-web checkout-v2 4 files | shop-api feat/checkout-v2 3 files | shared-ui develop clean"
-groups_text() { changes | jq -r '[.groups[] | "\(.name) \(.label) \(if .clean then "clean" else "\(.rows) files" end)"] | join(" | ")'; }
+groups_text() { changes | jq -r '[.cards[] | "\(.name) \(.label) \(if .clean then "clean" else "\([.groups[].count] | add) files" end)"] | join(" | ")'; }
 export -f groups_text
 eventually 15 is groups_text "$A_GROUPS"
-eventually 5 bash -c "[[ \$(changes | jq -r '.groups[1].drift != null') == true ]]"
+eventually 5 bash -c "[[ \$(changes | jq -r '.cards[1].drift != null') == true ]]"
 sleep 1
 changes >"$OUT/changes-a.json"
 
-echo "== R107-a Changes by Project: header, 3 link groups"
+echo "== R107-a Changes by Project: header, 3 link cards (M45: R120)"
 check "R107-a the Inspector shows Changes by Project" test "$(jq -r .mode "$OUT/changes-a.json")" = project
 check "R107-a header PROJECT · SHOP" test "$(jq -r .header "$OUT/changes-a.json")" = "PROJECT · SHOP"
-check "R107-a groups: shop-web checkout-v2 4 files | shop-api 3 files | shared-ui develop clean" \
-    test "$(jq -r '[.groups[] | "\(.name) \(.label) \(if .clean then "clean" else "\(.rows) files" end)"] | join(" | ")' "$OUT/changes-a.json")" \
+check "R107-a cards: shop-web checkout-v2 4 files | shop-api 3 files | shared-ui develop clean" \
+    test "$(jq -r '[.cards[] | "\(.name) \(.label) \(if .clean then "clean" else "\([.groups[].count] | add) files" end)"] | join(" | ")' "$OUT/changes-a.json")" \
     = "shop-web checkout-v2 4 files | shop-api feat/checkout-v2 3 files | shared-ui develop clean"
 check "R107-a shop-web meta ↑3 · 4, its own Commit (the one primary)" \
-    test "$(jq -r '.groups[0] | "\(.meta) \(.commit.shown) \(.commit.primary)"' "$OUT/changes-a.json")" = "↑3 · 4 true true"
+    test "$(jq -r '.cards[0] | "\(.meta) \(.commit.shown) \(.commit.primary)"' "$OUT/changes-a.json")" = "↑3 · 4 true true"
 check "R107-a every changed group has its own commit box; only one primary" \
-    test "$(jq -r '[.groups[] | select(.clean | not) | .commit.shown] | all' "$OUT/changes-a.json")/$(jq '[.groups[] | select(.commit.primary)] | length' "$OUT/changes-a.json")" = "true/1"
+    test "$(jq -r '[.cards[] | select(.clean | not) | .commit.shown] | all' "$OUT/changes-a.json")/$(jq '[.cards[] | select(.commit.primary)] | length' "$OUT/changes-a.json")" = "true/1"
 check "R107-a header totals +a −r are the sum of the file rows" \
-    test "$(jq -r '"+\([.groups[].files[].add] | add) −\([.groups[].files[].del] | add)"' "$OUT/changes-a.json")" = "$(jq -r '"\(.add) \(.del)"' "$OUT/changes-a.json")"
+    test "$(jq -r '[.cards[].groups[].rows[] | select(.kind=="file")] | "+\([.[].add] | add) −\([.[].del] | add)"' "$OUT/changes-a.json")" = "$(jq -r '"\(.add) \(.del)"' "$OUT/changes-a.json")"
 check "R107-a the Inspector tab counts the Project's 7 files" eventually 5 is "chrome | jq -r '.inspector.labels[0]'" "Changes 7"
 
 echo "== R100-g Changes: the drift card's text and exactly its 2 buttons"
 check "R100-g card: shop-api is on feat/checkout-v2, Shop's base is develop. 3 uncommitted changes, so RADE won't switch it." \
-    test "$(jq -r '.groups[1].drift.full' "$OUT/changes-a.json")" = "shop-api is on feat/checkout-v2, Shop's base is develop. 3 uncommitted changes, so RADE won't switch it."
+    test "$(jq -r '.cards[1].drift.full' "$OUT/changes-a.json")" = "shop-api is on feat/checkout-v2, Shop's base is develop. 3 uncommitted changes, so RADE won't switch it."
 check "R100-g …exactly the buttons Keep, show in Shop and Move to a Worktree… (no Back to base: dirty)" \
-    test "$(jq -r '.groups[1].drift.buttons | join("|")' "$OUT/changes-a.json")" = "Keep, show in Shop|Move to a Worktree…"
+    test "$(jq -r '.cards[1].drift.buttons | join("|")' "$OUT/changes-a.json")" = "Keep, show in Shop|Move to a Worktree…"
 check "R100-g …and on screen: 2 drift-card buttons" \
     eventually 5 is "geo 'drift-card btn' '\"all\":true' | jq -r '[.[].label] | join(\"|\")'" "Keep, show in Shop|Move to a Worktree…"
 
@@ -534,14 +534,47 @@ for th in dark light; do
     [[ $th == light ]] && light
     check "R104-b $th: spec A rows A.17–A.38 within tolerance" spec_a "$th" A.17-A.38 nav
     grep ^FAIL "$OUT/spec-a-nav-$th.txt"
-    check "R107-b $th: spec A rows A.58–A.69 within tolerance" spec_a "$th" A.58-A.69 changes
+    # A.82 / A.83 measure a selected row (Ctrl+click selects without opening a diff);
+    # A.85 a first line over 72 characters. Both are undone before the golden.
+    selpath=$(rpc debug.scm | jq -r '[.cards[0].groups[] | select(.kind=="changes") | .rows[] | select(.kind=="file")][0].path')
+    ctrlsel() { rpc debug.scm "{\"op\":\"click\",\"source\":\"shop-web\",\"group\":\"changes\",\"path\":\"$selpath\",\"arg\":\"ctrl\"}" >/dev/null; }
+    ctrlsel
+    sleep 0.6
+    check "R120-g $th: spec A rows A.58–A.69, A.81–A.83 within tolerance" spec_a "$th" A.58-A.69,A.81-A.83 changes
     grep ^FAIL "$OUT/spec-a-changes-$th.txt"
+    check "R107-b $th: spec A rows A.58–A.69 (the same measurement, M45 shape) have no FAIL line" bash -c "! grep -qE '^FAIL $th A\.(5[89]|6[0-9]):' '$OUT/spec-a-changes-$th.txt'"
+    ctrlsel
+    rpc debug.scm "{\"op\":\"message\",\"source\":\"shop-web\",\"text\":\"$(printf 'x%.0s' $(seq 80))\"}" >/dev/null
+    sleep 0.6
+    check "R120-g $th: spec A.85 (subject over 72 characters) within tolerance" spec_a "$th" A.85 changes-warn
+    grep ^FAIL "$OUT/spec-a-changes-warn-$th.txt"
+    rpc debug.scm '{"op":"message","source":"shop-web","text":""}' >/dev/null
     notoasts
     masks "$OUT/masks-a-$th.json"
     shot "a-$th"
 done
 dark
 check "scene A: exactly one primary button (Commit)" eventually 3 is primaries Commit
+
+echo "== R120-g A.84 / A.86: a card with Sync Changes (a throwaway Source ahead of its upstream)"
+SD=$T/code/sync-demo
+mkdir -p "$SD" && G -C "$SD" init -q -b main && echo one >"$SD/a.txt" && G -C "$SD" add -A && G -C "$SD" commit -qm one
+G init -q --bare -b main "$T/sync-demo.git" && G -C "$SD" remote add origin "$T/sync-demo.git" && G -C "$SD" push -q -u origin main
+echo two >"$SD/b.txt" && G -C "$SD" add -A && G -C "$SD" commit -qm two
+rade source add "$SD" --name sync-demo >/dev/null
+sdp=$(rade spawn --source sync-demo --cmd bash --tab new --json | id)
+rade focus "$sdp" >/dev/null
+rpc debug.scm '{"op":"refresh"}' >/dev/null
+check "R120-g the card shows 'Sync Changes ↑1 ↓0'" eventually 8 is "rpc debug.scm | jq -r '.cards[0].action'" "Sync Changes ↑1 ↓0"
+for th in dark light; do
+    [[ $th == light ]] && light
+    check "R120-g $th: spec A rows A.84, A.86 within tolerance" spec_a "$th" A.84,A.86 changes-sync
+    grep ^FAIL "$OUT/spec-a-changes-sync-$th.txt"
+done
+dark
+rade focus "$tests" >/dev/null
+rade close "$sdp" --force >/dev/null 2>&1 || true
+rade source remove sync-demo >/dev/null 2>&1 || true
 
 echo "== R107-e / R107-f palette 'shared' (scene D)"
 # A file of the focused Worktree that matches (spec D.19's FILES row).
@@ -631,16 +664,16 @@ eventually 8 bash -c "! ui sidebar | jq -r '.sidebar[].title' | grep -qx 'Checko
 
 echo "== R107-a Commit in shop-web commits only shop-web's staged files"
 apihead=$(git -C "$API" rev-parse HEAD)
-rpc debug.ui '{"op":"changes_stage","source":"shop-web","path":"src/a.ts"}' >/dev/null
-eventually 5 bash -c "[[ \$(changes | jq -r '.groups[0].staged') == 1 ]]"
-rpc debug.ui '{"op":"changes_message","source":"shop-web","text":"feat: checkout form"}' >/dev/null
-check "R107-a shop-web's Commit is enabled (1 staged, a message)" eventually 3 is "changes | jq -r .groups[0].commit.enabled" true
-check "R107-a shop-api's Commit is not (nothing staged)" test "$(changes | jq -r .groups[1].commit.enabled)" = false
-rpc debug.ui '{"op":"changes_commit","source":"shop-web"}' >/dev/null
+rpc debug.scm '{"op":"row_action","source":"shop-web","group":"changes","path":"src/a.ts","arg":"Stage Changes"}' >/dev/null
+eventually 5 bash -c "[[ \$(changes | jq -r '[.cards[0].groups[] | select(.kind==\"staged\") | .count] | add // 0') == 1 ]]"
+rpc debug.scm '{"op":"message","source":"shop-web","text":"feat: checkout form"}' >/dev/null
+check "R107-a shop-web's Commit is enabled (1 staged, a message)" eventually 3 is "changes | jq -r .cards[0].commit.enabled" true
+check "R107-a shop-api's Commit is not (no message)" test "$(changes | jq -r .cards[1].commit.enabled)" = false
+rpc debug.scm '{"op":"commit","source":"shop-web","variant":"commit"}' >/dev/null
 check "R107-a the commit holds only src/a.ts of checkout-v2" eventually 5 is "git -C '$CV' show --name-only --format=%s HEAD | tr '\n' ' '" "feat: checkout form  src/a.ts "
 check "R107-a …shop-api untouched (HEAD and its 3 changes)" \
     bash -c "[[ \$(git -C '$API' rev-parse HEAD) == $apihead && \$(git -C '$API' status --porcelain | wc -l) == 3 ]]"
-check "R107-a shop-web's group now 3 files, ↑4" eventually 5 is "changes | jq -r '.groups[0] | \"\(.rows) \(.meta)\"'" "3 ↑4 · 3"
+check "R107-a shop-web's group now 3 files, ↑4" eventually 5 is "changes | jq -r '.cards[0] | \"\([.groups[].count] | add) \(.meta)\"'" "3 ↑4 · 3"
 
 echo "== R106-d Change base… shows the plan first; only the base line changes"
 SF=$A/.rade/projects/shop/project.toml
@@ -756,7 +789,7 @@ export -f idw
 check "R107-h a Pane in shop-api: the identity cell warns, naming both emails" \
     eventually 8 bash -c "idw | grep -q other@example.com && idw | grep -q richard@acme.io"
 check "R107-h …the cell has the wait style" eventually 3 is "geo status-cell-identity | jq -r '.classes | index(\"wait\") != null'" true
-gid() { changes | jq -r --arg s "$1" '[.groups[] | select(.source==$s) | .identity // empty] | join("")'; }
+gid() { changes | jq -r --arg s "$1" '[.cards[] | select(.source==$s) | .identity // empty] | join("")'; }
 export -f gid
 check "R107-h …and Changes warns on shop-api's group only" \
     eventually 8 bash -c "gid shop-api | grep -q other@example.com && [[ -z \$(gid shop-web) ]]"
@@ -767,18 +800,8 @@ check "R107-h …but shop-api's group still warns (its Commit commits as other@e
     eventually 5 bash -c "gid shop-api | grep -q other@example.com"
 git -C "$API" config user.email richard@acme.io
 check "R107-h same emails again: no group warns" \
-    eventually 8 bash -c "[[ \$(changes | jq '[.groups[] | select(.identity != null)] | length') == 0 ]]"
-# The single-checkout page (Details) warns too, for the focused checkout
-# (its facts are read again when the focus moves to another checkout).
-git -C "$WEB" config user.email other@example.com
-rade focus "$apish" >/dev/null && rade focus "$dev" >/dev/null
-ui changes_details on >/dev/null
-scmi() { rpc debug.scm | jq -r '.identity // ""'; }
-export -f scmi
-check "R107-h …the single-checkout page shows the warning above its Commit" \
-    eventually 8 bash -c "scmi | grep -q other@example.com"
-git -C "$WEB" config user.email richard@acme.io
-ui changes_details off >/dev/null
+    eventually 8 bash -c "[[ \$(changes | jq '[.cards[] | select(.identity != null)] | length') == 0 ]]"
+# M45: the single-checkout page (Details) is gone; the cards above are the identity warning's only surface.
 rade focus "$apish" >/dev/null && rade focus "$dev" >/dev/null
 rade close "$apish" --force >/dev/null 2>&1
 

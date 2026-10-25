@@ -1,6 +1,7 @@
-# M14 phase 2 live (R21, R22): the Changes and Search pages on the real
-# desktop — real Ctrl+Shift+M / Ctrl+Shift+S, the 3 s refresh while the
-# window is active, a real click on a row's Stage button, a typed commit
+# M14 phase 2 live (R21, R22; M45: R120, R121): the Changes and Search pages on
+# the real desktop — real Ctrl+Shift+M / Ctrl+Shift+S, the 3 s refresh while the
+# window is active, a real click on a row (opens its diff) and on its Stage Changes
+# button, a typed commit
 # message committed with a real Ctrl+Enter, Generate with a stand-in draft
 # command (no Agent, no tokens), a typed search and a real click on a result
 # → Viewer at the line. A temp repository; no remote, nothing pushed.
@@ -25,7 +26,8 @@ print(json.dumps(json.loads(buf)["result"]))
 PY
 }
 scm() { rpc debug.scm "${1:-{\}}"; }
-sect() { scm | jq -r --arg s "$1" '[.sections[$s][] | .letter + " " + .path] | join(",")'; }
+# "M src/a.rs" of one group (merge | staged | changes) of the first card (M45 shape).
+sect() { scm | jq -r --arg g "$1" '[.cards[0].groups[] | select(.kind==$g) | .rows[] | select(.kind=="file") | .letter + " " + .path] | join(",")'; }
 rade source add "$X" --name l14b >/dev/null
 P=$(rade spawn --source l14b --cmd bash --name l14b-sh --json | jq -r .pane)
 rade focus "$P" >/dev/null
@@ -33,32 +35,39 @@ sleep 1
 
 echo "-- R21.9 Ctrl+Shift+M, R21.8 refresh while active"
 key ctrl+shift+m
-want "real Ctrl+Shift+M shows the Changes page" 3 "scm | jq -r '[.visible, .page] | join(\" \")'" "true repo"
+want "real Ctrl+Shift+M shows the Changes page (a repository in no Project: source mode)" 3 "scm | jq -r '[.visible, .mode] | join(\" \")'" "true source"
 printf 'fn alpha() { 1 }\nfn beta() {}\n' > "$X/src/a.rs"
-want "an edit outside RADE shows up by itself (3 s poll, window active)" 7 "sect unstaged" "M src/a.rs"
+want "an edit outside RADE shows up by itself (3 s poll, window active)" 7 "sect changes" "M src/a.rs"
 
-echo "-- R21.2 real click on Stage"
-read -r x y <<<"$(widget_xy Stage)"
+echo "-- R120.3 real click on a row, R120.2 its Stage Changes button"
+read -r x y <<<"$(widget_xy file-row)"
 if click "$x" "$y"; then
-    want "the row's Stage button stages it" 5 "sect staged" "M src/a.rs"
+    want "a real click on the row opens its diff in a Diff Pane" 5 "rpc debug.diff | jq -r .title" "a.rs (Working Tree)"
+    want "…and stages nothing" 2 "sect staged" ""
+    read -r x y <<<"$(widget_xy "Stage Changes")"
+    if click "$x" "$y"; then
+        want "the row's Stage Changes button stages it" 5 "sect staged" "M src/a.rs"
+    else
+        bad "pointer over Stage Changes (not placed)"
+    fi
 else
-    bad "pointer over Stage (not placed)"
+    bad "pointer over the row (not placed)"
 fi
 
 echo "-- R21.7 Generate (stand-in draft command), R21.4 Ctrl+Enter"
-read -r x y <<<"$(widget_xy "Ask an Agent to draft the message from the staged diff ([scm] draft_command)")"
+read -r x y <<<"$(widget_xy draft-button)"
 if click "$x" "$y"; then
-    want "Generate fills the message" 10 "scm | jq -r .message" "feat(R21): live draft"
+    want "Generate fills the message" 10 "scm | jq -r .cards[0].message" "feat(R21): live draft"
 fi
 shot m14b-changes
-scm '{"op":"message","text":""}' >/dev/null
-read -r x y <<<"$(widget_xy rade-commit-msg)"
+scm '{"op":"message","source":"l14b","text":""}' >/dev/null
+read -r x y <<<"$(widget_xy commit-entry)"
 if click "$x" "$y"; then
     type_text "feat: live commit"
-    want "typed into the message box" 3 "scm | jq -r .message" "feat: live commit"
+    want "typed into the message box" 3 "scm | jq -r .cards[0].message" "feat: live commit"
     key ctrl+enter
     want "real Ctrl+Enter commits it" 5 "git -C '$X' log -1 --format=%s" "feat: live commit"
-    want "…the box empties, nothing left to commit" 5 "scm | jq -r '.message + \"|\" + (.sections.staged | length | tostring)'" "|0"
+    want "…the box empties, nothing left to commit" 5 "scm | jq -r '.cards[0] | .message + \"|\" + ([.groups[] | select(.kind==\"staged\") | .count] | add // 0 | tostring)'" "|0"
 else
     bad "pointer over the message box (not placed)"
 fi

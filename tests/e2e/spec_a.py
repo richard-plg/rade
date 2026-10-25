@@ -2,10 +2,10 @@
 """R103-a: measure scene A's chrome against docs/internals/design/spec/a-workspace.md.
 
 Usage: spec_a.py <socket> <tokens.toml> <dark|light> <planner pane> <tests pane>
-                 [--rows A.17-A.38,A.58-A.69]
+                 [--rows A.17-A.38,A.58-A.69,A.81-A.86]
 
 With `--rows` only those rows are measured and printed: the Navigator
-(A.17–A.38, R104-b) and Changes by Project (A.58–A.69, R107-b) need the
+(A.17–A.38, R104-b) and Changes (A.58–A.69 and A.81–A.86, R120-g) need the
 M37 scene (tests/e2e/m37.sh); without it, the M35 rows below.
 
 Rows A.2–A.16 (titlebar), A.39–A.57 (tabs, Panes, Inspector), A.70–A.73 and
@@ -571,118 +571,219 @@ def navigator():
         eq("A.38", "Agent name color", geo("inbox-pill-name")["color"], tok("fg"))
 
 
-# ---- Changes by Project A.58–A.69 (R107-b) ---------------------------------
+# ---- Changes A.58–A.69, A.81–A.86 (R120-g, M45) ----------------------------
+def scm_info():
+    return rpc("debug.scm", {"op": "info"})
+
+
+def file_rows():
+    """The page's file rows in order: (card source, group kind, row dict)."""
+    out = []
+    for c in scm_info()["cards"]:
+        for g in c["groups"]:
+            out += [(c["source"], g["kind"], r) for r in g["rows"] if r["kind"] == "file"]
+    return out
+
+
 def changes():
-    hd = geo("changes-header")
-    for got, want, side in zip(sides(hd, "padding"), [0, 12, 8, 12], "trbl"):
-        near("A.58", f"changes-header padding.{side}", got, want)
-    t = geo("changes-title")
-    font("A.58", "header label", t, MONO, 10.5, 600)
-    eq("A.58", "header text", t["label"], "PROJECT · SHOP")
-    ad = geo("changes-total-add")
-    eq("A.58", "+ total color", ad["color"], tok("add"))
-    font("A.58", "+ total", ad, MONO, 11)
-    eq("A.58", "− total color", geo("changes-total-del")["color"], tok("del"))
-    gs = geo("changes-group", all_=True)
-    gs = [g for g in gs if "changes-group" in g["classes"]]
-    if gs:
-        g = gs[0]
-        for got, want, side in zip(sides(g, "margin"), [0, 8, 10, 8], "trbl"):
-            near("A.59", f"group margin.{side}", got, want)
-        eq("A.59", "group border", g["border"]["top"], 1)
-        eq("A.59", "group border color", g["border_color"]["top"], tok("line"))
-        near("A.59", "group radius", g["radius"], 6)
-        bg("A.59", "group", g, "bg2")
-    gh = geo("changes-group-header")
-    near("A.60", "group header padding.top", gh["padding"]["top"], 7)
-    near("A.60", "group header padding.left", gh["padding"]["left"], 10)
-    eq("A.60", "group header border.bottom", gh["border"]["bottom"], 1)
-    eq("A.60", "group header border color", gh["border_color"]["bottom"], tok("line"))
-    gt = geo("changes-group-title")
-    font("A.60", "group title", gt, INTER, 12, 600)
-    gm = geo("changes-group-meta")
-    font("A.60", "group meta", gm, MONO, 11)
-    eq("A.60", "group meta color", gm["color"], tok("fg3"))
-    fr = geo("file-row")
-    near("A.61", "file row height", fr["height"], 24)
-    near("A.61", "file row padding.left", fr["padding"]["left"], 10)
-    near("A.61", "file row padding.right", fr["padding"]["right"], 10)
-    font("A.61", "file row name", geo("file-row-name"), MONO, 12)
-    eq("A.61", "file row dir color", geo("file-row-dir")["color"], tok("fg3"))
-    eq("A.61", "file row name color", geo("file-row-name")["color"], tok("fg"))
-    sts = geo("file-status", all_=True)
-    near("A.62", "status column", sts[0]["width"] if sts else None, 12)
-    for letter, t in [("M", "wait"), ("A", "add"), ("D", "del")]:
-        xs = [x for x in sts if x["label"] == letter]
-        if xs:
-            eq("A.62", f"{letter} color", xs[0]["color"], tok(t))
-            font("A.62", f"{letter}", xs[0], weight=600)
-    if not any(x["label"] == "M" for x in sts):
-        row("A.62").append((False, "no M row"))
-    st = geo("file-stat")
-    sa = geo("file-stat-add")
-    if found("A.63", sa, "file-stat-add"):
-        font("A.63", "+ count", sa, MONO, 11)
-        eq("A.63", "+ count color", sa["color"], tok("add"))
-        frs = [r for r in geo("file-row", all_=True) if r["y"] <= st["y"] <= r["y"] + r["height"]]
-        if frs:
-            near("A.63", "stat right = row right − 10", st["x"] + st["width"], frs[0]["x"] + frs[0]["width"] - 10)
-    cr = geo("commit-row")
-    near("A.64", "commit row padding.top", cr["padding"]["top"], 8)
-    near("A.64", "commit row padding.left", cr["padding"]["left"], 10)
-    eq("A.64", "commit row border.top", cr["border"]["top"], 1)
-    eq("A.64", "commit row border color", cr["border_color"]["top"], tok("line"))
-    ce = geo("commit-entry")
-    near("A.64", "commit entry height", ce["height"], 26)
-    near("A.64", "commit entry radius", ce["radius"], 5)
-    eq("A.64", "commit entry border", ce["border"]["top"], 1)
-    eq("A.64", "commit entry border color", ce["border_color"]["top"], tok("line2"))
-    bg("A.64", "commit entry", ce, "bg0")
-    prim = [b for b in geo("suggested-action", all_=True)]
-    eq("A.65", "visible primary buttons", [b["label"] for b in prim], ["Commit"])
-    cbs = [b for b in geo("commit-button", all_=True) if "suggested-action" in b["classes"]]
-    if cbs:
-        c = cbs[0]
-        # Insensitive (nothing staged) at 0.45 in scene A (M35 decision):
-        # the computed fill is `acc`, the drawn one is dimmed.
-        eq("A.65", "Commit background", c["background"], tok("acc"))
-        eq("A.65", "Commit color", c["color"], tok("acc-fg"))
-        font("A.65", "Commit", c, weight=600)
-        near("A.65", "Commit height", c["height"], 26)
-        near("A.65", "Commit radius", c["radius"], 6)
-    dr = geo("draft-button")
-    near("A.66", "Draft height", dr["height"], 26)
-    bg("A.66", "Draft", dr, "bg2")
-    eq("A.66", "Draft tooltip", dr["tooltip"], "Draft with agent")
-    dc = geo("drift-card")
-    if found("A.67", dc, "drift-card"):
-        for got, want, side in zip(sides(dc, "margin"), [0, 8, 10, 8], "trbl"):
-            near("A.67", f"drift card margin.{side}", got, want)
-        near("A.67", "drift card padding.top", dc["padding"]["top"], 8)
-        near("A.67", "drift card padding.left", dc["padding"]["left"], 10)
-        eq("A.67", "drift card border color", dc["border_color"]["top"], tok("wait-line"))
-        eq("A.67", "drift card background", dc["background"], tok("wait-dim"))
-        near("A.67", "drift card radius", dc["radius"], 6)
-        font("A.67", "drift text", geo("drift-text"), INTER, 12)
-        eq("A.67", "drift icon color", geo("drift-icon")["color"], tok("wait"))
-        near("A.67", "drift icon size", geo("drift-icon")["natural"]["width"], 15)
-        ds = geo("drift-sub")
-        font("A.68", "drift sub", ds, INTER, 11.5)
-        eq("A.68", "drift sub color", ds["color"], tok("fg2"))
-        btns = geo("drift-card btn", all_=True)
-        eq("A.68", "buttons", [b["label"] for b in btns], ["Keep, show in Shop", "Move to a Worktree…"])
-        for b in btns:
-            near("A.68", f"{b['label']} height", b["height"], 22)
-    info = rpc("debug.ui", {"op": "changes"})["changes"]
-    clean = [g for g in info.get("groups", []) if g["source"] == "shared-ui"]
-    eq("A.69", "shared-ui group clean, 0 rows", [(g["clean"], g["rows"], g["label"]) for g in clean], [(True, 0, "develop")])
-    if len(gs) >= 3:
-        near("A.69", "clean group opacity", gs[2]["opacity"], 0.75, 0.01)
+    if wanted(58):
+        hd = geo("changes-header")
+        for got, want, side in zip(sides(hd, "padding"), [0, 12, 8, 12], "trbl"):
+            near("A.58", f"changes-header padding.{side}", got, want)
+        t = geo("changes-title")
+        font("A.58", "header label", t, MONO, 10.5, 600)
+        eq("A.58", "header text", t["label"], "PROJECT · SHOP")
+        ad = geo("changes-total-add")
+        eq("A.58", "+ total color", ad["color"], tok("add"))
+        font("A.58", "+ total", ad, MONO, 11)
+        eq("A.58", "− total color", geo("changes-total-del")["color"], tok("del"))
+        tools = geo("changes-header changes-tool", all_=True)
+        eq("A.58", "3 tools", len(tools), 3)
+        for i, tl in enumerate(tools):
+            near("A.58", f"tool {i} width", tl["width"], 22)
+            near("A.58", f"tool {i} height", tl["height"], 22)
+    if wanted(59):
+        gs = geo("changes-group", all_=True)
+        gs = [g for g in gs if "changes-group" in g["classes"]]
+        if gs:
+            g = gs[0]
+            for got, want, side in zip(sides(g, "margin"), [0, 8, 10, 8], "trbl"):
+                near("A.59", f"group margin.{side}", got, want)
+            eq("A.59", "group border", g["border"]["top"], 1)
+            eq("A.59", "group border color", g["border_color"]["top"], tok("line"))
+            near("A.59", "group radius", g["radius"], 6)
+            bg("A.59", "group", g, "bg2")
+    if wanted(60):
+        gh = geo("changes-group-header")
+        near("A.60", "group header padding.top", gh["padding"]["top"], 7)
+        near("A.60", "group header padding.left", gh["padding"]["left"], 10)
+        eq("A.60", "group header border.bottom", gh["border"]["bottom"], 1)
+        eq("A.60", "group header border color", gh["border_color"]["bottom"], tok("line"))
+        gt = geo("changes-group-title")
+        font("A.60", "group title", gt, INTER, 12, 600)
+        gm = geo("changes-group-meta")
+        font("A.60", "group meta", gm, MONO, 11)
+        eq("A.60", "group meta color", gm["color"], tok("fg3"))
+    if wanted(61):
+        fr = geo("file-row")
+        near("A.61", "file row height", fr["height"], 24)
+        near("A.61", "file row padding.left", fr["padding"]["left"], 10)
+        near("A.61", "file row padding.right", fr["padding"]["right"], 10)
+        font("A.61", "file row name", geo("file-row-name"), MONO, 12)
+        eq("A.61", "file row dir color", geo("file-row-dir")["color"], tok("fg3"))
+        eq("A.61", "file row name color", geo("file-row-name")["color"], tok("fg"))
+    if wanted(62):
+        sts = geo("file-status", all_=True)
+        near("A.62", "status column", sts[0]["width"] if sts else None, 12)
+        for letter, tk in [("M", "wait"), ("A", "add"), ("U", "add"), ("D", "del"), ("R", "run")]:
+            xs = [x for x in sts if x["label"] == letter]
+            if xs:
+                eq("A.62", f"{letter} color", xs[0]["color"], tok(tk))
+                font("A.62", f"{letter}", xs[0], weight=600)
+        if not any(x["label"] == "M" for x in sts):
+            row("A.62").append((False, "no M row"))
+        rows_all = geo("file-row", all_=True)
+        for x in sts[:3]:
+            r = [r for r in rows_all if r["y"] <= x["y"] <= r["y"] + r["height"]]
+            if r:
+                near("A.62", "status right = row right − 10", x["x"] + x["width"], r[0]["x"] + r[0]["width"] - 10)
+    if wanted(63):
+        sa = geo("file-stat-add")
+        if found("A.63", sa, "file-stat-add"):
+            font("A.63", "+ count", sa, MONO, 11)
+            eq("A.63", "+ count color", sa["color"], tok("add"))
+            st = geo("file-stat")
+            stat_row = [x for x in sts if x["y"] <= st["y"] + 1 and st["y"] <= x["y"] + x["height"]]
+            if stat_row:
+                near("A.63", "stat right = status left − 8", st["x"] + st["width"], stat_row[0]["x"] - 8)
+    if wanted(64):
+        cr = geo("commit-row")
+        near("A.64", "commit row padding.top", cr["padding"]["top"], 8)
+        near("A.64", "commit row padding.left", cr["padding"]["left"], 10)
+        eq("A.64", "commit row border.bottom", cr["border"]["bottom"], 1)
+        eq("A.64", "commit row border color", cr["border_color"]["bottom"], tok("line"))
+        ce = geo("commit-entry")
+        near("A.64", "commit entry height", ce["height"], 26)
+        near("A.64", "commit entry radius", ce["radius"], 5)
+        eq("A.64", "commit entry border", ce["border"]["top"], 1)
+        eq("A.64", "commit entry border color", ce["border_color"]["top"], tok("line2"))
+        bg("A.64", "commit entry", ce, "bg0")
+    if wanted(65):
+        prim = [b for b in geo("suggested-action", all_=True)]
+        eq("A.65", "visible primary buttons", [b["label"] for b in prim], ["Commit"])
+        cbs = [b for b in geo("commit-button", all_=True) if "suggested-action" in b["classes"]]
+        if cbs:
+            c = cbs[0]
+            # Insensitive (nothing staged) at 0.45 in scene A (M35 decision):
+            # the computed fill is `acc`, the drawn one is dimmed.
+            eq("A.65", "Commit background", c["background"], tok("acc"))
+            eq("A.65", "Commit color", c["color"], tok("acc-fg"))
+            font("A.65", "Commit", c, weight=600)
+            near("A.65", "Commit height", c["height"], 26)
+            near("A.65", "Commit radius", c["radius"], 6)
+        # The arrow part: accent-filled only while Commit is the primary button.
+        mores = geo("commit-more", all_=True)
+        split_primary = [m for m in geo("commit-split", all_=True) if "primary" in m["classes"]]
+        eq("A.65", "one primary commit-split (the focused card's)", len(split_primary), 1)
+        if mores:
+            near("A.65", "commit-more width", mores[0]["width"], 22)
+            near("A.65", "commit-more height", mores[0]["height"], 26)
+    if wanted(66):
+        dr = geo("draft-button")
+        near("A.66", "Draft height", dr["height"], 26)
+        bg("A.66", "Draft", dr, "bg2")
+        eq("A.66", "Draft tooltip", dr["tooltip"], "Draft with agent")
+    if wanted(67):
+        dc = geo("drift-card")
+        if found("A.67", dc, "drift-card"):
+            for got, want, side in zip(sides(dc, "margin"), [0, 8, 10, 8], "trbl"):
+                near("A.67", f"drift card margin.{side}", got, want)
+            near("A.67", "drift card padding.top", dc["padding"]["top"], 8)
+            near("A.67", "drift card padding.left", dc["padding"]["left"], 10)
+            eq("A.67", "drift card border color", dc["border_color"]["top"], tok("wait-line"))
+            eq("A.67", "drift card background", dc["background"], tok("wait-dim"))
+            near("A.67", "drift card radius", dc["radius"], 6)
+            font("A.67", "drift text", geo("drift-text"), INTER, 12)
+            eq("A.67", "drift icon color", geo("drift-icon")["color"], tok("wait"))
+            near("A.67", "drift icon size", geo("drift-icon")["natural"]["width"], 15)
+            ds = geo("drift-sub")
+            font("A.68", "drift sub", ds, INTER, 11.5)
+            eq("A.68", "drift sub color", ds["color"], tok("fg2"))
+            btns = geo("drift-card btn", all_=True)
+            eq("A.68", "buttons", [b["label"] for b in btns], ["Keep, show in Shop", "Move to a Worktree…"])
+            for b in btns:
+                near("A.68", f"{b['label']} height", b["height"], 22)
+    if wanted(69):
+        cards = scm_info()["cards"]
+        clean = [c for c in cards if c["source"] == "shared-ui"]
+        eq("A.69", "shared-ui card clean, 0 rows, no action button",
+           [(c["clean"], sum(g["count"] for g in c["groups"]), c["label"], c["action"]) for c in clean],
+           [(True, 0, "develop", None)])
+        gs = [g for g in geo("changes-group", all_=True) if "changes-group" in g["classes"]]
+        if len(gs) >= 3:
+            near("A.69", "clean card opacity", gs[2]["opacity"], 0.75, 0.01)
+
+    if wanted(81):
+        # A.81 section rows and their count pills.
+        sec = geo("scm-section")
+        if found("A.81", sec, "scm-section"):
+            near("A.81", "section height", sec["height"], 22)
+            near("A.81", "section padding.left", sec["padding"]["left"], 10)
+            near("A.81", "section padding.right", sec["padding"]["right"], 10)
+        if sec.get("found", True):
+            font("A.81", "section label", sec, MONO, 10.5, 600)
+            eq("A.81", "section label color", sec["color"], tok("fg2"))
+        titles = [g["title"] for c in scm_info()["cards"] for g in c["groups"]]
+        eq("A.81", "section titles uppercase", titles, [t.upper() for t in titles])
+        cp = geo("scm-count")
+        if found("A.81", cp, "scm-count"):
+            font("A.81", "count pill", cp, MONO, 10)
+            bg("A.81", "count pill", cp, "bg3")
+            near("A.81", "count pill radius", cp["radius"], 8)
+            near("A.81", "count pill padding.left", cp["padding"]["left"], 5)
+            near("A.81", "count pill padding.right", cp["padding"]["right"], 5)
+    if wanted(82):
+        # A.82 / A.83 need a selected row (m37 selects one first).
+        rows = file_rows()
+        sel = [i for i, (_, _, r) in enumerate(rows) if r["selected"]]
+        if sel:
+            acts = [a for a in geo("scm-act", all_=True) if a.get("visible")]
+            if acts:
+                for i, a in enumerate(acts):
+                    near("A.82", f"scm-act {i} width", a["width"], 20)
+                    near("A.82", f"scm-act {i} height", a["height"], 20)
+            else:
+                row("A.82").append((False, "no visible scm-act"))
+            selrow = geo("file-row", nth=sel[0])
+            bg("A.83", "selected row", selrow, "acc-dim")
+        else:
+            row("A.82").append((False, "no selected row to measure"))
+            row("A.83").append((False, "no selected row to measure"))
+    if wanted(84):
+        # A.84 – A.86: states scene A lacks (a Publish / Sync card, a long subject).
+        abs_ = [a for a in geo("scm-action-button", all_=True) if a.get("visible")]
+        ab = abs_[0] if abs_ else {"found": False}
+        if found("A.84", ab, "scm-action-button (visible)"):
+            near("A.84", "action button height", ab["height"], 26)
+            near("A.84", "action button margin.top", ab["margin"]["top"], 8)
+            near("A.84", "action button margin.left", ab["margin"]["left"], 10)
+            font("A.84", "action button", ab, INTER, 12, 600)
+        cws = [a for a in geo("commit-warning", all_=True) if a.get("visible")]
+        cw = cws[0] if cws else {"found": False}
+        if found("A.85", cw, "commit-warning (visible)"):
+            font("A.85", "subject warning", cw, INTER, 11)
+            eq("A.85", "subject warning color", cw["color"], tok("wait"))
+            near("A.85", "subject warning margin.top", cw["margin"]["top"], 2)
+        sys_ = [a for a in geo("scm-sync", all_=True) if a.get("visible")]
+        sy = sys_[0] if sys_ else {"found": False}
+        if found("A.86", sy, "scm-sync (visible)"):
+            near("A.86", "sync height", sy["height"], 22)
+            font("A.86", "sync label", geo("scm-sync label"), MONO, 11)
 
 
 if wanted(17):
     navigator()
-if wanted(58):
+if wanted(58) or wanted(81):
     changes()
 
 bad = 0
