@@ -8,3 +8,7 @@ use rade_core::voice::composer::Event;
 /// An event from the Voice Composer's widget (keys inside the card, the
 /// close, Send and Paste only buttons, edits of the draft).
 pub fn on_ui(_event: Event) {}
+
+/// The mic button of Pane `pane_id` (and the palette's Voice Prompt on the
+/// focused Pane): a tap (D2 toggle, D3).
+pub fn tap(_pane_id: &str) {}

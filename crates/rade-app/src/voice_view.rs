@@ -37,3 +37,15 @@ pub fn set_draft(_text: &str, _tags: &DraftTags) {}
 pub fn draft_text() -> String {
     String::new()
 }
+
+/// `debug.voice info`'s widget facts: `heard_folded`, `draft_tags`
+/// (`code` / `changed` / `unsure` as `[start, end]` byte pairs), `hints`.
+pub fn debug_info() -> serde_json::Value {
+    serde_json::Value::Null
+}
+
+/// `debug.voice scene a|c|e`: fill the composer of the focused Agent Pane with
+/// the mockup's data and state (no processes).
+pub fn debug_scene(_arg: &str) -> rade_core::rpc::Result<serde_json::Value> {
+    Ok(serde_json::Value::Null)
+}
