@@ -180,6 +180,10 @@ pub fn debug_key(spec: &str) -> rade_core::rpc::Result<serde_json::Value> {
         crate::settings_view::close();
         return Ok(json!({"handled": "settings"}));
     }
+    // The Voice Composer takes Esc / Enter / Alt+Enter (R124, D12, D13).
+    if crate::voice_view::is_open() && crate::voice_view::handle_key(key, mods) {
+        return Ok(json!({"handled": "voice"}));
+    }
     if crate::overview_view::is_open() {
         if lookup(key, mods).as_deref() == Some("agent_overview") {
             crate::overview_view::shortcut();

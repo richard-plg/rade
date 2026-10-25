@@ -1115,6 +1115,23 @@ pub fn draft_text() -> String {
     card().map(|c| shown_text(&c)).unwrap_or_default()
 }
 
+/// `debug.voice type`: insert `text` at the end of the draft, as typing does.
+pub fn type_text(text: &str) {
+    if let Some(c) = card() {
+        let b = c.draft.buffer();
+        b.insert(&mut b.end_iter(), text);
+    }
+}
+
+/// `debug.voice heard_toggle`: the heard line's show / hide link.
+pub fn toggle_heard() {
+    if let Some(c) = card() {
+        let folded = c.fold_override.get().unwrap_or(c.model_fold.get());
+        c.fold_override.set(Some(!folded));
+        paint_heard(&c);
+    }
+}
+
 /// `debug.voice info`'s widget facts: `heard_folded`, `draft_tags`
 /// (`code` / `changed` / `unsure` as `[start, end]` byte pairs), `hints`.
 pub fn debug_info() -> Value {

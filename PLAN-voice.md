@@ -305,7 +305,7 @@ Scenes (1440 × 900, scale 1, dark + light, the mockup's data: Shop / shop-web /
 | I.27 | 1280 px / Text scale 200 % | no clipped label, no horizontal scroll in the composer | exact | `debug.ui clipped`, `hscroll` (m40 helpers) |
 
 ### 5.4 Icons to add (copy verbatim from unpkg, Phosphor 2.1.1)
-`https://unpkg.com/@phosphor-icons/core@2.1.1/assets/regular/<name>.svg` → `crates/rade-app/assets/icons/ph-<name>-symbolic.svg` for `microphone`, `quotes`, `arrow-elbow-down-left`, `warning-diamond`; `…/assets/fill/microphone-fill.svg` → `ph-microphone-fill-symbolic.svg`. (`file-text`, `magnifying-glass`, `list`, `info`, `x` exist.) T0 checks each URL answers 200 first. `tokens_tests.rs` `r102_e…` lists them.
+`https://unpkg.com/@phosphor-icons/core@2.1.1/assets/regular/<name>.svg` → `crates/rade-app/assets/icons/ph-<name>-symbolic.svg` for `microphone`, `quotes`, `arrow-elbow-down-left`, `warning-diamond`; `…/assets/fill/microphone-fill.svg` → `ph-microphone-fill-symbolic.svg`. (`file-text`, `magnifying-glass`, `info`, `x` exist; `list` was added by T8.) T0 checks each URL answers 200 first. `tokens_tests.rs` `r102_e…` lists them.
 
 ### 5.5 CSS and tokens
 - New token `rec-dim` in `tokens.toml`: dark `#ff6b6b24`, light `#c230301f` (err at 14 % / 12 %), with its row in the README's token tables (AA: decorative, no contrast set). `build.rs` regenerates `tokens.css`.

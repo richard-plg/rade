@@ -23,7 +23,7 @@ use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicI32, AtomicU64, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 /// Bars of the level meter (PLAN §5.1).
 const METER_BARS: usize = 28;
@@ -44,11 +44,12 @@ thread_local! {
     static CTL: RefCell<Ctl> = RefCell::new(Ctl::new());
     /// The `voice` key is down (so a second press is an auto-repeat).
     static HELD: Cell<bool> = const { Cell::new(false) };
-    static EPOCH: Instant = Instant::now();
 }
 
+/// The view's clock (its Esc presses carry it), so Esc windows and timeouts
+/// compare like with like.
 fn now_ms() -> u64 {
-    EPOCH.with(|e| e.elapsed().as_millis() as u64)
+    crate::voice_view::now_ms()
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -574,6 +575,9 @@ fn on_msg(m: Msg) {
             match (kind, result) {
                 (Kind::Partial, Ok(t)) => feed(Event::Partial(t)),
                 (Kind::Final, Ok(t)) => feed(Event::Final(t)),
+                // A live partial that fails is skipped (the final pass decides)
+                // unless there is no server at all: say so while still talking.
+                (Kind::Partial, Err(e)) if !e.starts_with("No speech-to-text server") => {}
                 (_, Err(e)) => feed(Event::SttError(e)),
             }
             if pending && with(|c| c.session == session) {
@@ -962,7 +966,7 @@ pub fn debug(p: &Value) -> Result<Value> {
             Ok(json!({}))
         }
         "escape" => {
-            feed(Event::Escape { at_ms: 0 });
+            feed(Event::Escape { at_ms: now_ms() });
             Ok(json!({}))
         }
         "type" => {
@@ -970,13 +974,14 @@ pub fn debug(p: &Value) -> Result<Value> {
             if !with(|c| c.composer.is_open()) {
                 return Err(Error::usage("the Voice Composer is not open"));
             }
-            let new = with(|c| format!("{}{}", c.composer.draft(), text));
-            feed(Event::DraftEdited(new));
+            // Through the widget, as typing does (its buffer sends DraftEdited).
+            crate::voice_view::type_text(text);
             Ok(json!({}))
         }
-        "heard_toggle" => Err(Error::internal(
-            "heard_toggle: needs the widget's show / hide (voice_view), not wired in this build",
-        )),
+        "heard_toggle" => {
+            crate::voice_view::toggle_heard();
+            Ok(json!({}))
+        }
         "setup_link" => {
             crate::settings_view::open_filtered("voice");
             Ok(json!({}))
