@@ -13,7 +13,9 @@ use adw::prelude::*;
 use gtk::{gdk, glib};
 use gtk4 as gtk;
 use libadwaita as adw;
+use rade_core::config::DiffLayout;
 use rade_core::diff::{FileDiff, LineKind};
+use rade_core::diff_view::{self, Pair};
 use rade_core::rpc::Result;
 use rade_core::scm::{self, Change, Section};
 use serde_json::{json, Value};
@@ -21,6 +23,12 @@ use std::cell::RefCell;
 use std::path::PathBuf;
 use std::rc::{Rc, Weak};
 use std::time::Duration;
+
+/// Pane width from which `auto` goes side by side (D17).
+const SIDE_MIN_WIDTH: i32 = 900;
+
+/// Context lines of "Show Full File" (D18).
+const FULL_CONTEXT: u32 = 999_999;
 
 const REFRESH: Duration = Duration::from_secs(2);
 
@@ -31,6 +39,7 @@ const ROW_CLASSES: [&str; 3] = ["rade-diff-hunk", "rade-diff-added", "rade-diff-
 enum DRow {
     Hunk(usize),
     Line(usize, usize),
+    Pair(usize, Pair),
     /// "Binary file not shown".
     Note,
 }
@@ -40,6 +49,13 @@ struct St {
     root: PathBuf,
     path: String,
     section: Option<Section>,
+    /// `[scm] diff_layout`, overridden by the header toggle (this Pane only).
+    mode: DiffLayout,
+    /// The layout in use.
+    side: bool,
+    /// `debug.diff width`: a width to decide `auto` by.
+    width_override: Option<i32>,
+    full: bool,
     change: Option<Change>,
     initial: bool,
     raw: String,
@@ -50,6 +66,8 @@ struct St {
     /// Highlighted lines of every hunk, one after the other.
     markup: Vec<String>,
     hunk_starts: Vec<usize>,
+    /// The current change, as its index among the change blocks.
+    cur: Option<usize>,
     error: Option<String>,
     loading: bool,
     again: bool,
@@ -62,6 +80,10 @@ pub struct DiffPane {
     icon: gtk::Image,
     title: gtk::Label,
     chip: gtk::Label,
+    prev: gtk::Button,
+    next: gtk::Button,
+    layout: gtk::Button,
+    full: gtk::Button,
     stage: gtk::Button,
     discard: gtk::Button,
     open: gtk::Button,
@@ -128,7 +150,7 @@ struct Fresh {
     other: Option<Section>,
 }
 
-fn read(root: &std::path::Path, path: &str, section: Section) -> Result<Fresh> {
+fn read(root: &std::path::Path, path: &str, section: Section, full: bool) -> Result<Fresh> {
     let st = scm::status(root)?;
     let change = st
         .files
@@ -136,7 +158,7 @@ fn read(root: &std::path::Path, path: &str, section: Section) -> Result<Fresh> {
         .find(|c| c.path == path && c.in_section(section))
         .cloned();
     let raw = match &change {
-        Some(c) => scm::file_diff(root, c, section)?,
+        Some(c) => scm::file_diff_ctx(root, c, section, full.then_some(FULL_CONTEXT))?,
         None => String::new(),
     };
     let other = if raw.trim().is_empty() {
@@ -177,6 +199,10 @@ impl DiffPane {
         chip.set_margin_start(8);
         let spacer = gtk::Box::new(gtk::Orientation::Horizontal, 0);
         spacer.set_hexpand(true);
+        let prev = icon_button("ph-arrow-line-up-symbolic", "Previous Change (Shift+F7)");
+        let next = icon_button("ph-arrow-line-down-symbolic", "Next Change (F7)");
+        let layout = icon_button("ph-columns-symbolic", "Side by Side");
+        let full = icon_button("ph-arrows-out-line-vertical-symbolic", "Show Full File");
         let stage = icon_button("ph-plus-symbolic", "Stage File");
         let discard = icon_button("ph-arrow-counter-clockwise-symbolic", "Discard File…");
         let open = icon_button("ph-file-symbolic", "Open File");
@@ -186,6 +212,10 @@ impl DiffPane {
             title.upcast_ref(),
             chip.upcast_ref(),
             spacer.upcast_ref(),
+            prev.upcast_ref(),
+            next.upcast_ref(),
+            layout.upcast_ref(),
+            full.upcast_ref(),
             stage.upcast_ref(),
             discard.upcast_ref(),
             open.upcast_ref(),
@@ -231,12 +261,17 @@ impl DiffPane {
         let highlighter = sourceview5::Buffer::new(None);
         highlighter.set_highlight_matching_brackets(false);
 
+        let mode = try_app().map_or(DiffLayout::Auto, |a| a.config.borrow().scm.diff_layout);
         let v = Rc::new(Self {
             id: id.into(),
             root,
             icon,
             title,
             chip,
+            prev,
+            next,
+            layout,
+            full,
             stage,
             discard,
             open,
@@ -249,7 +284,11 @@ impl DiffPane {
             selection,
             scroll,
             highlighter,
-            st: RefCell::default(),
+            st: RefCell::new(St {
+                mode,
+                side: mode == DiffLayout::SideBySide,
+                ..Default::default()
+            }),
         });
         v.list.set_factory(Some(&v.factory()));
         v.connect();
@@ -284,13 +323,17 @@ impl DiffPane {
                 }
             });
         };
+        on(&self.prev, |v| v.step(false));
+        on(&self.next, |v| v.step(true));
+        on(&self.layout, |v| v.toggle_layout());
+        on(&self.full, |v| v.toggle_full());
         on(&self.stage, |v| v.file_stage());
         on(&self.discard, |v| v.file_discard());
         on(&self.open, |v| v.open_file());
         on(&self.close, |v| v.close_pane());
         on(&self.empty_button, |v| v.empty_click());
 
-        // Esc, Ctrl+C.
+        // F7 / Shift+F7, Esc, Ctrl+C.
         let keys = gtk::EventControllerKey::new();
         keys.set_propagation_phase(gtk::PropagationPhase::Capture);
         let weak = Rc::downgrade(self);
@@ -301,6 +344,14 @@ impl DiffPane {
             use gdk::ModifierType as M;
             let mods = state & (M::CONTROL_MASK | M::ALT_MASK | M::SHIFT_MASK);
             let handled = match key {
+                gdk::Key::F7 if mods.is_empty() => {
+                    v.step(true);
+                    true
+                }
+                gdk::Key::F7 if mods == M::SHIFT_MASK => {
+                    v.step(false);
+                    true
+                }
                 gdk::Key::Escape if mods.is_empty() => {
                     v.close_pane();
                     true
@@ -325,6 +376,18 @@ impl DiffPane {
             }
         });
         self.root.add_controller(focus);
+
+        // `auto` follows the Pane's width (D17): checked each frame, rows
+        // rebuilt only when the side of 900 px changes.
+        let weak = Rc::downgrade(self);
+        self.root
+            .add_tick_callback(move |_, _| match weak.upgrade() {
+                Some(v) => {
+                    v.check_width();
+                    glib::ControlFlow::Continue
+                }
+                None => glib::ControlFlow::Break,
+            });
     }
 
     pub fn focus(&self) {
@@ -358,6 +421,7 @@ impl DiffPane {
             st.other = None;
             st.rows.clear();
             st.markup.clear();
+            st.cur = None;
             st.error = None;
         }
         self.reset_model(0, false);
@@ -365,9 +429,39 @@ impl DiffPane {
         self.refresh();
     }
 
+    fn effective_width(&self) -> i32 {
+        self.st
+            .borrow()
+            .width_override
+            .unwrap_or_else(|| self.root.width())
+    }
+
+    fn side_for(&self, mode: DiffLayout, width: i32) -> bool {
+        match mode {
+            DiffLayout::Inline => false,
+            DiffLayout::SideBySide => true,
+            DiffLayout::Auto => width >= SIDE_MIN_WIDTH,
+        }
+    }
+
+    fn check_width(self: &Rc<Self>) {
+        if !self.root.is_mapped() {
+            return;
+        }
+        let (mode, side) = {
+            let st = self.st.borrow();
+            (st.mode, st.side)
+        };
+        let want = self.side_for(mode, self.effective_width());
+        if want != side && (self.effective_width() > 0) {
+            self.st.borrow_mut().side = want;
+            self.render();
+        }
+    }
+
     /// Re-read the diff in the background; rebuild only if it changed.
     pub fn refresh(self: &Rc<Self>) {
-        let (root, path, section) = {
+        let (root, path, section, full) = {
             let mut st = self.st.borrow_mut();
             let Some(section) = st.section else { return };
             if st.loading {
@@ -375,12 +469,12 @@ impl DiffPane {
                 return;
             }
             st.loading = true;
-            (st.root.clone(), st.path.clone(), section)
+            (st.root.clone(), st.path.clone(), section, st.full)
         };
         let weak = Rc::downgrade(self);
         let (r2, p2) = (root.clone(), path.clone());
         in_background(
-            move || read(&r2, &p2, section),
+            move || read(&r2, &p2, section, full),
             move |r| {
                 let Some(v) = weak.upgrade() else { return };
                 let again = {
@@ -471,7 +565,7 @@ impl DiffPane {
         st.hunk_starts = starts;
     }
 
-    /// The rows.
+    /// The rows for the layout in use.
     fn build_rows(st: &St) -> Vec<DRow> {
         let Some(f) = st.file.as_ref() else {
             return vec![];
@@ -482,12 +576,49 @@ impl DiffPane {
         let mut rows = Vec::new();
         for (hi, h) in f.hunks.iter().enumerate() {
             rows.push(DRow::Hunk(hi));
-            rows.extend((0..h.lines.len()).map(|li| DRow::Line(hi, li)));
+            if st.side {
+                rows.extend(
+                    diff_view::side_by_side(h)
+                        .into_iter()
+                        .map(|p| DRow::Pair(hi, p)),
+                );
+            } else {
+                rows.extend((0..h.lines.len()).map(|li| DRow::Line(hi, li)));
+            }
         }
         rows
     }
 
-    /// Rebuild the rows (the diff changed), keeping the scroll.
+    /// The kind of each row, for [`diff_view::change_starts`].
+    fn row_kinds(st: &St) -> Vec<Option<LineKind>> {
+        let Some(f) = st.file.as_ref() else {
+            return vec![];
+        };
+        st.rows
+            .iter()
+            .map(|r| match *r {
+                DRow::Line(hi, li) => Some(f.hunks[hi].lines[li].kind),
+                DRow::Pair(hi, p) => {
+                    let h = &f.hunks[hi];
+                    let changed = p.left.is_some_and(|i| h.lines[i].kind == LineKind::Removed)
+                        || p.right.is_some_and(|i| h.lines[i].kind == LineKind::Added);
+                    Some(if changed {
+                        LineKind::Added
+                    } else {
+                        LineKind::Context
+                    })
+                }
+                DRow::Hunk(_) | DRow::Note => None,
+            })
+            .collect()
+    }
+
+    fn starts(&self) -> Vec<usize> {
+        let st = self.st.borrow();
+        diff_view::change_starts(&Self::row_kinds(&st))
+    }
+
+    /// Rebuild the rows (the diff or the layout changed), keeping the scroll.
     fn render(self: &Rc<Self>) {
         let n = {
             let mut st = self.st.borrow_mut();
@@ -568,6 +699,24 @@ impl DiffPane {
         self.error.set_label(st.error.as_deref().unwrap_or(""));
         self.error.set_visible(st.error.is_some());
 
+        // Layout and full-file toggles show what a click switches to.
+        if st.side {
+            self.layout.set_icon_name("ph-rows-symbolic");
+            self.layout.set_tooltip_text(Some("Inline"));
+        } else {
+            self.layout.set_icon_name("ph-columns-symbolic");
+            self.layout.set_tooltip_text(Some("Side by Side"));
+        }
+        if st.full {
+            self.full
+                .set_icon_name("ph-arrows-in-line-vertical-symbolic");
+            self.full
+                .set_tooltip_text(Some("Collapse Unchanged Regions"));
+        } else {
+            self.full
+                .set_icon_name("ph-arrows-out-line-vertical-symbolic");
+            self.full.set_tooltip_text(Some("Show Full File"));
+        }
         if section == Section::Staged {
             self.stage.set_icon_name("ph-minus-symbolic");
             self.stage.set_tooltip_text(Some("Unstage File"));
@@ -577,9 +726,35 @@ impl DiffPane {
         }
         self.discard.set_visible(section != Section::Staged);
         let live = st.change.is_some();
+        for b in [&self.stage, &self.discard, &self.prev, &self.next] {
+            b.set_sensitive(live && has);
+        }
         self.stage.set_sensitive(live);
         self.discard.set_sensitive(live);
         drop(st);
+        self.mark_current();
+    }
+
+    /// `.diff-current` on the current change's first row.
+    fn mark_current(&self) {
+        let pos = self.current_row();
+        let mut child = self.list.first_child();
+        while let Some(c) = child {
+            if let Some(row) = c.first_child() {
+                let is = pos.is_some_and(|p| row.widget_name() == p.to_string());
+                if is {
+                    row.add_css_class("diff-current");
+                } else {
+                    row.remove_css_class("diff-current");
+                }
+            }
+            child = c.next_sibling();
+        }
+    }
+
+    fn current_row(&self) -> Option<usize> {
+        let ord = self.st.borrow().cur?;
+        self.starts().get(ord).copied()
     }
 
     // ---- selection --------------------------------------------------------
@@ -606,8 +781,15 @@ impl DiffPane {
         };
         let mut lines = Vec::new();
         for p in rows {
-            if let Some(DRow::Line(hi, li)) = st.rows.get(p).copied() {
-                lines.push(f.hunks[hi].lines[li].text.clone());
+            match st.rows.get(p).copied() {
+                Some(DRow::Line(hi, li)) => lines.push(f.hunks[hi].lines[li].text.clone()),
+                Some(DRow::Pair(hi, pair)) => {
+                    let l = pair.right.or(pair.left);
+                    if let Some(i) = l {
+                        lines.push(f.hunks[hi].lines[i].text.clone());
+                    }
+                }
+                _ => {}
             }
         }
         self.root.clipboard().set_text(&lines.join("\n"));
@@ -615,6 +797,45 @@ impl DiffPane {
     }
 
     // ---- moves ------------------------------------------------------------
+
+    /// F7 (`forward`) / Shift+F7: the next / previous change, wrapping.
+    fn step(&self, forward: bool) {
+        let starts = self.starts();
+        let cur = self.current_row();
+        let to = if forward {
+            diff_view::next_change(&starts, cur)
+        } else {
+            diff_view::prev_change(&starts, cur)
+        };
+        let Some(row) = to else { return };
+        self.st.borrow_mut().cur = starts.iter().position(|s| *s == row);
+        self.list
+            .scroll_to(row as u32, gtk::ListScrollFlags::NONE, None);
+        self.mark_current();
+    }
+
+    fn toggle_layout(self: &Rc<Self>) {
+        {
+            let mut st = self.st.borrow_mut();
+            st.mode = if st.side {
+                DiffLayout::Inline
+            } else {
+                DiffLayout::SideBySide
+            };
+            st.side = st.mode == DiffLayout::SideBySide;
+        }
+        self.render();
+    }
+
+    fn toggle_full(self: &Rc<Self>) {
+        {
+            let mut st = self.st.borrow_mut();
+            st.full = !st.full;
+            // The other context makes other hunks: start over.
+            st.raw.clear();
+        }
+        self.refresh();
+    }
 
     // ---- operations -------------------------------------------------------
 
@@ -807,7 +1028,19 @@ impl DiffPane {
             inl.append(&num());
             inl.append(&sign);
             inl.append(&code());
+            // Side by side: old | code, new | code.
+            let sbs = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+            sbs.set_homogeneous(true);
+            sbs.set_hexpand(true);
+            for _ in 0..2 {
+                let half = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+                half.set_hexpand(true);
+                half.append(&num());
+                half.append(&code());
+                sbs.append(&half);
+            }
             row.append(&inl);
+            row.append(&sbs);
             item.set_child(Some(&row));
         });
         let weak: Weak<DiffPane> = Rc::downgrade(self);
@@ -833,6 +1066,7 @@ impl DiffPane {
             return;
         };
         let inl = row.first_child().and_downcast::<gtk::Box>().unwrap();
+        let sbs = inl.next_sibling().and_downcast::<gtk::Box>().unwrap();
         let l = |w: Option<gtk::Widget>| w.and_downcast::<gtk::Label>().unwrap();
         let (old, new) = {
             let o = l(inl.first_child());
@@ -840,10 +1074,20 @@ impl DiffPane {
         };
         let sign_l = l(new.next_sibling());
         let code = l(sign_l.next_sibling());
+        let halves: Vec<gtk::Box> = {
+            let a = sbs.first_child().and_downcast::<gtk::Box>().unwrap();
+            let b = a.next_sibling().and_downcast::<gtk::Box>().unwrap();
+            vec![a, b]
+        };
         let mut classes = vec!["rade-diff-row", "monospace"];
+        for h in &halves {
+            h.set_css_classes(&[]);
+        }
         for w in [&old, &new, &sign_l, &code] {
             w.set_label("");
         }
+        inl.set_visible(true);
+        sbs.set_visible(false);
         let markup = |hi: usize, li: usize| {
             st.hunk_starts
                 .get(hi)
@@ -870,13 +1114,51 @@ impl DiffPane {
                 sign_l.set_label(sign(dl.kind));
                 code.set_markup(markup(hi, li));
             }
+            DRow::Pair(hi, p) => {
+                inl.set_visible(false);
+                sbs.set_visible(true);
+                let lines = &f.hunks[hi].lines;
+                for (half, idx, left) in [(&halves[0], p.left, true), (&halves[1], p.right, false)]
+                {
+                    let n = l(half.first_child());
+                    let c = l(n.next_sibling());
+                    match idx {
+                        Some(i) => {
+                            let dl = &lines[i];
+                            n.set_label(&num(if left { dl.old } else { dl.new }));
+                            c.set_markup(markup(hi, i));
+                            match dl.kind {
+                                LineKind::Removed => half.add_css_class(ROW_CLASSES[2]),
+                                LineKind::Added => half.add_css_class(ROW_CLASSES[1]),
+                                LineKind::Context => {}
+                            }
+                        }
+                        None => {
+                            n.set_label("");
+                            c.set_label("");
+                            half.add_css_class("diff-filler");
+                        }
+                    }
+                }
+            }
+        }
+        if self.current_row_in(&st) == Some(pos) {
+            classes.push("diff-current");
         }
         row.set_css_classes(&classes);
     }
 
+    fn current_row_in(&self, st: &St) -> Option<usize> {
+        let ord = st.cur?;
+        diff_view::change_starts(&Self::row_kinds(st))
+            .get(ord)
+            .copied()
+    }
+
     // ---- debug ------------------------------------------------------------
 
-    /// The text of row `r`: `old new sign code`.
+    /// The text of row `r`: inline `old new sign code`, side by side
+    /// `old code │ new code`.
     fn row_text(st: &St, r: DRow) -> String {
         let Some(f) = st.file.as_ref() else {
             return String::new();
@@ -888,6 +1170,16 @@ impl DiffPane {
             DRow::Line(hi, li) => {
                 let l = &f.hunks[hi].lines[li];
                 format!("{} {} {}{}", n(l.old), n(l.new), sign(l.kind), l.text)
+            }
+            DRow::Pair(hi, p) => {
+                let side = |i: Option<usize>, old: bool| match i {
+                    Some(i) => {
+                        let l = &f.hunks[hi].lines[i];
+                        format!("{} {}", n(if old { l.old } else { l.new }), l.text)
+                    }
+                    None => String::new(),
+                };
+                format!("{} │ {}", side(p.left, true), side(p.right, false))
             }
         }
     }
@@ -908,6 +1200,12 @@ impl DiffPane {
             })
             .unwrap_or_default();
         let selected = self.selected_rows();
+        let current = st.cur.and_then(|o| {
+            diff_view::change_starts(&Self::row_kinds(&st))
+                .get(o)
+                .copied()
+        });
+        let width = st.width_override.unwrap_or_else(|| self.root.width());
         let empty_button = self
             .empty_button
             .is_visible()
@@ -919,12 +1217,21 @@ impl DiffPane {
             "path": st.path,
             "section": section,
             "title": format!("{name} ({})", section_word(section)),
+            "layout": if st.side { "side_by_side" } else { "inline" },
+            "layout_mode": match st.mode {
+                DiffLayout::Auto => "auto",
+                DiffLayout::Inline => "inline",
+                DiffLayout::SideBySide => "side_by_side",
+            },
+            "full": st.full,
             "empty": st.file.is_none(),
             "empty_button": empty_button,
             "hunks": hunks,
             "rows": st.rows.len(),
             "text": st.rows.iter().map(|r| Self::row_text(&st, *r)).collect::<Vec<_>>(),
             "selected": selected,
+            "current": current,
+            "width": width,
             "error": st.error,
         })
     }
@@ -937,6 +1244,10 @@ impl DiffPane {
         match op {
             "info" => {}
             "refresh" => self.refresh(),
+            "layout" => self.toggle_layout(),
+            "full" => self.toggle_full(),
+            "next" => self.step(true),
+            "prev" => self.step(false),
             "file" => match act {
                 "stage" | "unstage" => self.file_stage(),
                 "discard" => self.file_discard(),
@@ -945,6 +1256,13 @@ impl DiffPane {
             },
             "empty_button" => self.empty_click(),
             "escape" => self.close_pane(),
+            "width" => {
+                let px: i32 = s("arg")
+                    .and_then(|a| a.parse().ok())
+                    .ok_or_else(|| Error::usage("width wants arg = px"))?;
+                self.st.borrow_mut().width_override = Some(px);
+                self.check_width();
+            }
             "open" => {}
             o => return Err(Error::usage(format!("unknown diff op '{o}'"))),
         }
