@@ -13,6 +13,7 @@ The mockup is the picture; these sheets are what tests check. One file per mocku
 | D | [d-palette.md](d-palette.md) | `#d-…` | Command palette, query `shared`, `shared-ui` in two Projects, over A |
 | E | [e-usage.md](e-usage.md) | `#e-…` | Agent usage page: account table, Next resets, account detail |
 | F | [f-new-agent.md](f-new-agent.md) | `#f-…` | `+` menu with Agent Accounts, limit forecast Toast, over A |
+| I | [i-voice.md](i-voice.md) | `voice/mockup.html#a`, `#c`, `#e` | Voice Composer on an Agent Pane: listening, ready, revised; mic button, REC cell (M46) |
 
 ## Rules for every sheet
 
@@ -102,6 +103,7 @@ Default tolerances: sizes and positions **±1 px**; font size **±0.5 px**, fami
 | `syn-type` | — | `#ffa657` | code token: types, entity names (GitHub Dark Default, MIT; ADR-0037) | bg0, bg1 |
 | `syn-tag` | — | `#7ee787` | code token: tags, inserted (GitHub Dark Default, MIT; ADR-0037) | bg0, bg1 |
 | `syn-invalid` | — | `#ffa198` | code token: errors, invalid (GitHub Dark Default, MIT; ADR-0037) | bg0, bg1 |
+| `rec-dim` | — | `#ff6b6b24` | recording mic button fill, recording dot ring (M46, spec I.5, I.24) | decorative |
 | `scrim` | `rgba(0,0,0,.5)` | `#00000080` | behind dialog / palette | — |
 | `shadow` | `0 20px 60px rgba(0,0,0,.55)` | `0 20px 60px #0000008c` | dialog, palette, popover, Toast only | — |
 | `glow` | `0 0 0 1px acc-line, 0 0 18px rgba(79,227,200,.10)` | `0 0 0 1px #4fe3c873, 0 0 18px #4fe3c81a` | focused Pane, focused input, keyboard focus ring | — |
@@ -168,6 +170,7 @@ Default tolerances: sizes and positions **±1 px**; font size **±0.5 px**, fami
 | `syn-type` | — | `#953800` | code token: types, entity names (GitHub Light Default, MIT; ADR-0037) | bg0, bg1 |
 | `syn-tag` | — | `#116329` | code token: tags, inserted (GitHub Light Default, MIT; ADR-0037) | bg0, bg1 |
 | `syn-invalid` | — | `#82071e` | code token: errors, invalid (GitHub Light Default, MIT; ADR-0037) | bg0, bg1 |
+| `rec-dim` | — | `#c230301f` | as dark | decorative |
 | `scrim` | `rgba(20,26,34,.28)` | `#141a2247` | as dark | — |
 | `shadow` | `0 20px 60px rgba(20,30,40,.18)` | `0 20px 60px #141e282e` | as dark | — |
 | `glow` | `0 0 0 1px acc-line` | `0 0 0 1px #0b8f7b80` | as dark (no outer glow in light) | — |
