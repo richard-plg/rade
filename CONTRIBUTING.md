@@ -18,7 +18,7 @@ Then:
 
 ```sh
 git submodule update --init                                          # Ghostty fork
-(cd ghostty && zig build -Dapp-runtime=none -Doptimize=ReleaseFast)  # → ghostty/zig-out/lib
+(cd ghostty && zig build -Dapp-runtime=none -Doptimize=ReleaseFast -Dcpu=baseline)  # → ghostty/zig-out/lib
 cargo build --release
 target/release/rade-app
 ```

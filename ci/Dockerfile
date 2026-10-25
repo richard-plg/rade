@@ -60,7 +60,10 @@ COPY --chown=ci:ci ghostty /src/ghostty
 RUN --mount=type=cache,target=/home/ci/.cache/zig,uid=1000,gid=1000 \
     --mount=type=cache,target=/src/ghostty/.zig-cache,uid=1000,gid=1000 \
     --mount=type=cache,target=/src/ghostty/zig-pkg,uid=1000,gid=1000 \
-    cd ghostty && zig build -Dapp-runtime=none -Doptimize=ReleaseFast
+    # -Dcpu=baseline (ghostty/PACKAGING.md): Zig builds for the build
+    # machine's CPU otherwise, and a layer cached on one runner then dies with
+    # SIGILL on another, as would the .deb on an older CPU.
+    cd ghostty && zig build -Dapp-runtime=none -Doptimize=ReleaseFast -Dcpu=baseline
 COPY --chown=ci:ci . /src
 
 # ── fmt + clippy + unit tests ────────────────────────────────────────────────

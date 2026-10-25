@@ -26,7 +26,7 @@ Linux (Ubuntu 26.04, Wayland) Agentic Development Environment: Rust + GTK4/libad
 ## Commands
 ```sh
 git submodule update --init                                          # ghostty fork @ a687fd69e
-(cd ghostty && zig build -Dapp-runtime=none -Doptimize=ReleaseFast)  # zig 0.16, needs gettext → ghostty/zig-out/lib
+(cd ghostty && zig build -Dapp-runtime=none -Doptimize=ReleaseFast -Dcpu=baseline)  # zig 0.16, needs gettext → ghostty/zig-out/lib
 cargo build --release                                                 # workspace (rpath finds ghostty/zig-out/lib)
 cargo clippy --workspace --all-targets
 cargo test --workspace                                                # unit tests (core model, RPC, transport, app helpers)

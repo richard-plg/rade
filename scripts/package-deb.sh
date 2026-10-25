@@ -25,8 +25,9 @@ GLIB=ghostty/zig-out/lib/libghostty-internal.so
 GSHARE=ghostty/zig-out/share
 
 # Always (zig caches): a stale zig-out after a submodule bump must not ship.
+# -Dcpu=baseline: any x86-64 CPU, not the build machine's (ghostty/PACKAGING.md).
 echo "building libghostty (ReleaseFast)…"
-(cd ghostty && zig build -Dapp-runtime=none -Doptimize=ReleaseFast)
+(cd ghostty && zig build -Dapp-runtime=none -Doptimize=ReleaseFast -Dcpu=baseline)
 
 export CARGO_TARGET_DIR=$ROOT/target/deb-build
 RADE_LIBGHOSTTY_RPATH='$ORIGIN' cargo build --release --locked -p rade-app -p rade-cli
