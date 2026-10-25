@@ -698,13 +698,13 @@ toast > button.circular image { -gtk-icon-size: 16px; }
 .file-row-name { color: @fg; }
 .file-row.staged .file-row-name { font-weight: 600; }
 .file-status { min-width: 12px; font-weight: 600; }
-.file-status.st-M, .file-status.st-R { color: @wait; }
+.file-status.st-M { color: @wait; }
 .file-status.st-A { color: @add; }
 .file-status.st-D { color: @del; }
 .file-stat { font-family: "JetBrains Mono", monospace; font-feature-settings: "tnum"; font-size: 11px; }
 .file-stat .add, .file-stat-add { color: @add; }
 .file-stat .del, .file-stat-del { color: @del; }
-.commit-row { padding: 8px 10px; border-top: 1px solid @line; }
+.commit-row { padding: 8px 10px; border-bottom: 1px solid @line; }
 .commit-entry { min-height: 24px; border-radius: 5px; border: 1px solid @line2; background: @bg0; font-size: 12px;
   color: @fg; padding: 0 8px; box-shadow: none; outline: none; }
 .commit-entry > text > placeholder { color: @fg3; }
@@ -721,6 +721,43 @@ toast > button.circular image { -gtk-icon-size: 16px; }
 .drift-card .btn:hover { background: @bg3; }
 .changes-empty { margin: 0 12px 10px 12px; font-family: "Inter", sans-serif; font-size: 12px; color: @fg3; }
 .changes-details { min-height: 0; min-width: 0; padding: 2px 4px; color: @fg3; background: none; box-shadow: none; }
+/* M45 (R120-R123): Changes cards, the Diff Pane and Quick Diff. */
+.changes-tool { min-height: 22px; min-width: 22px; padding: 0; border-radius: 5px; border: none; background: none; box-shadow: none; }
+.changes-tool image { -gtk-icon-size: 14px; color: @fg2; }
+.changes-tool:hover { background: @bg3; }
+.scm-list { background: transparent; }
+.scm-list > row { padding: 0; background: transparent; }
+.scm-section { min-height: 22px; padding: 0 10px; font-family: "JetBrains Mono", monospace; font-size: 10.5px; font-weight: 600; color: @fg2; }
+.scm-count { font-family: "JetBrains Mono", monospace; font-feature-settings: "tnum"; font-size: 10px; background: @bg3; border-radius: 8px; padding: 0 5px; color: @fg2; }
+.scm-folder { min-height: 24px; padding: 0 10px; font-family: "JetBrains Mono", monospace; font-size: 12px; color: @fg2; }
+.scm-folder:hover { background: @bg3; }
+.scm-row-actions { min-height: 20px; }
+.scm-act { min-height: 20px; min-width: 20px; padding: 0; margin: 0 1px; border-radius: 4px; border: none; background: none; box-shadow: none; }
+.scm-act image { -gtk-icon-size: 14px; color: @fg2; }
+.scm-act:hover { background: @bg4; }
+.file-row:selected { background: @acc-dim; }
+.file-status.st-U { color: @add; }
+.file-status.st-R, .file-status.st-C { color: @run; }
+.file-status.st-conflict { color: @err; }
+.commit-more, .commit-more > button { min-height: 26px; min-width: 22px; padding: 0; }
+.commit-more > button { border-radius: 0 6px 6px 0; border: none; border-left: 1px solid alpha(@acc-fg, 0.25); background: @acc; color: @acc-fg; box-shadow: none; }
+.commit-more > button image { -gtk-icon-size: 14px; }
+.commit-warning { margin-top: 2px; font-family: "Inter", sans-serif; font-size: 11px; color: @wait; }
+.scm-action-button { min-height: 26px; margin: 8px 10px; padding: 0 12px; border-radius: 6px; border: 1px solid @line2; background: @bg2; box-shadow: none;
+  font-family: "Inter", sans-serif; font-size: 12px; font-weight: 600; color: @fg; }
+.scm-action-button:hover { background: @bg3; }
+.scm-action-button image { -gtk-icon-size: 14px; }
+.scm-sync, .scm-publish { min-height: 22px; padding: 0 6px; border-radius: 5px; border: none; background: none; box-shadow: none;
+  font-family: "JetBrains Mono", monospace; font-feature-settings: "tnum"; font-size: 11px; color: @fg2; }
+.scm-sync:hover, .scm-publish:hover { background: @bg3; }
+.scm-sync image, .scm-publish image { -gtk-icon-size: 14px; color: @fg2; }
+.scm-card-error { margin: 6px 10px; font-size: 12px; color: @err; }
+.diff-pane { background: @bg0; }
+.diff-header { padding: 6px 10px; border-bottom: 1px solid @line; background: @bg1; font-family: "Inter", sans-serif; font-size: 12px; }
+.diff-section-chip { padding: 0 6px; border-radius: 8px; background: @bg3; font-family: "JetBrains Mono", monospace; font-size: 10.5px; color: @fg2; }
+.diff-filler { background: @bg1; }
+.diff-current { box-shadow: inset 2px 0 0 @acc; }
+.quick-diff-peek { padding: 6px; font-family: "JetBrains Mono", monospace; font-size: 11.5px; }
 .status-cell-identity.wait, .status-cell-identity.wait label, .status-cell-identity.wait image { color: @wait; }
 
 /* ---- Usage (R110, spec E, A.74, F.8–F.10, F.15–F.18) --------------------------- */

@@ -31,6 +31,7 @@ mod code;
 mod code_pop;
 mod code_results;
 mod debug;
+mod diff_highlight;
 mod doc_view;
 mod fanout;
 mod fanout_view;
