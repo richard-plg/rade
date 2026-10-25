@@ -47,6 +47,10 @@ pub fn install(overlay: &gtk::Overlay) {
     keys.set_propagation_phase(gtk::PropagationPhase::Capture);
     keys.connect_key_pressed(|_, k, _, _| {
         if k == gtk::gdk::Key::Escape {
+            // A draft account / variable in Settings → Accounts goes first.
+            if crate::settings_accounts::escape() {
+                return glib::Propagation::Stop;
+            }
             let popover = try_app()
                 .and_then(|a| gtk::prelude::GtkWindowExt::focus(&a.window))
                 .is_some_and(|f| f.ancestor(gtk::Popover::static_type()).is_some());
@@ -120,6 +124,7 @@ pub fn close() {
     let Some(_v) = OPEN.with(|o| o.borrow_mut().take()) else {
         return;
     };
+    crate::settings_accounts::forget();
     if let Some(s) = SCRIM.with(|s| s.borrow().clone()) {
         s.set_visible(false);
         while let Some(c) = s.first_child() {
@@ -253,19 +258,19 @@ fn open() {
 
 const ACCOUNTS: &str = rade_core::settings_accounts::CATEGORY;
 
-/// After a change made outside [`apply`] (Settings → Accounts): its error
-/// on the page's error line, or none; then the page redraws.
-pub fn show_result(r: std::result::Result<(), String>) {
+/// The page's scroll position (Settings → Accounts keeps it, R126.4).
+pub fn scroll_value() -> Option<f64> {
+    OPEN.with(|o| {
+        o.borrow()
+            .as_ref()
+            .map(|v| v.scroller.vadjustment().value())
+    })
+}
+
+pub fn set_scroll_value(y: f64) {
     if let Some(v) = OPEN.with(|o| o.borrow().clone()) {
-        match r {
-            Ok(()) => v.error.set_visible(false),
-            Err(e) => {
-                v.error.set_text(&e);
-                v.error.set_visible(true);
-            }
-        }
+        v.scroller.vadjustment().set_value(y);
     }
-    glib::idle_add_local_once(render);
 }
 
 /// Rebuilds the categories and rows for the search text and the config
@@ -278,15 +283,7 @@ fn render() {
     let query = v.search.text().to_string();
     let mut shown = st::categories(&query);
     // R126: the Accounts category, after the config.toml ones.
-    let (account_cards, accounts_error) = crate::settings_accounts::cards();
-    let account_cards: Vec<_> = account_cards
-        .into_iter()
-        .filter(|c| rade_core::settings_accounts::matches(c, &query))
-        .collect();
-    let accounts_named = query
-        .split_whitespace()
-        .all(|w| ACCOUNTS.to_lowercase().contains(&w.to_lowercase()));
-    if !account_cards.is_empty() || accounts_named {
+    if crate::settings_accounts::matches_query(&query) {
         shown.push(ACCOUNTS);
     }
 
@@ -331,22 +328,14 @@ fn render() {
             v.rows.append(&crate::update_view::about_block());
         }
         if *c == ACCOUNTS {
-            if let Some(e) = &accounts_error {
-                let l = label(e, &["settings-account-env-error"]);
-                l.set_wrap(true);
-                v.rows.append(&l);
-            }
             v.rows.append(&label(
                 &format!(
-                    "Agent Accounts for this Workspace. Yours are in {} and offered in every Workspace unless it sets accounts = \"own\".",
+                    "Your accounts are in {} and offered in every Workspace unless it sets accounts = \"own\"; a Workspace's own accounts show locked.",
                     tilde(&crate::accounts::user_file())
                 ),
                 &["settings-description", "settings-accounts-intro"],
             ));
-            for card in &account_cards {
-                v.rows.append(&crate::settings_accounts::card(card));
-            }
-            v.rows.append(&crate::settings_accounts::add_row());
+            v.rows.append(&crate::settings_accounts::section(&query));
             continue;
         }
         for s in st::SETTINGS

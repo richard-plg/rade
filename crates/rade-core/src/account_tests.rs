@@ -115,8 +115,10 @@ fn bad_agent_or_empty_fields_are_validation_errors() {
     )
     .unwrap_err();
     assert!(e.message.contains("opencode") && e.message.contains("workspace.toml"));
-    let e = parse("acme", "[[account]]\nagent = \"claude\"\nname = \"x\"\n").unwrap_err();
-    assert!(e.message.contains("config_dir"), "{}", e.message);
+    // R125.1: no config_dir = the agent's default login, not an error.
+    let a = parse("acme", "[[account]]\nagent = \"claude\"\nname = \"x\"\n").unwrap();
+    assert_eq!(a[0].config_dir, PathBuf::from("/home/u/.claude"));
+    assert_eq!(a[0].declared_dir, "");
     let e = parse(
         "acme",
         "[[account]]\nagent = \"claude\"\nconfig_dir = \"~/.x\"\n",
@@ -536,12 +538,23 @@ fn add_account_keeps_other_bytes_and_moves_default() {
             ..decl.clone()
         },
         AccountDecl {
-            config_dir: " ".into(),
+            name: " ".into(),
             ..decl.clone()
         },
     ] {
         assert_eq!(add_to_toml(&two, &bad).unwrap_err().kind, ErrorKind::Usage);
     }
+    // R125.1: no config dir = the default login; no `config_dir` key written.
+    let plain = add_to_toml(
+        &two,
+        &AccountDecl {
+            name: "plain".into(),
+            config_dir: " ".into(),
+            ..decl.clone()
+        },
+    )
+    .unwrap();
+    assert!(plain.ends_with("name = \"plain\"\n"), "{plain}");
     // An explicit `default = false` becomes `true` in place.
     let f = two.replacen(
         "name = \"acme\"\nconfig_dir = \"~/.codex\"\ndefault = true",
@@ -1403,4 +1416,32 @@ fn r126_a_a_name_both_files_would_declare_is_refused_before_writing() {
     for d in [acme, corp, uf.parent().unwrap().to_path_buf()] {
         let _ = std::fs::remove_dir_all(d);
     }
+}
+
+#[test]
+fn r125_b_default_login_leaves_the_variable_out() {
+    let a = parse("acme", "[[account]]\nagent = \"claude\"\nname = \"clp\"\n")
+        .unwrap()
+        .remove(0);
+    // A Workspace [env] pointing elsewhere is removed, not replaced.
+    let mut env = vec![(
+        "CLAUDE_CONFIG_DIR".to_string(),
+        "/home/u/.claude-work".to_string(),
+    )];
+    apply_env(&mut env, &a).unwrap();
+    assert!(get(&env, "CLAUDE_CONFIG_DIR").is_empty());
+    assert_eq!(get(&env, "RADE_ACCOUNT"), ["clp"]);
+    // A prefix naming ~/.claude is that login; another dir is refused.
+    let home = Path::new(HOME);
+    assert!(check_command("claude", "CLAUDE_CONFIG_DIR=~/.claude claude", &a, home).is_ok());
+    assert!(check_command("claude", "CLAUDE_CONFIG_DIR=~/.cw claude", &a, home).is_err());
+    // Clearing the dir removes the key.
+    let t = edit_in_toml(
+        USER,
+        AgentKind::Claude,
+        "clw",
+        &Edit::ConfigDir(String::new()),
+    )
+    .unwrap();
+    assert!(!t.contains("claude-work"), "{t}");
 }

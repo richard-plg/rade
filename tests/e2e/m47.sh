@@ -171,48 +171,73 @@ rade send "$g1" "$FAKE" --enter >/dev/null
 check "R125-g an Agent with no CLAUDE_CONFIG_DIR gets cl (~/.claude)" \
     eventually 10 is "echo \$(pane_field $g1 account) \$(pane_field $g1 account_detected)" "cl true"
 
-echo "== R126-b Settings → Accounts"
+echo "== R126-b Settings → Accounts (list + detail)"
 rade workspace switch acme >/dev/null
 rpc debug.ui '{"op":"app_settings_open"}' >/dev/null
-rpc debug.ui '{"op":"app_settings_search","arg":"accounts"}' >/dev/null
-cards() { acct | jq -c '[.cards[] | "\(.name):\(.scope):\(.editable)"]'; }
-check "R126-b cards: cl and clw editable (user), acme-work read-only (workspace)" \
-    test "$(cards)" = '["cl:user:true","clw:user:true","acme-work:workspace:false"]'
-check "R126-b clw's card shows 1 variable from its .env with its key and no value" \
-    bash -c "C=\$(acct); [[ \$(jq -r '.cards[1].env_file_text' <<<\"\$C\") == '1 variable' && \$(jq -c '.cards[1].env_file_keys' <<<\"\$C\") == '[\"CLAUDE_CODE_OAUTH_TOKEN\"]' ]] && ! grep -qF '$TOKEN' <<<\"\$C\""
-cp "$ACC" "$T/acc-0"
-acct '"do":"edit","agent":"claude","name":"clw","edit":{"set_env":["FOO","bar"]}' >/dev/null
-check "R126-b adding FOO=bar to clw writes [account.env] and keeps the rest of accounts.toml" \
-    bash -c "head -c \$(stat -c %s '$T/acc-0') '$ACC' | cmp -s - '$T/acc-0' && tail -n 3 '$ACC' | tr '\n' '|' | grep -qF '[account.env]|FOO = \"bar\"|'"
-printf 'TOK=x\n' >"$HOME/tok.env"
-acct '"do":"edit","agent":"claude","name":"cl","edit":{"env_file":"~/tok.env"}' >/dev/null
-check "R126-b loading ~/tok.env into cl: the card says 1 variable, key TOK, no value" \
-    bash -c "C=\$(acct); [[ \$(jq -r '.cards[0].env_file_text' <<<\"\$C\") == '1 variable' && \$(jq -c '.cards[0].env_file_keys' <<<\"\$C\") == '[\"TOK\"]' ]] && ! jq -c '.cards' <<<\"\$C\" | grep -q '\"x\"'"
+sleep 0.5
+ac() { acct "$1" >"$T/ac.json"; cat "$T/ac.json"; }
+export -f ac
+list() { acct | jq -c '[.list[] | "\(.name):\(.scope):\(.default):\(.badge)"]'; }
+check "R126-b the list: cl, clw with .env · 1 var, then the locked acme-work ✓ (acme's own default wins)" \
+    test "$(list)" = '["cl:user:false:","clw:user:false:.env · 1 var","acme-work:workspace:true:"]'
+acct '"do":"select","agent":"claude","name":"clw"' >/dev/null
+acct '"do":"scroll","y":40' >/dev/null
+sleep 0.3
+y0=$(acct | jq .scroll)
+check "R126-b the page is scrolled to the section (scroll > 0: $y0)" bash -c "(( \$(printf '%.0f' $y0) > 0 ))"
+acct '"do":"add_var","key":"FOO","value":"bar"' >/dev/null
+sleep 0.3
+check "R126-b clw's Environment: login, the file's token (from .env, no value), FOO" \
+    test "$(acct | jq -c '[.env[] | "\(.key):\(.source):\(.overridden)"]')" = '["CLAUDE_CONFIG_DIR:login:false","CLAUDE_CODE_OAUTH_TOKEN:file:false","FOO:own:false"]'
+check "R126-b adding FOO keeps the page's scroll position ($y0)" test "$(acct | jq .scroll)" = "$y0"
+check "R126-b after a save the cursor is on + Add variable" \
+    bash -c "acct | jq -r '.focus | join(\" \")' | grep -qF settings-account-add-var"
+check "R126-b accounts.toml gains [account.env] FOO under clw, other bytes kept" \
+    bash -c "grep -qx 'FOO = \"bar\"' '$ACC' && grep -qx '# My logins, for every Workspace.' '$ACC'"
+check "R126-b the state never holds the token" bash -c "! acct | grep -qF '$TOKEN'"
 cp "$ACC" "$T/acc-1"
-acct '"do":"edit","agent":"claude","name":"clw","edit":{"set_env":["RADE_X","1"]}' >"$T/rade-x.json"
-check "R126-b a key RADE_X shows an error and writes nothing" \
-    bash -c "jq -r .error '$T/rade-x.json' | grep -qF RADE_X && cmp -s '$T/acc-1' '$ACC'"
-check "R126-b the page shows that error" \
-    bash -c "rpc debug.ui '{\"op\":\"app_settings\"}' | jq -r .error | grep -qF RADE_X"
+acct '"do":"add_var","key":"RADE_X","value":"1"' >"$T/rade-x.json"
+check "R126-b RADE_X shows an error, keeps the typed row, writes nothing" \
+    bash -c "jq -r .error '$T/rade-x.json' | grep -qF RADE_X && [[ \$(jq -r .new_var '$T/rade-x.json') == RADE_X ]] && cmp -s '$T/acc-1' '$ACC'"
+acct '"do":"escape"' >/dev/null
+check "R126-b Esc drops the typed row (Settings stays open)" \
+    bash -c "[[ \$(acct | jq -r .new_var) == null && \$(rpc debug.ui '{\"op\":\"app_settings\"}' | jq .open) == true ]]"
+acct '"do":"paste","text":"# two\nA_ONE=1\nexport B_TWO=\"x y\"\n"' >/dev/null
+check "R126-b pasting two KEY=VALUE lines writes both" \
+    bash -c "grep -qx 'A_ONE = \"1\"' '$ACC' && grep -qx 'B_TWO = \"x y\"' '$ACC'"
+check "R126-b the list badge counts them: .env · 4 vars" \
+    test "$(acct | jq -r '.list[] | select(.name == "clw") | .badge')" = ".env · 4 vars"
+cp "$ACC" "$T/acc-2"
+acct '"do":"new","agent":"codex","name":"cx"' >/dev/null
+check "R126-b + New account: a draft row, nothing written, cursor in its name" \
+    bash -c "A=\$(acct); [[ \$(jq -r .draft.name <<<\"\$A\") == cx ]] && jq -r '.focus | join(\" \")' <<<\"\$A\" | grep -qF settings-account-draft-name && cmp -s '$T/acc-2' '$ACC'"
+acct '"do":"create"' >/dev/null
+check "R126-b Create writes cx (codex, default login: no config_dir) and selects it" \
+    bash -c "A=\$(acct); [[ \$(jq -r .selected.name <<<\"\$A\") == cx && \$(jq -r '.list[] | select(.name == \"cx\") | .dir' <<<\"\$A\") == 'default login' ]] && tail -n 3 '$ACC' | tr '\n' '|' | grep -qF 'agent = \"codex\"|name = \"cx\"|'"
+check "R126-b cx's login row is CODEX_HOME, empty" \
+    test "$(acct | jq -c '[.env[] | "\(.key):\(.source)"]')" = '["CODEX_HOME:login"]'
 w1=$(rade spawn --agent claude --account clw --cmd env --source api --tab new --name w1)
-w2=$(rade spawn --agent claude --account cl --cmd env --source api --tab new --name w2)
-check "R126-b a new Pane on clw has FOO=bar; one on cl has TOK=x" \
-    eventually 10 bash -c "line_is $w1 FOO=bar && line_is $w2 TOK=x"
+check "R126-b a new Pane on clw has FOO=bar and A_ONE=1" \
+    eventually 10 bash -c "line_is $w1 FOO=bar && line_is $w1 A_ONE=1"
+w2=$(rade spawn --agent codex --account cx --cmd env --source api --tab new --name w2)
+check "R125-b a Pane on cx (default login) has no CODEX_HOME, RADE_ACCOUNT=cx" \
+    eventually 10 bash -c "line_is $w2 RADE_ACCOUNT=cx && ! rade read $w2 --scrollback | grep -q '^CODEX_HOME='"
 rpc debug.ui '{"op":"app_settings_open"}' >/dev/null
-rpc debug.ui '{"op":"app_settings_search","arg":"accounts"}' >/dev/null
-acct >/dev/null
+acct '"do":"select","agent":"claude","name":"clw"' >/dev/null
 for th in dark light; do
     rade debug action "color_scheme_$th" >/dev/null; sleep 1
-    rpc debug.ui '{"op":"app_settings_search","arg":"accounts"}' >/dev/null; sleep 0.5
+    acct '"do":"scroll"' >/dev/null; sleep 0.4
     shot "m47-settings-accounts-$th"
 done
 rade debug action color_scheme_dark >/dev/null
 printf 'nope\n' >"$HOME/bad.env"
 acct '"do":"edit","agent":"claude","name":"cl","edit":{"env_file":"~/bad.env"}' >/dev/null
-check "R126-b a .env with a bad line shows the file and line on the card" \
-    bash -c "acct | jq -r '.cards[0].env_file_text' | grep -qF '$HOME/bad.env:1'"
-sleep 0.5
-shot m47-settings-accounts-bad-env
+acct '"do":"select","agent":"claude","name":"cl"' >/dev/null
+check "R126-b a .env with a bad line shows the file and line, not the line's text" \
+    bash -c "A=\$(acct); jq -r .env_file.error <<<\"\$A\" | grep -qF '$HOME/bad.env:1' && ! jq -r .env_file.error <<<\"\$A\" | grep -q nope"
+acct '"do":"select","agent":"claude","name":"acme-work"' >/dev/null
+sleep 0.4
+shot m47-settings-accounts-workspace
 rpc debug.ui '{"op":"app_settings_close"}' >/dev/null
 
 echo

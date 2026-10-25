@@ -52,6 +52,14 @@ impl AgentKind {
         }
     }
 
+    /// The login used when the variable is unset: `~/.claude` / `~/.codex`.
+    pub fn default_dir(self, home: &Path) -> PathBuf {
+        home.join(match self {
+            Self::Claude => ".claude",
+            Self::Codex => ".codex",
+        })
+    }
+
     /// Shown name (`+` menu sections, spec F.5).
     pub fn label(self) -> &'static str {
         match self {
@@ -125,7 +133,8 @@ pub struct Account {
     pub name: String,
     /// `config_dir` with `~` expanded.
     pub config_dir: PathBuf,
-    /// `config_dir` as written (messages).
+    /// `config_dir` as written (messages); empty = the agent's default
+    /// login (R125.1).
     pub declared_dir: String,
     /// The agent's default: `default = true`, else the first listed.
     pub default: bool,
@@ -197,10 +206,6 @@ fn validate(
             errors.push(format!("{label}: name is empty"));
             continue;
         }
-        if d.config_dir.trim().is_empty() {
-            errors.push(format!("{label}: config_dir is empty"));
-            continue;
-        }
         if out.iter().any(|a| a.agent == agent && a.name == name) {
             errors.push(format!(
                 "two {} accounts are named '{name}' (a name is unique per agent)",
@@ -226,7 +231,11 @@ fn validate(
             workspace: workspace.into(),
             agent,
             name: name.into(),
-            config_dir: PathBuf::from(expand_tilde(d.config_dir.trim(), home)),
+            // None written: the agent's default login (R125.1).
+            config_dir: match d.config_dir.trim() {
+                "" => agent.default_dir(home),
+                dir => PathBuf::from(expand_tilde(dir, home)),
+            },
             declared_dir: d.config_dir.trim().into(),
             default: d.default,
             detailed_limits: d.detailed_limits,
@@ -628,7 +637,11 @@ pub fn apply_env(env: &mut Vec<(String, String)>, account: &Account) -> Result<(
         env.push((k.clone(), v.clone()));
     }
     env.retain(|(k, _)| k != var && k != "RADE_ACCOUNT");
-    env.push((var.into(), account.config_dir.display().to_string()));
+    // The default login: the variable left out, so the agent uses its own
+    // default (Claude Code keeps `~/.claude.json` only then).
+    if !account.declared_dir.is_empty() {
+        env.push((var.into(), account.config_dir.display().to_string()));
+    }
     env.push(("RADE_ACCOUNT".into(), account.name.clone()));
     extra.map(|_| ())
 }
@@ -745,15 +758,15 @@ pub fn add_to_toml(text: &str, decl: &AccountDecl) -> Result<String> {
         ))
     })?;
     let (name, dir) = (decl.name.trim(), decl.config_dir.trim());
-    if name.is_empty() || dir.is_empty() {
-        return Err(Error::usage("an account needs a name and a config dir"));
+    if name.is_empty() {
+        return Err(Error::usage("an account needs a name"));
     }
     if decls_of(text)?
         .iter()
         .any(|d| AgentKind::parse(&d.agent) == Some(agent) && d.name.trim() == name)
     {
         return Err(Error::usage(format!(
-            "workspace.toml already has a {} account named '{name}'",
+            "the file already has a {} account named '{name}'",
             agent.as_str()
         )));
     }
@@ -767,7 +780,9 @@ pub fn add_to_toml(text: &str, decl: &AccountDecl) -> Result<String> {
     let mut table = toml_edit::Table::new();
     table.insert("agent", toml_edit::value(agent.as_str()));
     table.insert("name", toml_edit::value(name));
-    table.insert("config_dir", toml_edit::value(dir));
+    if !dir.is_empty() {
+        table.insert("config_dir", toml_edit::value(dir));
+    }
     if decl.default {
         table.insert("default", toml_edit::value(true));
     }
@@ -877,7 +892,7 @@ pub fn edit_in_toml(text: &str, agent: AgentKind, name: &str, edit: &Edit) -> Re
     };
     match edit {
         Edit::ConfigDir(d) if d.trim().is_empty() => {
-            return Err(Error::usage("an account needs a config dir"))
+            t.remove("config_dir");
         }
         Edit::ConfigDir(d) => set(t, "config_dir", d.trim()),
         Edit::Name(n) if n.trim().is_empty() => {
@@ -1277,10 +1292,7 @@ impl State {
         let ws = self.source(&source)?.workspace.clone();
         let dir = match inv.env.get(kind.var()) {
             Some(v) => PathBuf::from(expand_home(v, home)),
-            None => home.join(match kind {
-                AgentKind::Claude => ".claude",
-                AgentKind::Codex => ".codex",
-            }),
+            None => kind.default_dir(home),
         };
         let list = self.account_lists(home).remove(&ws)?.ok()?;
         let hits: Vec<&Account> = list

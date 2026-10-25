@@ -21,8 +21,9 @@ pub enum AccountCmd {
         #[arg(long)]
         name: String,
         /// The Agent's config dir for this login (`~` allowed); not created.
+        /// Left out: the agent's default login (~/.claude, ~/.codex).
         #[arg(long)]
-        config_dir: String,
+        config_dir: Option<String>,
         /// Make it the agent's default (moves `default = true`).
         #[arg(long)]
         default: bool,
@@ -108,7 +109,8 @@ pub fn request(c: &AccountCmd) -> Result<(&'static str, Value), String> {
             workspace,
         } => (
             "account.add",
-            json!({"agent": agent, "name": name, "config_dir": config_dir,
+            json!({"agent": agent, "name": name,
+                   "config_dir": config_dir.clone().unwrap_or_default(),
                    "default": default, "workspace": workspace, "user": user,
                    "env_file": env_file.clone().unwrap_or_default(),
                    "env": env_pairs(env)?}),
@@ -177,6 +179,9 @@ pub fn line(a: &Value) -> String {
         s(&a["name"]),
         tilde(s(&a["config_dir"]))
     );
+    if a["default_login"] == true {
+        l.push_str(" (default login)");
+    }
     if a["default"] == true {
         l.push_str("  ✓");
     }

@@ -202,6 +202,7 @@ fn row(a: &Account) -> Value {
         "agent": a.agent, "name": a.name, "config_dir": a.config_dir,
         "default": a.default, "detailed_limits": a.detailed_limits,
         "scope": a.scope, "file": a.file, "env_file": a.env_file,
+        "default_login": a.declared_dir.is_empty(),
         "env_keys": env_keys(a),
     })
 }

@@ -39,6 +39,9 @@ pub struct Card {
     /// `config_dir` as written.
     pub config_dir: String,
     pub default: bool,
+    /// The default for this agent in the shown Workspace (its own
+    /// `default = true` wins over the user file's, R125.3): the list's ✓.
+    pub effective_default: bool,
     /// The declaring file.
     pub file: PathBuf,
     /// `env_file` as shown (`~/…`), empty without one.
@@ -53,6 +56,98 @@ pub struct Card {
 impl Card {
     pub fn editable(&self) -> bool {
         self.scope == Scope::User
+    }
+
+    /// The list row's badge (R126.1): `.env · 2 vars`, `3 vars`, or empty.
+    pub fn badge(&self) -> String {
+        let file = !matches!(self.env_file_state, EnvFileState::None);
+        let mut keys: Vec<&str> = match &self.env_file_state {
+            EnvFileState::Loaded(k) => k.iter().map(String::as_str).collect(),
+            _ => vec![],
+        };
+        for (k, _, _) in &self.variables {
+            if !keys.contains(&k.as_str()) {
+                keys.push(k);
+            }
+        }
+        let vars = match keys.len() {
+            0 => String::new(),
+            1 => "1 var".into(),
+            n => format!("{n} vars"),
+        };
+        match (file, vars.is_empty()) {
+            (true, true) => ".env".into(),
+            (true, false) => format!(".env · {vars}"),
+            (false, _) => vars,
+        }
+    }
+
+    /// The list row's muted line: the config dir, or `default login`.
+    pub fn dir_text(&self) -> String {
+        if self.config_dir.is_empty() {
+            "default login".into()
+        } else {
+            self.config_dir.clone()
+        }
+    }
+
+    /// The Environment table (R126.2), in the order an Agent gets it.
+    pub fn env_rows(&self) -> Vec<EnvRow> {
+        let mut rows = vec![EnvRow {
+            key: self.agent.var().into(),
+            source: EnvSource::Login,
+            value: Some(self.config_dir.clone()),
+            overridden: false,
+            secret: false,
+        }];
+        if let EnvFileState::Loaded(keys) = &self.env_file_state {
+            rows.extend(keys.iter().map(|k| EnvRow {
+                key: k.clone(),
+                source: EnvSource::File,
+                value: None,
+                overridden: self.variables.iter().any(|(x, _, _)| x == k),
+                secret: true,
+            }));
+        }
+        rows.extend(self.variables.iter().map(|(k, v, s)| EnvRow {
+            key: k.clone(),
+            source: EnvSource::Own,
+            value: Some(v.clone()),
+            overridden: false,
+            secret: *s,
+        }));
+        rows
+    }
+}
+
+/// Where an Environment row comes from (R126.2).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum EnvSource {
+    /// `CLAUDE_CONFIG_DIR` / `CODEX_HOME` = `config_dir` (pinned).
+    Login,
+    /// A key of the `.env` file: never a value.
+    File,
+    /// `[account.env]`.
+    Own,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct EnvRow {
+    pub key: String,
+    pub source: EnvSource,
+    /// `None` for a `.env` key: its value is never read into the UI.
+    pub value: Option<String>,
+    /// A `.env` key the account's own variables set again.
+    pub overridden: bool,
+    pub secret: bool,
+}
+
+/// The default login's path, shown as the empty login row's placeholder.
+pub fn default_login_text(agent: AgentKind) -> &'static str {
+    match agent {
+        AgentKind::Claude => "default login ~/.claude",
+        AgentKind::Codex => "default login ~/.codex",
     }
 }
 
@@ -86,6 +181,7 @@ fn card(a: &Account, home: &Path, unused_here: bool) -> Card {
         name: a.name.clone(),
         config_dir: a.declared_dir.clone(),
         default: a.default,
+        effective_default: a.default,
         file: a.file.clone(),
         env_file: a
             .env_file
@@ -185,6 +281,51 @@ mod tests {
         assert!(matches(&c[0], "oauth"));
         assert!(matches(&c[1], "codex"));
         assert!(!matches(&c[1], "FOO"));
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn r126_c_env_rows_login_file_overridden_own() {
+        let d = crate::paths::outside_temp_dir()
+            .join(format!("rade-settings-rows-{}", std::process::id()));
+        std::fs::create_dir_all(&d).unwrap();
+        let env = d.join("a.env");
+        std::fs::write(&env, "A=file-a\nB=file-b\n").unwrap();
+        let file = d.join("accounts.toml");
+        std::fs::write(
+            &file,
+            format!(
+                "[[account]]\nagent = \"claude\"\nname = \"x\"\nenv_file = \"{}\"\n[account.env]\nB = \"own-b\"\nC = \"own-c\"\n",
+                env.display()
+            ),
+        )
+        .unwrap();
+        let home = Path::new("/home/u");
+        let c = cards(&user_accounts(&file, home).unwrap(), &[], false, home).remove(0);
+        let rows = c.env_rows();
+        let brief: Vec<(String, EnvSource, bool)> = rows
+            .iter()
+            .map(|r| (r.key.clone(), r.source, r.overridden))
+            .collect();
+        assert_eq!(
+            brief,
+            vec![
+                ("CLAUDE_CONFIG_DIR".into(), EnvSource::Login, false),
+                ("A".into(), EnvSource::File, false),
+                ("B".into(), EnvSource::File, true),
+                ("B".into(), EnvSource::Own, false),
+                ("C".into(), EnvSource::Own, false),
+            ]
+        );
+        assert_eq!(rows[0].value.as_deref(), Some(""));
+        assert_eq!(c.dir_text(), "default login");
+        assert_eq!(default_login_text(c.agent), "default login ~/.claude");
+        assert!(rows
+            .iter()
+            .filter(|r| r.source == EnvSource::File)
+            .all(|r| r.value.is_none()));
+        assert!(!format!("{rows:?}").contains("file-"));
+        assert_eq!(c.badge(), ".env · 3 vars");
         let _ = std::fs::remove_dir_all(&d);
     }
 
