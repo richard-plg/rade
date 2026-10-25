@@ -8,6 +8,7 @@
 use crate::git;
 use crate::rpc::{Error, Result};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::path::Path;
 use std::process::{Command, Stdio};
@@ -299,25 +300,25 @@ pub fn discard(dir: &Path, c: &Change) -> Result<()> {
 /// The diff a row shows (R21.2): staged = index vs `HEAD`, otherwise
 /// working tree vs index; an untracked file against nothing.
 pub fn file_diff(dir: &Path, c: &Change, s: Section) -> Result<String> {
-    let base = ["diff", "--no-color", "--no-ext-diff", "-M"];
+    file_diff_ctx(dir, c, s, None)
+}
+
+/// [`file_diff`] with `context` lines around each hunk (None = git's 3,
+/// Some(n) = `-U<n>`).
+pub fn file_diff_ctx(dir: &Path, c: &Change, s: Section, context: Option<u32>) -> Result<String> {
+    let u = context.map(|n| format!("-U{n}"));
+    let mut base = vec!["diff", "--no-color", "--no-ext-diff", "-M"];
+    base.extend(u.as_deref());
     match s {
-        Section::Untracked => run(
-            dir,
-            &[
-                "diff",
-                "--no-color",
-                "--no-index",
-                "--",
-                "/dev/null",
-                &c.path,
-            ],
-            None,
-            &[1],
-        ),
+        Section::Untracked => {
+            let mut a = vec!["diff", "--no-color", "--no-index"];
+            a.extend(u.as_deref());
+            a.extend(["--", "/dev/null", &c.path]);
+            run(dir, &a, None, &[1])
+        }
         Section::Staged => {
-            let mut a = base.to_vec();
-            a.push("--cached");
-            run(dir, &with_paths(&a, &paths_of(c)), None, &[])
+            base.push("--cached");
+            run(dir, &with_paths(&base, &paths_of(c)), None, &[])
         }
         Section::Unstaged => run(dir, &with_paths(&base, &paths_of(c)), None, &[]),
     }
@@ -379,9 +380,16 @@ pub enum HunkOp {
 /// the unstaged diff).
 pub fn apply_hunk(dir: &Path, patch: &str, op: HunkOp) -> Result<()> {
     let args: &[&str] = match op {
-        HunkOp::Stage => &["apply", "--cached", "--whitespace=nowarn", "-"],
-        HunkOp::Unstage => &["apply", "--cached", "-R", "--whitespace=nowarn", "-"],
-        HunkOp::Discard => &["apply", "-R", "--whitespace=nowarn", "-"],
+        HunkOp::Stage => &["apply", "--cached", "--recount", "--whitespace=nowarn", "-"],
+        HunkOp::Unstage => &[
+            "apply",
+            "--cached",
+            "-R",
+            "--recount",
+            "--whitespace=nowarn",
+            "-",
+        ],
+        HunkOp::Discard => &["apply", "-R", "--recount", "--whitespace=nowarn", "-"],
     };
     run(dir, args, Some(patch.as_bytes()), &[]).map(drop)
 }
@@ -489,6 +497,407 @@ pub fn push(dir: &Path, plan: &PushPlan, env: &Env) -> Result<()> {
     let refspec = format!("HEAD:refs/heads/{}", plan.branch);
     args.push(&refspec);
     run_env(dir, env, &args, None, &[]).map(drop)
+}
+
+/// What a card needs, read in one go off the UI thread (R120, R121).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Snapshot {
+    pub status: Status,
+    /// `git diff --cached --numstat -M`: path → (added, removed).
+    pub staged: HashMap<String, (usize, usize)>,
+    /// `git diff --numstat -M`.
+    pub unstaged: HashMap<String, (usize, usize)>,
+    /// Line count of each untracked file (< 4 MiB, no NUL; else 0).
+    pub untracked_lines: HashMap<String, usize>,
+    /// `(short, subject)` of HEAD; `None` before the first commit.
+    pub head: Option<(String, String)>,
+    /// `git branch -r --contains HEAD` is not empty.
+    pub head_pushed: bool,
+    /// Commits ahead of `base` (`base..HEAD`, else `origin/base..HEAD`).
+    pub ahead_base: usize,
+}
+
+fn count_lines(b: &[u8]) -> usize {
+    let n = b.iter().filter(|c| **c == b'\n').count();
+    if b.last().is_some_and(|c| *c != b'\n') {
+        n + 1
+    } else {
+        n
+    }
+}
+
+pub fn snapshot(dir: &Path, base: &str) -> Result<Snapshot> {
+    let status = status(dir)?;
+    let numstat = |args: &[&str]| {
+        git::run(dir, args)
+            .map(|o| crate::home::numstat(&o))
+            .unwrap_or_default()
+    };
+    let staged = numstat(&["diff", "--cached", "--numstat", "-M"]);
+    let unstaged = numstat(&["diff", "--numstat", "-M"]);
+    let untracked_lines = status
+        .files
+        .iter()
+        .filter(|c| c.untracked())
+        .map(|c| {
+            let n = std::fs::read(dir.join(&c.path))
+                .ok()
+                .filter(|b| b.len() < 4 << 20 && !b.contains(&0))
+                .map_or(0, |b| count_lines(&b));
+            (c.path.clone(), n)
+        })
+        .collect();
+    let head = git::run(dir, &["log", "-1", "--format=%h%x00%s"])
+        .ok()
+        .and_then(|o| {
+            let (h, s) = o.trim_end_matches('\n').split_once('\0')?;
+            Some((h.to_string(), s.to_string()))
+        });
+    let head_pushed = head.is_some() && head_pushed(dir);
+    let ahead_base = git::run(dir, &["rev-list", "--count", &format!("{base}..HEAD")])
+        .ok()
+        .or_else(|| {
+            git::run(
+                dir,
+                &["rev-list", "--count", &format!("origin/{base}..HEAD")],
+            )
+            .ok()
+        })
+        .and_then(|s| s.trim().parse().ok())
+        .unwrap_or(0);
+    Ok(Snapshot {
+        status,
+        staged,
+        unstaged,
+        untracked_lines,
+        head,
+        head_pushed,
+        ahead_base,
+    })
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CommitKind {
+    Normal,
+    Amend,
+    All,
+}
+
+/// HEAD is on a remote branch (`git branch -r --contains HEAD`).
+pub fn head_pushed(dir: &Path) -> bool {
+    git::run(dir, &["branch", "-r", "--contains", "HEAD"])
+        .map(|o| !o.trim().is_empty())
+        .unwrap_or(false)
+}
+
+fn refuse_pushed(dir: &Path) -> Result<()> {
+    if head_pushed(dir) {
+        let short = git::run(dir, &["log", "-1", "--format=%h"])
+            .unwrap_or_default()
+            .trim()
+            .to_string();
+        return Err(Error::usage(format!(
+            "{short} is already pushed; RADE does not force-push"
+        )));
+    }
+    Ok(())
+}
+
+/// Commit variants (R121.2); returns `<short> <subject>` like [`commit`].
+/// `All` stages every change first; `Amend` with an empty message keeps
+/// the last one and is refused when HEAD is pushed.
+pub fn commit_kind(dir: &Path, message: &str, kind: CommitKind) -> Result<String> {
+    match kind {
+        CommitKind::Normal => commit(dir, message),
+        CommitKind::All => {
+            if message.trim().is_empty() {
+                return Err(Error::usage("the commit message is empty"));
+            }
+            let paths: Vec<String> = status(dir)?.files.iter().flat_map(paths_of).collect();
+            if !paths.is_empty() {
+                on_paths(dir, &["add", "-A"], &paths)?;
+            }
+            commit(dir, message)
+        }
+        CommitKind::Amend => {
+            refuse_pushed(dir)?;
+            if message.trim().is_empty() {
+                run(dir, &["commit", "--amend", "--no-edit", "-q"], None, &[])?;
+            } else {
+                run(
+                    dir,
+                    &["commit", "--amend", "-q", "-F", "-"],
+                    Some(message.as_bytes()),
+                    &[],
+                )?;
+            }
+            Ok(run(dir, &["log", "-1", "--format=%h %s"], None, &[])?
+                .trim()
+                .to_string())
+        }
+    }
+}
+
+/// Undo the last commit (R121.2), keeping its changes staged; returns the
+/// undone full message. Refused when HEAD is pushed.
+pub fn undo_last_commit(dir: &Path) -> Result<String> {
+    let msg = git::run(dir, &["log", "-1", "--format=%B"])
+        .map_err(|_| Error::usage("there is no commit to undo"))?;
+    refuse_pushed(dir)?;
+    if git::run(dir, &["rev-parse", "--verify", "-q", "HEAD~1"]).is_ok() {
+        run(dir, &["reset", "--soft", "HEAD~1"], None, &[])?;
+    } else {
+        run(dir, &["update-ref", "-d", "HEAD"], None, &[])?;
+    }
+    Ok(msg.trim().to_string())
+}
+
+/// The last `n` commit messages, newest first.
+pub fn recent_messages(dir: &Path, n: usize) -> Vec<String> {
+    git::run(dir, &["log", "-n", &n.to_string(), "--format=%B%x00"])
+        .map(|o| {
+            o.split('\0')
+                .map(|m| m.trim().to_string())
+                .filter(|m| !m.is_empty())
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// The remote Fetch / Sync use: the own upstream's, else `origin` or the
+/// only one.
+pub fn fetch_remote(dir: &Path, st: &Status) -> Result<String> {
+    if let Some((remote, _)) = st.own_upstream() {
+        return Ok(remote.to_string());
+    }
+    let remotes: Vec<String> = run(dir, &["remote"], None, &[])?
+        .lines()
+        .map(String::from)
+        .collect();
+    choose_remote(&remotes).ok_or_else(|| {
+        Error::usage(if remotes.is_empty() {
+            "this repository has no remote to fetch from".to_string()
+        } else {
+            format!(
+                "several remotes and none is 'origin': {}",
+                remotes.join(", ")
+            )
+        })
+    })
+}
+
+/// `git fetch --quiet <remote>` (R121.4).
+pub fn fetch(dir: &Path, remote: &str, env: &Env) -> Result<()> {
+    run_env(dir, env, &["fetch", "--quiet", remote], None, &[]).map(drop)
+}
+
+/// Sync (R121.3): pull `--ff-only` when behind, then push when ahead (the
+/// plan is recomputed after the pull). A failed pull pushes nothing.
+pub fn sync(dir: &Path, env: &Env) -> Result<PushPlan> {
+    let st = status(dir)?;
+    if st.behind > 0 {
+        pull(dir, env)?;
+    }
+    let st = status(dir)?;
+    let plan = push_plan(dir, &st)?;
+    if plan.commits > 0 {
+        push(dir, &plan, env)?;
+    }
+    Ok(plan)
+}
+
+fn refuse_dotdot(path: &str) -> Result<()> {
+    if path.split('/').any(|s| s == "..") {
+        return Err(Error::usage(format!("refusing to delete {path}")));
+    }
+    Ok(())
+}
+
+/// Discard many (R120.4): tracked files get their unstaged changes
+/// restored (renames: both paths); untracked ones go through `trash`.
+/// Returns the untracked paths whose trash failed with the error text.
+pub fn discard_many(
+    dir: &Path,
+    tracked: &[Change],
+    untracked: &[String],
+    trash: &dyn Fn(&Path) -> std::io::Result<()>,
+) -> Result<Vec<(String, String)>> {
+    for p in untracked {
+        refuse_dotdot(p)?;
+    }
+    let paths: Vec<String> = tracked.iter().flat_map(paths_of).collect();
+    if !paths.is_empty() {
+        on_paths(dir, &["restore", "--worktree"], &paths)?;
+    }
+    let mut failed = Vec::new();
+    for p in untracked {
+        if let Err(e) = trash(&dir.join(p)) {
+            failed.push((p.clone(), e.to_string()));
+        }
+    }
+    Ok(failed)
+}
+
+/// Permanently delete untracked files (the caller asked twice).
+pub fn delete_untracked(dir: &Path, paths: &[String]) -> Result<()> {
+    for p in paths {
+        refuse_dotdot(p)?;
+    }
+    for p in paths {
+        std::fs::remove_file(dir.join(p)).map_err(|e| Error::usage(format!("delete {p}: {e}")))?;
+    }
+    Ok(())
+}
+
+/// Append `/<path>` to `<dir>/.gitignore` (R120.5).
+pub fn gitignore_add(dir: &Path, path: &str) -> Result<()> {
+    refuse_dotdot(path)?;
+    let f = dir.join(".gitignore");
+    let mut text = std::fs::read_to_string(&f).unwrap_or_default();
+    if !text.is_empty() && !text.ends_with('\n') {
+        text.push('\n');
+    }
+    text.push_str(&format!("/{path}\n"));
+    std::fs::write(&f, text).map_err(|e| Error::usage(format!(".gitignore: {e}")))
+}
+
+/// `@@ -a[,b] +c[,d] @@` → (a, b, c, d); a missing count is 1.
+fn hunk_range(h: &str) -> Option<(u32, u32, u32, u32)> {
+    let mut it = h.split_whitespace();
+    it.next()?;
+    let one = |s: &str, sign: char| -> Option<(u32, u32)> {
+        let s = s.strip_prefix(sign)?;
+        match s.split_once(',') {
+            Some((a, b)) => Some((a.parse().ok()?, b.parse().ok()?)),
+            None => Some((s.parse().ok()?, 1)),
+        }
+    };
+    let (a, b) = one(it.next()?, '-')?;
+    let (c, d) = one(it.next()?, '+')?;
+    Some((a, b, c, d))
+}
+
+/// Patch of the selected lines of `f` (R122.3). `selected` = (hunk index,
+/// index into `crate::diff::Hunk::lines`). `reverse` = false for Stage,
+/// true for Unstage and Discard. None when nothing is selected.
+pub fn lines_patch(f: &FilePatch, selected: &[(usize, usize)], reverse: bool) -> Option<String> {
+    let mut out = String::new();
+    for (hi, hunk) in f.hunks.iter().enumerate() {
+        let mut lines = hunk.split_inclusive('\n');
+        let header = lines.next()?;
+        let (old_start, _, new_start, _) = hunk_range(header)?;
+        let mut body = String::new();
+        let (mut old_n, mut new_n) = (0u32, 0u32);
+        let (mut idx, mut any, mut prev_kept) = (0usize, false, false);
+        for line in lines {
+            let first = line.as_bytes().first().copied();
+            if first == Some(b'\\') {
+                if prev_kept {
+                    body.push_str(line);
+                }
+                continue;
+            }
+            let sel = selected.contains(&(hi, idx));
+            idx += 1;
+            let rest = line.get(1..).unwrap_or("");
+            let kind = match first {
+                Some(b'+') | Some(b'-') => first.unwrap(),
+                _ => b' ',
+            };
+            let keep_as = match (kind, reverse) {
+                (b' ', _) => Some(b' '),
+                (b'-', false) | (b'+', true) => Some(if sel { kind } else { b' ' }),
+                _ => sel.then_some(kind),
+            };
+            prev_kept = keep_as.is_some();
+            let Some(k) = keep_as else { continue };
+            if sel && kind != b' ' {
+                any = true;
+            }
+            match k {
+                b' ' => {
+                    old_n += 1;
+                    new_n += 1;
+                }
+                b'-' => old_n += 1,
+                _ => new_n += 1,
+            }
+            if first == Some(b' ') || first == Some(b'+') || first == Some(b'-') {
+                body.push(k as char);
+                body.push_str(rest);
+            } else {
+                // An empty context line.
+                body.push_str(line);
+            }
+        }
+        if any {
+            out.push_str(&format!(
+                "@@ -{old_start},{old_n} +{new_start},{new_n} @@\n{body}"
+            ));
+        }
+    }
+    (!out.is_empty()).then(|| format!("{}{out}", f.header))
+}
+
+/// Quick Diff (R123): the `-U0` diff of `file` against the index; None
+/// when the file is not in a work tree, untracked or ignored.
+pub fn quick_diff(file: &Path) -> Result<Option<String>> {
+    quick_diff_with(file, "-U0")
+}
+
+fn quick_diff_with(file: &Path, context: &str) -> Result<Option<String>> {
+    let Some(parent) = file.parent() else {
+        return Ok(None);
+    };
+    let Ok(top) = git::run(parent, &["rev-parse", "--show-toplevel"]) else {
+        return Ok(None);
+    };
+    let top = std::path::PathBuf::from(top.trim());
+    let Ok(abs) = file.canonicalize() else {
+        return Ok(None);
+    };
+    let Ok(rel) = abs.strip_prefix(&top) else {
+        return Ok(None);
+    };
+    let rel = rel.to_string_lossy().into_owned();
+    if run(
+        &top,
+        &["ls-files", "--error-unmatch", "--", &rel],
+        None,
+        &[],
+    )
+    .is_err()
+    {
+        return Ok(None);
+    }
+    let out = run(
+        &top,
+        &["diff", context, "--no-color", "--no-ext-diff", "--", &rel],
+        None,
+        &[],
+    )?;
+    Ok(Some(out))
+}
+
+/// The hunk of `file`'s `-U3` diff against the index whose new range holds
+/// `line` (or a pure deletion at `line`): its file patch and hunk index.
+pub fn hunk_at_line(file: &Path, line: u32) -> Result<Option<(FilePatch, usize)>> {
+    let Some(raw) = quick_diff_with(file, "-U3")? else {
+        return Ok(None);
+    };
+    let Some(f) = split_patch(&raw).into_iter().next() else {
+        return Ok(None);
+    };
+    let found = f.hunks.iter().position(|h| {
+        hunk_range(h.lines().next().unwrap_or("")).is_some_and(|(_, _, c, d)| {
+            if d == 0 {
+                (c + 1).max(1) == line
+            } else {
+                (c..c + d).contains(&line)
+            }
+        })
+    });
+    Ok(found.map(|i| (f, i)))
 }
 
 /// The PR base offered by default: the Source's main branch without its
