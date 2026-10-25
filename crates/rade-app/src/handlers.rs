@@ -954,7 +954,7 @@ pub(crate) fn plan_spawn(
     s: &Spawn,
     at: Option<&(String, Option<String>)>,
 ) -> Result<SpawnPlan> {
-    use rade_core::account::{check_command, resolve_spawn, AgentKind, SpawnAsk};
+    use rade_core::account::{check_command, AgentKind, SpawnAsk};
     let preset = s
         .agent
         .as_deref()
@@ -995,7 +995,7 @@ pub(crate) fn plan_spawn(
             explicit: s.account.as_deref(),
             parent: parent.as_deref(),
         };
-        resolve_spawn(&ask, &m.account_lists(&home))?
+        m.resolve_account(&ask, &home)?
     };
     if let (Some(a), Some(cmd), Some(name)) = (&account, &command, &s.agent) {
         check_command(name, cmd, a, &home)?;

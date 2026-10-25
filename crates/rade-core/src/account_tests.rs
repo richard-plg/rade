@@ -1320,3 +1320,87 @@ fn edit_default_on_and_off() {
         .any(|a| a.default));
     assert!(off.starts_with("# my logins\n"));
 }
+
+#[test]
+fn r125_d_fanout_and_judge_accounts_refuse_a_missing_env_file() {
+    // Review finding: Agents RADE starts itself check the env file too.
+    let home = Path::new(HOME);
+    let (st, root) = ws_state(
+        "m47-fanout-env",
+        "acme",
+        "[[account]]\nagent = \"claude\"\nname = \"clw\"\nconfig_dir = \"~/.cw\"\nenv_file = \"/nonexistent/clw.env\"\n",
+    );
+    let e = st
+        .agent_account(
+            "api",
+            "claude",
+            Some(AgentKind::Claude),
+            "claude",
+            None,
+            home,
+        )
+        .unwrap_err();
+    assert_eq!(e.kind, ErrorKind::Usage);
+    assert!(e.message.contains("/nonexistent/clw.env"), "{}", e.message);
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn r125_e_user_account_in_an_own_workspace_is_forbidden_without_other_workspaces() {
+    // Review finding: no other Workspace lists the user account (only
+    // `default`, which is own too here): still FORBIDDEN, not USAGE.
+    let home = Path::new(HOME);
+    let user = tmp_file("own-alone", "accounts.toml", USER);
+    let (mut st, root) = ws_state("m47-own-alone", "corp", "accounts = \"own\"\n");
+    st.user_accounts_file = Some(user.clone());
+    let ask = SpawnAsk {
+        workspace: "corp",
+        agent: Some(AgentKind::Claude),
+        explicit: Some("clw"),
+        parent: None,
+    };
+    let e = st.resolve_account(&ask, home).unwrap_err();
+    assert_eq!(e.kind, ErrorKind::Forbidden, "{}", e.message);
+    let _ = std::fs::remove_dir_all(root);
+    let _ = std::fs::remove_dir_all(user.parent().unwrap());
+}
+
+#[test]
+fn r126_a_a_name_both_files_would_declare_is_refused_before_writing() {
+    let (_, acme) = ws_state(
+        "m47-clash",
+        "acme",
+        "[[account]]\nagent = \"claude\"\nname = \"clw\"\nconfig_dir = \"~/.x\"\n",
+    );
+    let (_, corp) = ws_state(
+        "m47-clash-own",
+        "corp",
+        "accounts = \"own\"\n[[account]]\nagent = \"claude\"\nname = \"clw\"\nconfig_dir = \"~/.y\"\n",
+    );
+    let roots = vec![
+        ("acme".to_string(), acme.clone()),
+        ("corp".to_string(), corp.clone()),
+    ];
+    let e = check_user_text(USER, &roots).unwrap_err().message;
+    assert!(
+        e.contains("clw") && e.contains(&acme.display().to_string()),
+        "{e}"
+    );
+    assert!(!e.contains(&corp.display().to_string()), "{e}");
+    // Only `own` Workspaces: fine.
+    assert!(check_user_text(USER, &roots[1..]).is_ok());
+    // The other way: a Workspace file declaring a user account's name.
+    let uf = tmp_file("clash", "accounts.toml", USER);
+    let ws = "[[account]]\nagent = \"claude\"\nname = \"cl\"\nconfig_dir = \"~/.z\"\n";
+    assert!(check_workspace_text(ws, &uf)
+        .unwrap_err()
+        .message
+        .contains("'cl'"));
+    assert!(check_workspace_text(&format!("accounts = \"own\"\n{ws}"), &uf).is_ok());
+    // A codex account may share a claude account's name.
+    let cx = "[[account]]\nagent = \"codex\"\nname = \"cl\"\nconfig_dir = \"~/.c\"\n";
+    assert!(check_workspace_text(cx, &uf).is_ok());
+    for d in [acme, corp, uf.parent().unwrap().to_path_buf()] {
+        let _ = std::fs::remove_dir_all(d);
+    }
+}

@@ -45,6 +45,10 @@ pub enum AccountCmd {
         /// Needed when a claude and a codex account share the name.
         #[arg(long)]
         agent: Option<String>,
+        /// The account in ~/.config/rade/accounts.toml, even where the
+        /// Workspace doesn't offer it (`accounts = "own"`).
+        #[arg(long)]
+        user: bool,
         #[arg(long, value_name = "DIR")]
         config_dir: Option<String>,
         #[arg(long, value_name = "PATH", conflicts_with = "no_env_file")]
@@ -112,6 +116,7 @@ pub fn request(c: &AccountCmd) -> Result<(&'static str, Value), String> {
         AccountCmd::Set {
             name,
             agent,
+            user,
             config_dir,
             env_file,
             no_env_file,
@@ -120,7 +125,7 @@ pub fn request(c: &AccountCmd) -> Result<(&'static str, Value), String> {
             workspace,
         } => (
             "account.set",
-            json!({"name": name, "agent": agent, "config_dir": config_dir,
+            json!({"name": name, "agent": agent, "user": user, "config_dir": config_dir,
                    "env_file": env_file, "no_env_file": no_env_file,
                    "env": env_pairs(env)?, "unset_env": unset_env,
                    "workspace": workspace}),
@@ -252,6 +257,7 @@ mod tests {
         let c = AccountCmd::Set {
             name: "clw".into(),
             agent: None,
+            user: true,
             config_dir: None,
             env_file: Some("~/.clw.env".into()),
             no_env_file: false,
@@ -264,6 +270,7 @@ mod tests {
         assert_eq!(p["env"], json!({"A": "1", "B": "x=y"}));
         assert_eq!(p["unset_env"], json!(["C"]));
         assert_eq!(p["env_file"], "~/.clw.env");
+        assert_eq!(p["user"], true);
         assert!(env_pairs(&["NOPE".into()]).is_err());
     }
 

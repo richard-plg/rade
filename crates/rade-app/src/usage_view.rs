@@ -1144,22 +1144,19 @@ fn set_detailed(ws: &str, name: &str, on: bool) {
     let Some(app) = try_app() else { return };
     let root = app.model.borrow().workspace(ws).map(|w| w.root.clone());
     let Some(root) = root else { return };
-    // A user account's switch is in `accounts.toml` (R125.3).
-    let user = crate::accounts::lists_cached(&app.model.borrow())
+    let found = crate::accounts::lists_cached(&app.model.borrow())
         .get(ws)
         .and_then(|l| l.as_ref().ok())
         .and_then(|l| {
             l.iter()
                 .find(|a| a.agent == AgentKind::Claude && a.name == name)
-                .map(|a| a.scope == rade_core::account::Scope::User)
-        })
-        .unwrap_or(false);
-    let res = if user {
-        rade_core::account::edit_user_file(&crate::accounts::user_file(), |t| {
-            rade_core::account::set_detailed_in_toml(t, AgentKind::Claude, name, on)
-        })
-    } else {
-        rade_core::account::set_detailed_file(&root, AgentKind::Claude, name, on).map(|_| ())
+                .cloned()
+        });
+    let res = match &found {
+        Some(a) => crate::accounts::set_detailed(a, &root, on),
+        None => {
+            rade_core::account::set_detailed_file(&root, AgentKind::Claude, name, on).map(|_| ())
+        }
     };
     if let Err(e) = res {
         crate::worktrees::alert("Could not change Detailed limits", &e.message);

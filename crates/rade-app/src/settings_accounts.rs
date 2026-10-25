@@ -71,8 +71,18 @@ pub fn add(agent: &str, name: &str, dir: &str) -> Result<()> {
         config_dir: dir.into(),
         ..Default::default()
     };
+    let roots: Vec<(String, PathBuf)> = app()
+        .model
+        .borrow()
+        .workspaces
+        .iter()
+        .map(|w| (w.id.clone(), w.root.clone()))
+        .collect();
+    // R125.3: never a name a Workspace that takes user accounts declares.
     account::edit_user_file(&crate::accounts::user_file(), |t| {
-        account::add_to_toml(t, &decl)
+        let new = account::add_to_toml(t, &decl)?;
+        account::check_user_text(&new, &roots)?;
+        Ok(new)
     })?;
     crate::accounts::forget_lists();
     Ok(())
@@ -310,12 +320,25 @@ pub fn card(c: &Card) -> gtk::Widget {
             p.set_show_peek_icon(true);
             p.set_text(v);
             p.add_css_class("settings-account-entry");
-            let start = v.clone();
-            p.connect_activate(move |p| {
-                if p.text() != start.as_str() {
-                    commit(p.text().to_string());
+            // Enter or focus leaving commits, as the other entries.
+            let start = std::rc::Rc::new(std::cell::RefCell::new(v.clone()));
+            let fire = std::rc::Rc::new(move |p: &gtk::PasswordEntry| {
+                let now = p.text().to_string();
+                if now != *start.borrow() {
+                    *start.borrow_mut() = now.clone();
+                    commit(now);
                 }
             });
+            let f1 = fire.clone();
+            p.connect_activate(move |p| f1(p));
+            let focus = gtk::EventControllerFocus::new();
+            let weak = p.downgrade();
+            focus.connect_leave(move |_| {
+                if let Some(p) = weak.upgrade() {
+                    fire(&p);
+                }
+            });
+            p.add_controller(focus);
             p.upcast()
         } else {
             committing_entry(v, commit).upcast()

@@ -2,7 +2,8 @@
 //! lines, an optional leading `export `, `'…'` (literal) or `"…"` (`\n`,
 //! `\"`, `\\`) values, `#` comment lines and blank lines. No `$VAR`
 //! interpolation, no multi-line values: anything else is an error naming
-//! the line, so a value is never guessed.
+//! the line, so a value is never guessed. An error never quotes the line:
+//! it may hold a secret (R125.2).
 
 use std::path::Path;
 
@@ -34,7 +35,7 @@ pub fn parse(text: &str) -> Result<Vec<(String, String)>, (usize, String)> {
         };
         let k = k.trim_end();
         if !valid_key(k) {
-            return Err((n, format!("'{k}' is not a variable name")));
+            return Err((n, "the name before = is not a variable name".into()));
         }
         let v = value(v.trim_start()).map_err(|e| (n, e))?;
         match out.iter_mut().find(|(x, _)| x == k) {
@@ -85,7 +86,7 @@ fn tail(rest: &str) -> Result<(), String> {
     if r.is_empty() || r.starts_with('#') {
         Ok(())
     } else {
-        Err(format!("unexpected '{r}' after the quoted value"))
+        Err("unexpected text after the quoted value".into())
     }
 }
 
@@ -122,6 +123,20 @@ mod tests {
         assert_eq!(parse("A=1\n1X=2\n").unwrap_err().0, 2);
         assert!(parse("A='open\n").is_err());
         assert!(parse("A=\"x\" y\n").is_err());
+    }
+
+    #[test]
+    fn r125_d_errors_never_quote_the_line() {
+        // A token pasted without a key, or after a quoted value.
+        for text in [
+            "sk-ant-oat01-SECRET==\n",
+            "S-ECRET=1\n",
+            "A=\"x\"SECRET\n",
+            "A='SECRET\n",
+        ] {
+            let (_, e) = parse(text).unwrap_err();
+            assert!(!e.contains("SECRET"), "{e}");
+        }
     }
 
     #[test]

@@ -66,6 +66,8 @@ struct Set {
     caller: Option<String>,
     name: String,
     agent: Option<String>,
+    /// The user's account of that name, whatever the Workspace allows.
+    user: bool,
     config_dir: Option<String>,
     env_file: Option<String>,
     no_env_file: bool,
@@ -150,6 +152,24 @@ pub fn detect(app: &crate::app::App, pane: &str, inv: &rade_core::preset::Invoca
     }
 }
 
+/// Detailed limits on or off in the file that declares the account
+/// (`accounts.toml` for a user account, R125.3).
+pub fn set_detailed(a: &Account, root: &Path, on: bool) -> Result<()> {
+    match a.scope {
+        account::Scope::User => account::edit_user_file(&a.file, |t| {
+            account::set_detailed_in_toml(t, a.agent, &a.name, on)
+        }),
+        account::Scope::Workspace => {
+            account::set_detailed_file(root, a.agent, &a.name, on).map(|_| ())
+        }
+    }
+}
+
+/// Every registered Workspace's (id, root), from any thread.
+fn roots() -> Result<Vec<(String, PathBuf)>> {
+    all_workspaces()
+}
+
 fn agent_arg(a: Option<&str>) -> Result<Option<AgentKind>> {
     a.map(|s| {
         AgentKind::parse(s)
@@ -206,12 +226,22 @@ fn add(a: Add) -> Result<Value> {
         env_file: a.env_file,
         env: a.env,
     };
+    // R125.3: a name may not be declared both for the user and a Workspace.
     let file = if a.user {
         let f = user_file();
-        account::edit_user_file(&f, |t| account::add_to_toml(t, &decl))?;
+        let roots = roots()?;
+        account::edit_user_file(&f, |t| {
+            let new = account::add_to_toml(t, &decl)?;
+            account::check_user_text(&new, &roots)?;
+            Ok(new)
+        })?;
         f
     } else {
-        account::add_account_file(&root, &decl)?
+        account::edit_workspace_file(&root, |t| {
+            let new = account::add_to_toml(t, &decl)?;
+            account::check_workspace_text(&new, &user_file())?;
+            Ok(new)
+        })?
     };
     forget_lists();
     let agent = AgentKind::parse(&decl.agent);
@@ -270,8 +300,12 @@ fn set(s: Set) -> Result<Value> {
     use account::Edit;
     let agent = agent_arg(s.agent.as_deref())?;
     let (id, root) = workspace(s.workspace, s.caller)?;
-    let list = accounts_of(&id, &root)?;
-    let a = account::find(&list, &s.name, agent, &id)?.clone();
+    let list = if s.user {
+        account::user_accounts(&user_file(), &home())?
+    } else {
+        accounts_of(&id, &root)?
+    };
+    let a = account::find(&list, &s.name, agent, if s.user { "(user)" } else { &id })?.clone();
     let mut edits: Vec<Edit> = Vec::new();
     if let Some(d) = s.config_dir {
         edits.push(Edit::ConfigDir(d));
@@ -302,9 +336,12 @@ fn set(s: Set) -> Result<Value> {
         account::Scope::Workspace => account::edit_workspace_file(&root, change)?,
     };
     forget_lists();
-    let now = accounts_of(&id, &root)
-        .ok()
-        .and_then(|l| account::find(&l, &a.name, Some(a.agent), &id).ok().map(row));
+    let now = if s.user {
+        account::user_accounts(&user_file(), &home()).ok()
+    } else {
+        accounts_of(&id, &root).ok()
+    }
+    .and_then(|l| account::find(&l, &a.name, Some(a.agent), &id).ok().map(row));
     Ok(json!({"workspace": id, "file": file, "account": now}))
 }
 
@@ -525,6 +562,21 @@ fn targets(ws: Option<String>, only: Option<(AgentKind, String)>) -> Vec<Target>
     let Ok(wss) = all_workspaces() else {
         return Vec::new();
     };
+    // Every Workspace's checkouts: a user account's sessions may run in
+    // any of them (R125.3), so its tokens are attributed against all.
+    let all_cos: Vec<(String, Vec<(PathBuf, String)>)> = {
+        let w2 = wss.clone();
+        on_main(move || {
+            let app = app();
+            let m = app.model.borrow();
+            Ok(w2
+                .iter()
+                .map(|(id, root)| (id.clone(), checkouts(&m, id, root)))
+                .collect())
+        })
+        .unwrap_or_default()
+    };
+    let union: Vec<(PathBuf, String)> = all_cos.iter().flat_map(|(_, c)| c.clone()).collect();
     let mut out = Vec::new();
     for (id, root) in wss {
         if ws.as_ref().is_some_and(|w| *w != id) {
@@ -543,17 +595,18 @@ fn targets(ws: Option<String>, only: Option<(AgentKind, String)>) -> Vec<Target>
         if list.is_empty() {
             continue;
         }
-        let (id2, root2) = (id.clone(), root.clone());
-        let cos = on_main(move || {
-            let app = app();
-            let m = app.model.borrow();
-            Ok(checkouts(&m, &id2, &root2))
-        })
-        .unwrap_or_default();
+        let cos = all_cos
+            .iter()
+            .find(|(w, _)| *w == id)
+            .map(|(_, c)| c.clone())
+            .unwrap_or_default();
         out.extend(list.into_iter().map(|account| Target {
+            checkouts: match account.scope {
+                account::Scope::User => union.clone(),
+                account::Scope::Workspace => cos.clone(),
+            },
             account,
             root: root.clone(),
-            checkouts: cos.clone(),
         }));
     }
     out
@@ -643,10 +696,8 @@ fn refresh_one(t: &Target, scanned: &mut Vec<PathBuf>) -> Value {
                     "rade: Detailed limits of {}: {why}; turning them off",
                     a.name
                 );
-                if let Err(e) =
-                    account::set_detailed_file(&t.root, AgentKind::Claude, &a.name, false)
-                {
-                    eprintln!("rade: workspace.toml: {}", e.message);
+                if let Err(e) = set_detailed(a, &t.root, false) {
+                    eprintln!("rade: {}: {}", a.file.display(), e.message);
                 }
                 events.push(format!("account {}: Detailed limits off ({why})", a.name));
             }

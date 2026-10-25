@@ -452,6 +452,72 @@ pub fn find<'a>(
     }
 }
 
+/// The `FORBIDDEN` answer for a user account in an `accounts = "own"`
+/// Workspace (R125.3).
+pub fn own_only_refusal(name: &str, workspace: &str) -> Error {
+    Error::forbidden(format!(
+        "account '{name}' is a user account and workspace '{workspace}' uses only its own accounts (accounts = \"own\", ADR-0047)"
+    ))
+}
+
+/// One (agent, name) declared both in the user file and in a Workspace's
+/// own list (R125.3): `"'clw' (claude)"` per clash.
+pub fn clashes(user: &[AccountDecl], own: &[AccountDecl]) -> Vec<String> {
+    user.iter()
+        .filter_map(|u| {
+            let k = AgentKind::parse(&u.agent)?;
+            own.iter()
+                .any(|o| AgentKind::parse(&o.agent) == Some(k) && o.name.trim() == u.name.trim())
+                .then(|| format!("'{}' ({})", u.name.trim(), k.as_str()))
+        })
+        .collect()
+}
+
+/// A new `accounts.toml` text must not clash with any Workspace that
+/// takes user accounts (`roots`: id, root); else `USAGE` naming the
+/// Workspace's file, nothing written (R126.3).
+pub fn check_user_text(text: &str, roots: &[(String, PathBuf)]) -> Result<()> {
+    let user = toml::from_str::<UserFile>(text)
+        .map_err(|e| Error::usage(format!("accounts.toml: {e}")))?
+        .account;
+    for (_, root) in roots {
+        let Ok(f) = WorkspaceFile::read(root) else {
+            continue;
+        };
+        if f.accounts.as_deref().map(str::trim) == Some("own") {
+            continue;
+        }
+        let c = clashes(&user, &f.account);
+        if !c.is_empty() {
+            return Err(Error::usage(format!(
+                "account {} is already declared in {} (a name is unique per agent)",
+                c.join(", "),
+                root.join(".rade/workspace.toml").display()
+            )));
+        }
+    }
+    Ok(())
+}
+
+/// A new `workspace.toml` text must not clash with the user file, unless
+/// it sets `accounts = "own"` (R125.3).
+pub fn check_workspace_text(text: &str, user_file: &Path) -> Result<()> {
+    let f = WorkspaceFile::parse(text).map_err(|e| Error::usage(format!("workspace.toml: {e}")))?;
+    if f.accounts.as_deref().map(str::trim) == Some("own") {
+        return Ok(());
+    }
+    let c = clashes(&user_decls(user_file)?, &f.account);
+    if c.is_empty() {
+        Ok(())
+    } else {
+        Err(Error::usage(format!(
+            "account {} is already declared in {} (a name is unique per agent)",
+            c.join(", "),
+            user_file.display()
+        )))
+    }
+}
+
 /// The `FORBIDDEN` answer for an account of another Workspace (R108.3).
 pub fn foreign(name: &str, owner: &str, workspace: &str) -> Error {
     Error::forbidden(format!(
@@ -521,10 +587,7 @@ pub fn resolve_spawn(
                 })
         };
         if elsewhere(true).is_some() {
-            return Err(Error::forbidden(format!(
-                "account '{n}' is a user account and workspace '{}' uses only its own accounts (accounts = \"own\", ADR-0047)",
-                ask.workspace
-            )));
+            return Err(own_only_refusal(n, ask.workspace));
         }
         if let Some((w, _)) = elsewhere(false) {
             return Err(foreign(n, w, ask.workspace));
@@ -1098,11 +1161,43 @@ impl State {
             explicit: None,
             parent: parent.as_deref(),
         };
-        let account = resolve_spawn(&ask, &self.account_lists(home))?;
+        let account = self.resolve_account(&ask, home)?;
         if let Some(a) = &account {
             check_command(preset, command, a, home)?;
+            // R125.2: an unreadable env file refuses it, as a spawn.
+            account_env(a)?;
         }
         Ok(account)
+    }
+
+    /// [`resolve_spawn`] over [`State::account_lists`], with the user file
+    /// read directly for an `accounts = "own"` Workspace: a user account
+    /// asked for there is `FORBIDDEN` (R125.3) even when no other
+    /// Workspace lists it.
+    pub fn resolve_account(&self, ask: &SpawnAsk<'_>, home: &Path) -> Result<Option<Account>> {
+        if let (Some(n), Some(kind), Some(uf)) =
+            (ask.explicit, ask.agent, self.user_accounts_file.as_deref())
+        {
+            let ws = self.workspace(ask.workspace);
+            let own = ws.and_then(|w| WorkspaceFile::read(&w.root).ok());
+            let own_only = own
+                .as_ref()
+                .and_then(|f| f.accounts.as_deref())
+                .is_some_and(|a| a.trim() == "own");
+            let declared_own = own.as_ref().is_some_and(|f| {
+                f.account
+                    .iter()
+                    .any(|d| AgentKind::parse(&d.agent) == Some(kind) && d.name.trim() == n)
+            });
+            let in_user = user_decls(uf)
+                .unwrap_or_default()
+                .iter()
+                .any(|d| AgentKind::parse(&d.agent) == Some(kind) && d.name.trim() == n);
+            if own_only && in_user && !declared_own {
+                return Err(own_only_refusal(n, ask.workspace));
+            }
+        }
+        resolve_spawn(ask, &self.account_lists(home))
     }
 
     /// Every Workspace's accounts, read from its `workspace.toml` and the

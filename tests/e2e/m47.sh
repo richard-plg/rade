@@ -104,6 +104,19 @@ sed -i '/^\[\[account\]\]$/{N;N;N;/name = "clw"/d}' "$A/.rade/workspace.toml"
 check "R125-e back to one clw (acme lists 3 again)" \
     test "$(rade account list --workspace acme --json | jq '.accounts | length')" = 3
 
+cp "$ACC" "$T/acc-pre"
+rc=$(code rade account add --user --agent claude --name acme-work --config-dir '~/.q')
+check "R125-e add --user of a name acme declares exits 2 naming acme's file, accounts.toml unchanged" \
+    bash -c "[[ $rc == 2 ]] && grep -qF '$A/.rade/workspace.toml' '$T/err' && cmp -s '$T/acc-pre' '$ACC'"
+rc=$(code rade account add --workspace acme --agent claude --name cl --config-dir '~/.q')
+check "R125-e add of a user account's name to acme exits 2 naming accounts.toml" \
+    bash -c "[[ $rc == 2 ]] && grep -qF '$ACC' '$T/err' && ! grep -q '~/.q' '$A/.rade/workspace.toml'"
+rc=$(code rade account set clw --user --workspace corp --env BAR=1)
+check "R125-e set --user edits clw from corp (accounts = \"own\") in accounts.toml" \
+    bash -c "[[ $rc == 0 && \$(cat '$T/out') == '$ACC' ]] && grep -qxF 'BAR = \"1\"' '$ACC'"
+rade account set clw --user --unset-env BAR >/dev/null
+check "R125-e --unset-env BAR puts accounts.toml back byte for byte" cmp -s "$T/acc-pre" "$ACC"
+
 echo "== R125-c the account's env file reaches the Pane, never state or answers"
 p1=$(rade spawn --agent claude --account clw --cmd env --source notes --tab new --name p1)
 eventually 10 screen_has "$p1" RADE_ACCOUNT= || true
