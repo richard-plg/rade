@@ -4,6 +4,7 @@
 //! `composer` is the Voice Composer's state machine.
 
 pub mod agent;
+pub mod composer;
 pub mod context;
 pub mod stt;
 pub mod words;
