@@ -489,6 +489,23 @@ fn setup_dirs_include_every_declared_config_dir() {
     assert_eq!(n, 1);
 }
 
+#[test]
+fn r125_f_setup_dirs_include_user_accounts() {
+    // R125.3: a user account's config dir in accounts.toml is planned too.
+    let mut h = Home::new("user-accounts");
+    let cfg = h.dir.join("cfg");
+    h.vars.insert("XDG_CONFIG_HOME", cfg.display().to_string());
+    h.write(
+        "cfg/rade/accounts.toml",
+        "[[account]]\nagent = \"claude\"\nname = \"clw\"\nconfig_dir = \"~/.claude-work2\"\n",
+    );
+    let paths: Vec<PathBuf> = h.plan(&["claude"]).into_iter().map(|c| c.path).collect();
+    assert!(
+        paths.contains(&h.dir.join(".claude-work2/settings.json")),
+        "{paths:?}"
+    );
+}
+
 /// The five skills 0.7.1 installed and 1.0.0 removed (R101.1).
 const REMOVED: [&str; 5] = [
     "rade-task",

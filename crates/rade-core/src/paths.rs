@@ -149,6 +149,12 @@ pub fn config_file(env: Env) -> PathBuf {
         .join("rade/config.toml")
 }
 
+/// `$XDG_CONFIG_HOME/rade/accounts.toml`: user Agent Accounts for every
+/// Workspace (R125.3), shared by both flavors like `config.toml`.
+pub fn accounts_file(env: Env) -> PathBuf {
+    config_file(env).with_file_name("accounts.toml")
+}
+
 /// `$RADE_SOCKET`, else `$XDG_RUNTIME_DIR/rade/rade.sock` (API.md
 /// "Transport"; `rade-dev.sock` for Devel).
 pub fn socket_path(env: Env) -> PathBuf {

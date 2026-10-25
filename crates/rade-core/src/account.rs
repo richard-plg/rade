@@ -3,6 +3,10 @@
 //! `[[account]]`. Which account a new Pane runs under, the Workspace lock
 //! (`FORBIDDEN`, R108.3), the Pane's env, the `VAR=value` prefix check
 //! (R108.7) and the `toml_edit` writes of `rade account add|default`.
+//! M47 (R125, ADR-0047): an account's own env (`env_file`,
+//! `[account.env]`), user accounts in `accounts.toml` for every Workspace
+//! (unless it sets `accounts = "own"`), and the account of a hand-started
+//! Agent detected from its config dir.
 
 use crate::agents::PresetsFor;
 use crate::model::State;
@@ -78,6 +82,39 @@ pub struct AccountDecl {
     pub default: bool,
     /// Detailed limits opt-in (ADR-0035 decision 9; used from M39).
     pub detailed_limits: bool,
+    /// A dotenv file read at spawn and restore (R125.1); empty = none.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub env_file: String,
+    /// `[account.env]`: variables one by one (R125.1).
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub env: BTreeMap<String, String>,
+}
+
+/// Where an account is declared (R125.3).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Scope {
+    /// `<root>/.rade/workspace.toml`.
+    #[default]
+    Workspace,
+    /// `$XDG_CONFIG_HOME/rade/accounts.toml`, for every Workspace.
+    User,
+}
+
+impl Scope {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Workspace => "workspace",
+            Self::User => "user",
+        }
+    }
+}
+
+/// `accounts.toml` (R125.3): only `[[account]]`; other keys are ignored.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(default)]
+pub struct UserFile {
+    pub account: Vec<AccountDecl>,
 }
 
 /// A validated Agent Account of one Workspace.
@@ -93,6 +130,25 @@ pub struct Account {
     /// The agent's default: `default = true`, else the first listed.
     pub default: bool,
     pub detailed_limits: bool,
+    /// Where it is declared (R125.3).
+    pub scope: Scope,
+    /// The file that declares it.
+    pub file: PathBuf,
+    /// `env_file` with `~` expanded (R125.1).
+    pub env_file: Option<PathBuf>,
+    /// `[account.env]` in key order. Never serialized: a value may be a
+    /// secret (R125.2).
+    #[serde(skip)]
+    pub env: Vec<(String, String)>,
+    /// `default = true` was written (not the first-listed fallback).
+    #[serde(skip)]
+    explicit_default: bool,
+}
+
+/// A key an account's env may not set (R125.1): the agent's own
+/// config-dir variable (the login is `config_dir` alone) and `RADE_*`.
+pub fn reserved_key(agent: AgentKind, key: &str) -> bool {
+    key == agent.var() || key.starts_with("RADE_")
 }
 
 /// The accounts of Workspace `workspace` from its `[[account]]` tables
@@ -105,6 +161,20 @@ pub fn accounts(
     decls: &[AccountDecl],
     file: &Path,
     home: &Path,
+) -> Result<Vec<Account>> {
+    let mut out = validate(workspace, decls, file, home, Scope::Workspace)?;
+    fill_defaults(&mut out);
+    Ok(out)
+}
+
+/// [`accounts`] without the first-listed default: `default` is what the
+/// file says (two for one agent is still an error).
+fn validate(
+    workspace: &str,
+    decls: &[AccountDecl],
+    file: &Path,
+    home: &Path,
+    scope: Scope,
 ) -> Result<Vec<Account>> {
     let f = file.display();
     let mut errors = Vec::new();
@@ -138,6 +208,20 @@ pub fn accounts(
             ));
             continue;
         }
+        let bad: Vec<&str> = d
+            .env
+            .keys()
+            .map(String::as_str)
+            .filter(|k| !crate::dotenv::valid_key(k) || reserved_key(agent, k))
+            .collect();
+        if !bad.is_empty() {
+            errors.push(format!(
+                "{label}: env may not set {} (the login is config_dir; RADE_* are RADE's)",
+                bad.join(", ")
+            ));
+            continue;
+        }
+        let env_file = d.env_file.trim();
         out.push(Account {
             workspace: workspace.into(),
             agent,
@@ -146,6 +230,11 @@ pub fn accounts(
             declared_dir: d.config_dir.trim().into(),
             default: d.default,
             detailed_limits: d.detailed_limits,
+            scope,
+            file: file.to_path_buf(),
+            env_file: (!env_file.is_empty()).then(|| PathBuf::from(expand_tilde(env_file, home))),
+            env: d.env.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
+            explicit_default: d.default,
         });
     }
     for kind in AgentKind::ALL {
@@ -164,10 +253,6 @@ pub fn accounts(
                     .collect::<Vec<_>>()
                     .join(" and ")
             ));
-        } else if defaults.is_empty() {
-            if let Some(first) = out.iter_mut().find(|a| a.agent == kind) {
-                first.default = true;
-            }
         }
     }
     if errors.is_empty() {
@@ -176,6 +261,131 @@ pub fn accounts(
         Err(Error::usage(format!("{f}: {}", errors.join("; "))))
     }
 }
+
+/// Each agent without a `default = true` gets its first listed account.
+fn fill_defaults(list: &mut [Account]) {
+    for kind in AgentKind::ALL {
+        if !list.iter().any(|a| a.agent == kind && a.default) {
+            if let Some(first) = list.iter_mut().find(|a| a.agent == kind) {
+                first.default = true;
+            }
+        }
+    }
+}
+
+/// The `[[account]]` tables of `accounts.toml` (R125.3); none → empty.
+pub fn user_decls(file: &Path) -> Result<Vec<AccountDecl>> {
+    match std::fs::read_to_string(file) {
+        Ok(t) => toml::from_str::<UserFile>(&t)
+            .map(|f| f.account)
+            .map_err(|e| Error::usage(format!("{}: {e}", file.display()))),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(vec![]),
+        Err(e) => Err(Error::usage(format!("{}: {e}", file.display()))),
+    }
+}
+
+/// The accounts Workspace `id` may use (R108.1, R125.3): its own
+/// (`<root>/.rade/workspace.toml`), then — unless it sets
+/// `accounts = "own"` — the user accounts of `user_file`. One (agent,
+/// name) in both files → `USAGE` naming both. Default per agent: the
+/// Workspace's `default = true`, else the user file's, else the first.
+pub fn workspace_accounts(
+    id: &str,
+    root: &Path,
+    user_file: Option<&Path>,
+    home: &Path,
+) -> Result<Vec<Account>> {
+    let ws_path = root.join(".rade/workspace.toml");
+    let wf = WorkspaceFile::read(root).map_err(Error::usage)?;
+    let own_only = match wf.accounts.as_deref().map(str::trim) {
+        None | Some("all") => false,
+        Some("own") => true,
+        Some(x) => {
+            return Err(Error::usage(format!(
+                "{}: accounts must be \"own\" or \"all\", not \"{x}\"",
+                ws_path.display()
+            )))
+        }
+    };
+    let mut list = validate(id, &wf.account, &ws_path, home, Scope::Workspace)?;
+    if let (false, Some(uf)) = (own_only, user_file) {
+        let user = validate(id, &user_decls(uf)?, uf, home, Scope::User)?;
+        let clash: Vec<String> = user
+            .iter()
+            .filter(|u| list.iter().any(|a| a.agent == u.agent && a.name == u.name))
+            .map(|u| format!("'{}' ({})", u.name, u.agent.as_str()))
+            .collect();
+        if !clash.is_empty() {
+            return Err(Error::usage(format!(
+                "account {} is declared in both {} and {} (a name is unique per agent)",
+                clash.join(", "),
+                ws_path.display(),
+                uf.display()
+            )));
+        }
+        for mut u in user {
+            if list
+                .iter()
+                .any(|a| a.agent == u.agent && a.explicit_default)
+            {
+                u.default = false;
+            }
+            list.push(u);
+        }
+    }
+    fill_defaults(&mut list);
+    Ok(list)
+}
+
+/// The user accounts alone (Settings, `rade setup`): validated, each
+/// agent's default filled.
+pub fn user_accounts(file: &Path, home: &Path) -> Result<Vec<Account>> {
+    let mut l = validate("", &user_decls(file)?, file, home, Scope::User)?;
+    fill_defaults(&mut l);
+    Ok(l)
+}
+
+/// The variables an account adds to a Pane (R125.1): its `env_file`'s,
+/// read now, then `[account.env]` (later wins). A missing or broken file,
+/// or a reserved key in it → `USAGE` naming the file (and line).
+pub fn account_env(a: &Account) -> Result<Vec<(String, String)>> {
+    let mut out: Vec<(String, String)> = Vec::new();
+    if let Some(f) = &a.env_file {
+        let vars = crate::dotenv::read(f)
+            .map_err(|e| Error::usage(format!("account '{}': env_file {e}", a.name)))?;
+        if let Some((k, _)) = vars.iter().find(|(k, _)| reserved_key(a.agent, k)) {
+            return Err(Error::usage(format!(
+                "account '{}': env_file {} may not set {k} (the login is config_dir; RADE_* are RADE's)",
+                a.name,
+                f.display()
+            )));
+        }
+        out = vars;
+    }
+    for (k, v) in &a.env {
+        out.retain(|(x, _)| x != k);
+        out.push((k.clone(), v.clone()));
+    }
+    Ok(out)
+}
+
+/// The variable a `claude setup-token` login is given by.
+pub const TOKEN_VAR: &str = "CLAUDE_CODE_OAUTH_TOKEN";
+
+/// The account logs in with a token from its env, not from its config
+/// dir (R125.6): `CLAUDE_CODE_OAUTH_TOKEN` in `[account.env]` or its env
+/// file (an unreadable file counts as no). Detailed limits are never
+/// requested for it.
+pub fn token_login(a: &Account) -> bool {
+    a.env.iter().any(|(k, _)| k == TOKEN_VAR)
+        || a.env_file
+            .as_deref()
+            .and_then(|f| crate::dotenv::read(f).ok())
+            .is_some_and(|v| v.iter().any(|(k, _)| k == TOKEN_VAR))
+}
+
+/// What the Usage page says instead of the Detailed limits switch.
+pub const TOKEN_LOGIN_NOTE: &str = "not available with a token login";
 
 /// `list` with the in-memory defaults of `next` (`<workspace>/<agent>` →
 /// name) applied: that account becomes its agent's only default (a name
@@ -299,11 +509,24 @@ pub fn resolve_spawn(
                 agent.as_str()
             )));
         }
-        let owner = lists
-            .iter()
-            .filter(|(w, _)| w.as_str() != ask.workspace)
-            .find(|(_, l)| l.as_ref().is_ok_and(|l| l.iter().any(|a| a.name == n)));
-        if let Some((w, _)) = owner {
+        let elsewhere = |user: bool| {
+            lists
+                .iter()
+                .filter(|(w, _)| w.as_str() != ask.workspace)
+                .find(|(_, l)| {
+                    l.as_ref().is_ok_and(|l| {
+                        l.iter()
+                            .any(|a| a.name == n && (a.scope == Scope::User) == user)
+                    })
+                })
+        };
+        if elsewhere(true).is_some() {
+            return Err(Error::forbidden(format!(
+                "account '{n}' is a user account and workspace '{}' uses only its own accounts (accounts = \"own\", ADR-0047)",
+                ask.workspace
+            )));
+        }
+        if let Some((w, _)) = elsewhere(false) {
             return Err(foreign(n, w, ask.workspace));
         }
         let names: Vec<&str> = own
@@ -330,11 +553,21 @@ pub fn resolve_spawn(
 
 /// Put the account's env on a Pane's env (R108.2, R108.7): its variable
 /// replaces any value from the Workspace's `[env]`, plus `RADE_ACCOUNT`.
-pub fn apply_env(env: &mut Vec<(String, String)>, account: &Account) {
+/// R125.1: the account's own env ([`account_env`]) goes between the
+/// Workspace's `[env]` and those two. The config dir and `RADE_ACCOUNT`
+/// are always set; an unreadable env file is returned as the error after
+/// (the caller reports it).
+pub fn apply_env(env: &mut Vec<(String, String)>, account: &Account) -> Result<()> {
     let var = account.agent.var();
+    let extra = account_env(account);
+    for (k, v) in extra.as_ref().map(Vec::as_slice).unwrap_or_default() {
+        env.retain(|(x, _)| x != k);
+        env.push((k.clone(), v.clone()));
+    }
     env.retain(|(k, _)| k != var && k != "RADE_ACCOUNT");
     env.push((var.into(), account.config_dir.display().to_string()));
     env.push(("RADE_ACCOUNT".into(), account.name.clone()));
+    extra.map(|_| ())
 }
 
 /// Refuse a command whose `VAR=value` prefix (also after a leading `env`)
@@ -373,11 +606,16 @@ pub fn check_invocation(
     }
 }
 
-fn check_dir(preset: &str, var: &str, raw: &str, account: &Account, home: &Path) -> Result<()> {
+/// `~`, `$HOME` and `${HOME}` at the start of a recorded value expanded.
+fn expand_home(raw: &str, home: &Path) -> String {
     let h = home.display().to_string();
-    let expanded = expand_tilde(raw, home)
+    expand_tilde(raw, home)
         .replacen("${HOME}", &h, 1)
-        .replacen("$HOME", &h, 1);
+        .replacen("$HOME", &h, 1)
+}
+
+fn check_dir(preset: &str, var: &str, raw: &str, account: &Account, home: &Path) -> Result<()> {
+    let expanded = expand_home(raw, home);
     if same_dir(Path::new(&expanded), &account.config_dir) {
         return Ok(());
     }
@@ -473,6 +711,16 @@ pub fn add_to_toml(text: &str, decl: &AccountDecl) -> Result<String> {
     if decl.detailed_limits {
         table.insert("detailed_limits", toml_edit::value(true));
     }
+    if !decl.env_file.trim().is_empty() {
+        table.insert("env_file", toml_edit::value(decl.env_file.trim()));
+    }
+    if !decl.env.is_empty() {
+        let mut env = toml_edit::Table::new();
+        for (k, v) in &decl.env {
+            env.insert(k, toml_edit::value(v.as_str()));
+        }
+        table.insert("env", toml_edit::Item::Table(env));
+    }
     let mut tables = toml_edit::ArrayOfTables::new();
     tables.push(table);
     let mut doc = toml_edit::DocumentMut::new();
@@ -484,7 +732,133 @@ pub fn add_to_toml(text: &str, decl: &AccountDecl) -> Result<String> {
         out.push('\n');
     }
     out.push_str(&doc.to_string());
-    decls_of(&out)?;
+    check_decls(&out)?;
+    Ok(out)
+}
+
+/// The text's accounts pass [`validate`] (names, defaults, env keys).
+fn check_decls(text: &str) -> Result<()> {
+    let decls = decls_of(text)?;
+    validate(
+        "",
+        &decls,
+        Path::new("the file"),
+        Path::new("/"),
+        Scope::User,
+    )
+    .map(|_| ())
+}
+
+/// One change of an account's table (R125.5, R126.3).
+#[derive(Clone, Debug, PartialEq)]
+pub enum Edit {
+    ConfigDir(String),
+    Name(String),
+    /// `None` removes `env_file`.
+    EnvFile(Option<String>),
+    SetEnv(String, String),
+    UnsetEnv(String),
+    /// Delete the whole `[[account]]` table.
+    Remove,
+}
+
+/// Apply `edit` to the `[[account]]` of (`agent`, `name`), every other
+/// byte kept; an emptied `[account.env]` is removed. The result must
+/// still validate (a refused key, a used name… → `USAGE`, nothing
+/// changed); no such account → `NOT_FOUND`.
+pub fn edit_in_toml(text: &str, agent: AgentKind, name: &str, edit: &Edit) -> Result<String> {
+    let index = decls_of(text)?
+        .iter()
+        .position(|d| AgentKind::parse(&d.agent) == Some(agent) && d.name.trim() == name)
+        .ok_or_else(|| {
+            Error::not_found(format!(
+                "no {} account '{name}' in the file",
+                agent.as_str()
+            ))
+        })?;
+    let mut doc = document(text)?;
+    let tables = doc
+        .get_mut("account")
+        .and_then(|i| i.as_array_of_tables_mut())
+        .ok_or_else(|| Error::internal("account table not found"))?;
+    if *edit == Edit::Remove {
+        tables.remove(index);
+        if tables.is_empty() {
+            doc.remove("account");
+        }
+        let out = doc.to_string();
+        check_decls(&out)?;
+        return Ok(out);
+    }
+    let t = tables
+        .get_mut(index)
+        .ok_or_else(|| Error::internal("account table not found"))?;
+    let set = |t: &mut toml_edit::Table, key: &str, v: &str| match t
+        .get_mut(key)
+        .and_then(|i| i.as_value_mut())
+    {
+        Some(old) => {
+            let decor = old.decor().clone();
+            *old = toml_edit::Value::from(v);
+            *old.decor_mut() = decor;
+        }
+        None => {
+            t.insert(key, toml_edit::value(v));
+        }
+    };
+    match edit {
+        Edit::ConfigDir(d) if d.trim().is_empty() => {
+            return Err(Error::usage("an account needs a config dir"))
+        }
+        Edit::ConfigDir(d) => set(t, "config_dir", d.trim()),
+        Edit::Name(n) if n.trim().is_empty() => {
+            return Err(Error::usage("an account needs a name"))
+        }
+        Edit::Name(n) => set(t, "name", n.trim()),
+        Edit::EnvFile(Some(f)) if !f.trim().is_empty() => set(t, "env_file", f.trim()),
+        Edit::EnvFile(_) => {
+            t.remove("env_file");
+        }
+        Edit::SetEnv(k, v) => {
+            if !crate::dotenv::valid_key(k) {
+                return Err(Error::usage(format!("'{k}' is not a variable name")));
+            }
+            if !t.contains_key("env") {
+                let mut env = toml_edit::Table::new();
+                env.set_implicit(false);
+                t.insert("env", toml_edit::Item::Table(env));
+            }
+            let env = t
+                .get_mut("env")
+                .and_then(|i| i.as_table_like_mut())
+                .ok_or_else(|| Error::usage("env is not a table"))?;
+            match env.get_mut(k).and_then(|i| i.as_value_mut()) {
+                Some(old) => {
+                    let decor = old.decor().clone();
+                    *old = toml_edit::Value::from(v.as_str());
+                    *old.decor_mut() = decor;
+                }
+                None => {
+                    env.insert(k, toml_edit::value(v.as_str()));
+                }
+            }
+        }
+        Edit::UnsetEnv(k) => {
+            let empty = match t.get_mut("env").and_then(|i| i.as_table_like_mut()) {
+                Some(env) => {
+                    env.remove(k);
+                    env.is_empty()
+                }
+                None => false,
+            };
+            if empty {
+                t.remove("env");
+            }
+        }
+        Edit::Remove => unreachable!(),
+    }
+    let out = doc.to_string();
+    check_decls(&out)?;
     Ok(out)
 }
 
@@ -587,17 +961,49 @@ pub fn set_detailed_file(root: &Path, agent: AgentKind, name: &str, on: bool) ->
 /// Write `<root>/.rade/workspace.toml` (creating `.rade/`) through a temp
 /// file and a rename, so a reader never sees half a file.
 pub fn write_workspace_file(root: &Path, text: &str) -> Result<PathBuf> {
-    let dir = root.join(".rade");
-    let file = dir.join("workspace.toml");
+    let file = root.join(".rade/workspace.toml");
+    write_atomic(&file, text)?;
+    Ok(file)
+}
+
+/// Write `file` (creating its folder) through a temp file and a rename.
+pub fn write_atomic(file: &Path, text: &str) -> Result<()> {
     let fail = |e: std::io::Error| Error::internal(format!("{}: {e}", file.display()));
-    std::fs::create_dir_all(&dir).map_err(fail)?;
-    let tmp = dir.join(format!(".workspace.toml.{}.tmp", std::process::id()));
-    let res = std::fs::write(&tmp, text).and_then(|_| std::fs::rename(&tmp, &file));
+    let dir = file.parent().unwrap_or(Path::new("."));
+    std::fs::create_dir_all(dir).map_err(fail)?;
+    let base = file.file_name().and_then(|n| n.to_str()).unwrap_or("file");
+    let tmp = dir.join(format!(".{base}.{}.tmp", std::process::id()));
+    let res = std::fs::write(&tmp, text).and_then(|_| std::fs::rename(&tmp, file));
     if let Err(e) = res {
         let _ = std::fs::remove_file(&tmp);
         return Err(fail(e));
     }
-    Ok(file)
+    Ok(())
+}
+
+/// One change of the user's `accounts.toml` (R125.5, R126.3): `change`
+/// gets its text (missing = empty); the result is written atomically.
+pub fn edit_user_file(file: &Path, change: impl FnOnce(&str) -> Result<String>) -> Result<()> {
+    let text = match std::fs::read_to_string(file) {
+        Ok(t) => t,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(e) => return Err(Error::internal(format!("{}: {e}", file.display()))),
+    };
+    let new = change(&text)?;
+    if new != text {
+        write_atomic(file, &new)?;
+    }
+    Ok(())
+}
+
+/// One change of a Workspace's `workspace.toml` (`rade account set`
+/// without `--user`): as [`edit_user_file`].
+pub fn edit_workspace_file(
+    root: &Path,
+    change: impl FnOnce(&str) -> Result<String>,
+) -> Result<PathBuf> {
+    let new = change(&read_workspace_text(root)?)?;
+    write_workspace_file(root, &new)
 }
 
 fn read_workspace_text(root: &Path) -> Result<String> {
@@ -633,6 +1039,16 @@ impl crate::Pane {
     pub fn set_account(&mut self, account: Option<Account>) {
         self.account_agent = account.as_ref().map(|a| a.agent);
         self.account = account.map(|a| a.name);
+        self.account_detected = false;
+    }
+
+    /// Forget a detected account (R125.4: its Agent ended).
+    pub fn clear_detected_account(&mut self) {
+        if self.account_detected {
+            self.account = None;
+            self.account_agent = None;
+            self.account_detected = false;
+        }
     }
 }
 
@@ -680,18 +1096,17 @@ impl State {
         Ok(account)
     }
 
-    /// Every Workspace's accounts, read from its `workspace.toml` now
-    /// (R108.1); a broken file or account list is that Workspace's error.
+    /// Every Workspace's accounts, read from its `workspace.toml` and the
+    /// user's `accounts.toml` now (R108.1, R125.3); a broken file or
+    /// account list is that Workspace's error.
     /// A default chosen for later Agents ([`State::set_next_default`])
     /// replaces the file's `default` of that agent.
     pub fn account_lists(&self, home: &Path) -> BTreeMap<String, Result<Vec<Account>>> {
+        let user = self.user_accounts_file.as_deref();
         self.workspaces
             .iter()
             .map(|w| {
-                let file = w.root.join(".rade/workspace.toml");
-                let list = WorkspaceFile::read(&w.root)
-                    .map_err(Error::usage)
-                    .and_then(|f| accounts(&w.id, &f.account, &file, home))
+                let list = workspace_accounts(&w.id, &w.root, user, home)
                     .map(|l| with_next_defaults(l, &w.id, &self.next_defaults));
                 (w.id.clone(), list)
             })
@@ -737,12 +1152,56 @@ impl State {
         })
     }
 
+    /// R125.4: the account of an Agent started by hand in `pane` (no
+    /// account yet), from its reported invocation: the config dir its
+    /// `CLAUDE_CONFIG_DIR` / `CODEX_HOME` names (unset → `~/.claude` /
+    /// `~/.codex`) matched by `realpath` with the accounts of `kind` the
+    /// Pane's Workspace may use; one match, else the default among
+    /// several, else none. Recorded as detected; returns its name.
+    pub fn detect_account(
+        &mut self,
+        pane: &str,
+        kind: AgentKind,
+        inv: &Invocation,
+        home: &Path,
+    ) -> Option<String> {
+        let p = self.pane(pane)?;
+        if p.account.is_some() {
+            return None;
+        }
+        let (source, _) = self.pane_worktree(pane)?;
+        let ws = self.source(&source)?.workspace.clone();
+        let dir = match inv.env.get(kind.var()) {
+            Some(v) => PathBuf::from(expand_home(v, home)),
+            None => home.join(match kind {
+                AgentKind::Claude => ".claude",
+                AgentKind::Codex => ".codex",
+            }),
+        };
+        let list = self.account_lists(home).remove(&ws)?.ok()?;
+        let hits: Vec<&Account> = list
+            .iter()
+            .filter(|a| a.agent == kind && same_dir(&dir, &a.config_dir))
+            .collect();
+        let found = match hits.as_slice() {
+            [one] => (*one).clone(),
+            [] => return None,
+            many => (*many.iter().find(|a| a.default)?).clone(),
+        };
+        let loc = self.locate(pane)?;
+        let p = self.tab_mut(&loc).ok()?.pane_mut(pane)?;
+        p.set_account(Some(found.clone()));
+        p.account_detected = true;
+        Some(found.name)
+    }
+
     /// Session Restore (R108.7, after [`State::prepare_restore`]): a Pane
     /// with an account whose restart command sets the account's variable
     /// to another directory (a recorded invocation, or the Preset's own
     /// command) — or whose account is no longer declared — comes back as a
     /// plain shell in its cwd that prints why (`Pane.notice`), keeping its
-    /// account. Returns the refused Panes.
+    /// account. Also refused: an account whose `env_file` can't be read
+    /// now (R125.2). Returns the refused Panes.
     pub fn refuse_restores(&mut self, presets: &PresetsFor<'_>, home: &Path) -> Vec<String> {
         self.refuse_restores_in(presets, home, None)
     }
@@ -774,7 +1233,10 @@ impl State {
         let mut refused = Vec::new();
         for (id, preset, kind, cmd) in candidates {
             let verdict = match self.pane_account(&id, kind, home) {
-                Some(Ok(a)) => check_command(&preset, &cmd, &a, home).err(),
+                // R125.2: an unreadable env file is refused like a prefix.
+                Some(Ok(a)) => check_command(&preset, &cmd, &a, home)
+                    .err()
+                    .or_else(|| account_env(&a).err()),
                 Some(Err(e)) => Some(e),
                 None => None,
             };

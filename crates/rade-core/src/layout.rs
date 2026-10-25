@@ -94,6 +94,10 @@ pub struct Pane {
     /// longer an Agent Pane (a refused restore, R108.7).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub account_agent: Option<crate::account::AgentKind>,
+    /// `account` was detected from a hand-started Agent's config dir
+    /// (R125.4), not chosen: cleared when that Agent ends.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub account_detected: bool,
     /// A line the restored Terminal prints before its shell (R108.7: why a
     /// recorded invocation was not run); transient.
     #[serde(skip)]
@@ -198,6 +202,7 @@ impl Pane {
             title: None,
             account: None,
             account_agent: None,
+            account_detected: false,
             notice: None,
             task: None,
         }

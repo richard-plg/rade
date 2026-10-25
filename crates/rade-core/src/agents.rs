@@ -263,6 +263,10 @@ impl State {
         if status.is_some_and(|s| s != AgentStatus::Exited) {
             p.had_turn = true;
         }
+        // R125.4: a detected account belongs to the Agent that ended.
+        if status == Some(AgentStatus::Exited) {
+            p.clear_detected_account();
+        }
         // A session-start report (Preset, no status) in a shell whose last
         // hand-started Agent exited (R10.2 command-finished): alive again.
         if status.is_none()
@@ -350,6 +354,7 @@ impl State {
             p.session_id = None;
             p.invocation = None;
             p.had_turn = false;
+            p.clear_detected_account();
         }
         let mid_turn = matches!(
             p.status,

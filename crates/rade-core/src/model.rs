@@ -70,6 +70,10 @@ pub struct State {
     /// memory only, never saved, never written to `workspace.toml`.
     #[serde(skip)]
     pub next_defaults: std::collections::BTreeMap<String, String>,
+    /// `$XDG_CONFIG_HOME/rade/accounts.toml` (R125.3), set by the app; none
+    /// = no user accounts (tests).
+    #[serde(skip)]
+    pub user_accounts_file: Option<std::path::PathBuf>,
 }
 
 /// The sidebar membership rule of M26 (R30, ADR-0028): explicit only.
@@ -241,6 +245,7 @@ impl State {
             expanded_projects: Vec::new(),
             overview_no_preview: false,
             next_defaults: Default::default(),
+            user_accounts_file: None,
         };
         ws.ensure_general(home);
         ws
