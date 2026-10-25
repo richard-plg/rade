@@ -732,7 +732,8 @@ toast > button.circular image { -gtk-icon-size: 16px; }
 .file-status.st-R, .file-status.st-C { color: @run; }
 .file-status.st-conflict { color: @err; }
 .commit-more, .commit-more > button { min-height: 26px; min-width: 22px; padding: 0; }
-.commit-more > button { border-radius: 0 6px 6px 0; border: none; border-left: 1px solid alpha(@acc-fg, 0.25); background: @acc; color: @acc-fg; box-shadow: none; }
+.commit-more > button { border-radius: 0 6px 6px 0; box-shadow: none; }
+.commit-split.primary .commit-more > button { border: none; border-left: 1px solid alpha(@acc-fg, 0.25); background: @acc; color: @acc-fg; }
 .commit-more > button image { -gtk-icon-size: 14px; }
 .commit-warning { margin-top: 2px; font-family: "Inter", sans-serif; font-size: 11px; color: @wait; }
 .scm-action-button { min-height: 26px; margin: 8px 10px; padding: 0 12px; border-radius: 6px; border: 1px solid @line2; background: @bg2; box-shadow: none;

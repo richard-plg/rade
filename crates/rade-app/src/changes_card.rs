@@ -280,6 +280,7 @@ impl Card {
         bottom.append(&fill);
         let split = gtk::Box::new(gtk::Orientation::Horizontal, 0);
         split.add_css_class("linked");
+        split.add_css_class("commit-split");
         let commit = gtk::Button::with_label("Commit");
         commit.add_css_class("commit-button");
         commit.set_tooltip_text(Some("Commit (Ctrl+Enter)"));
@@ -641,10 +642,18 @@ impl Card {
 
     pub(crate) fn set_primary(&self, on: bool) {
         self.st.borrow_mut().primary = on;
-        if on && self.has_changes() {
+        let primary = on && self.has_changes();
+        if primary {
             self.commit.add_css_class("suggested-action");
         } else {
             self.commit.remove_css_class("suggested-action");
+        }
+        if let Some(split) = self.commit.parent() {
+            if primary {
+                split.add_css_class("primary");
+            } else {
+                split.remove_css_class("primary");
+            }
         }
     }
 
@@ -1383,7 +1392,11 @@ impl Card {
     }
 
     /// Open the diff of a row (D3). A conflicted file has no diff side.
-    pub(crate) fn open_diff_of(self: &Rc<Self>, _group: Group, item: &Item, focus: bool) {
+    pub(crate) fn open_diff_of(self: &Rc<Self>, group: Group, item: &Item, focus: bool) {
+        if group == Group::Merge {
+            self.open_file(&item.path, false);
+            return;
+        }
         if let Some(section) = item.section {
             self.open_diff(&item.path, section, focus);
         }

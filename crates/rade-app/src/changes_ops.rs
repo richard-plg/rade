@@ -238,8 +238,8 @@ impl Card {
         }
         let names: Vec<&str> = tracked
             .iter()
-            .map(|c| c.path.as_str())
-            .chain(untracked.iter().map(String::as_str))
+            .map(|c| c.path.rsplit('/').next().unwrap_or(&c.path))
+            .chain(untracked.iter().map(|p| p.rsplit('/').next().unwrap_or(p)))
             .collect();
         let (heading, body, button) = scm_view::discard_dialog(&names, tracked.len(), untracked.len());
         let w = Rc::downgrade(self);
