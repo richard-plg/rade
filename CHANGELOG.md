@@ -10,6 +10,12 @@ the 0.x sections were written by hand. Requirement IDs (R…) refer to [docs/int
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-10-25
+
+### Fixed
+
+- RADE no longer crashes with "Illegal instruction" on older CPUs
+
 ## [1.0.0] - 2026-10-25
 
 RADE 1.0.0 is a redesign around Projects: a new look and window chrome, the
@@ -1096,5 +1102,6 @@ Initial release: everything built in milestones M0–M12.
   releases with the `.deb` and `SHA256SUMS`, `rade-app --version`, this
   changelog (ADR-0012).
 
-[Unreleased]: https://github.com/richard-plg/rade/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/richard-plg/rade/compare/v1.0.1...HEAD
+[1.0.1]: https://github.com/richard-plg/rade/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/richard-plg/rade/releases/tag/v1.0.0
