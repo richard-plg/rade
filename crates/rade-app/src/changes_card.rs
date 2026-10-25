@@ -254,10 +254,7 @@ impl Card {
         msg_scroll.set_policy(gtk::PolicyType::Never, gtk::PolicyType::External);
         msg_scroll.set_propagate_natural_height(true);
         msg_scroll.set_max_content_height(10 * 16 + 8);
-        let hint = label(
-            &scm_view::placeholder(None),
-            &["rade-dim"],
-        );
+        let hint = label(&scm_view::placeholder(None), &["rade-dim"]);
         hint.set_valign(gtk::Align::Start);
         hint.set_margin_start(9);
         hint.set_margin_top(5);
@@ -529,7 +526,8 @@ impl Card {
                 return glib::Propagation::Proceed;
             };
             let ctrl = state.contains(gdk::ModifierType::CONTROL_MASK);
-            let other = state.intersects(gdk::ModifierType::SHIFT_MASK | gdk::ModifierType::ALT_MASK);
+            let other =
+                state.intersects(gdk::ModifierType::SHIFT_MASK | gdk::ModifierType::ALT_MASK);
             let name = match key {
                 gdk::Key::space if !ctrl && !other => "space",
                 gdk::Key::Delete | gdk::Key::KP_Delete if !ctrl && !other => "delete",
@@ -572,7 +570,9 @@ impl Card {
 
     /// `+a` / `−d` over the rows of the card's groups (the header totals).
     pub(crate) fn totals(&self) -> (usize, usize) {
-        let Some(snap) = self.snap() else { return (0, 0) };
+        let Some(snap) = self.snap() else {
+            return (0, 0);
+        };
         let mut t = (0, 0);
         for (g, items) in scm_view::groups(&snap.status) {
             for it in &items {
@@ -669,7 +669,9 @@ impl Card {
     }
 
     fn folded_default(&self) -> bool {
-        let Some(snap) = self.snap() else { return false };
+        let Some(snap) = self.snap() else {
+            return false;
+        };
         let has = !snap.status.files.is_empty();
         !has && scm_view::action_button(&snap.status, has, snap.head.is_some()).is_none()
     }
@@ -828,11 +830,12 @@ impl Card {
         match &action {
             Some(t) => {
                 self.action_label.set_label(t);
-                self.action_icon.set_icon_name(Some(if t.starts_with("Publish") {
-                    "ph-cloud-arrow-up-symbolic"
-                } else {
-                    "ph-arrows-clockwise-symbolic"
-                }));
+                self.action_icon
+                    .set_icon_name(Some(if t.starts_with("Publish") {
+                        "ph-cloud-arrow-up-symbolic"
+                    } else {
+                        "ph-arrows-clockwise-symbolic"
+                    }));
                 self.action.set_visible(true);
             }
             None => self.action.set_visible(false),
@@ -1290,7 +1293,9 @@ impl Card {
         row.connect_state_flags_changed(move |row, _| {
             let f = row.state_flags();
             let on = f.intersects(
-                gtk::StateFlags::PRELIGHT | gtk::StateFlags::SELECTED | gtk::StateFlags::FOCUS_WITHIN,
+                gtk::StateFlags::PRELIGHT
+                    | gtk::StateFlags::SELECTED
+                    | gtk::StateFlags::FOCUS_WITHIN,
             );
             s.set_visible_child_name(if on { "actions" } else { "stat" });
         });
@@ -1326,9 +1331,9 @@ impl Card {
     }
 
     pub(crate) fn index_of(&self, group: Group, path: &str) -> Option<usize> {
-        self.st.borrow().entries.iter().position(|e| {
-            matches!(e, Entry::File { group: g, item } if *g == group && item.path == path)
-        })
+        self.st.borrow().entries.iter().position(
+            |e| matches!(e, Entry::File { group: g, item } if *g == group && item.path == path),
+        )
     }
 
     fn row_widget(&self, index: usize) -> Option<gtk::ListBoxRow> {
@@ -1349,7 +1354,8 @@ impl Card {
         };
         let index = row.index() as usize;
         let mods = g.current_event_state();
-        let extend = mods.intersects(gdk::ModifierType::CONTROL_MASK | gdk::ModifierType::SHIFT_MASK);
+        let extend =
+            mods.intersects(gdk::ModifierType::CONTROL_MASK | gdk::ModifierType::SHIFT_MASK);
         match self.entry_at(index) {
             Some(Entry::Section(group)) => self.toggle_group(group),
             Some(Entry::Folder { group, path }) => self.toggle_folder(group, &path),
@@ -1455,8 +1461,10 @@ impl Card {
                 if sel.iter().all(|(g, _)| *g == Group::Staged) {
                     self.unstage_items(&sel);
                 } else {
-                    let to_stage: Vec<_> =
-                        sel.into_iter().filter(|(g, _)| *g != Group::Staged).collect();
+                    let to_stage: Vec<_> = sel
+                        .into_iter()
+                        .filter(|(g, _)| *g != Group::Staged)
+                        .collect();
                     self.stage_items(&to_stage);
                 }
                 true
@@ -1522,7 +1530,11 @@ impl Card {
 
     /// R120.5. The clicked row is selected first when it was not; the items
     /// act on the selected rows of its group. `at` = where to pop up.
-    pub(crate) fn right_click(self: &Rc<Self>, index: usize, at: Option<(f64, f64)>) -> Vec<String> {
+    pub(crate) fn right_click(
+        self: &Rc<Self>,
+        index: usize,
+        at: Option<(f64, f64)>,
+    ) -> Vec<String> {
         let Some(Entry::File { group, item }) = self.entry_at(index) else {
             return vec![];
         };
@@ -1717,7 +1729,12 @@ impl Card {
     // ---- debug --------------------------------------------------------------------
 
     /// A row's or section's button by tooltip.
-    pub(crate) fn find_act(&self, group: Group, path: Option<&str>, tip: &str) -> Option<gtk::Button> {
+    pub(crate) fn find_act(
+        &self,
+        group: Group,
+        path: Option<&str>,
+        tip: &str,
+    ) -> Option<gtk::Button> {
         let st = self.st.borrow();
         for (e, r) in st.entries.iter().zip(&st.rows) {
             let hit = match (e, path) {
@@ -1840,7 +1857,10 @@ impl Card {
         let sync = snap.as_ref().and_then(|s| {
             scm_view::sync_label(&s.status).map(|(k, l)| json!({"kind": k, "label": l}))
         });
-        let action = self.action.is_visible().then(|| self.action_label.label().to_string());
+        let action = self
+            .action
+            .is_visible()
+            .then(|| self.action_label.label().to_string());
         let meta = self.meta.label().to_string();
         let clean = snap.as_ref().is_none_or(|s| s.status.files.is_empty());
         json!({

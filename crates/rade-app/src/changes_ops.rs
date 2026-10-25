@@ -241,7 +241,8 @@ impl Card {
             .map(|c| c.path.rsplit('/').next().unwrap_or(&c.path))
             .chain(untracked.iter().map(|p| p.rsplit('/').next().unwrap_or(p)))
             .collect();
-        let (heading, body, button) = scm_view::discard_dialog(&names, tracked.len(), untracked.len());
+        let (heading, body, button) =
+            scm_view::discard_dialog(&names, tracked.len(), untracked.len());
         let w = Rc::downgrade(self);
         confirm(&heading, &body, "discard", &button, move || {
             let Some(me) = w.upgrade() else { return };
@@ -545,46 +546,50 @@ impl Card {
 
     /// Sync Changes (D13): one confirmation, then pull `--ff-only` and push.
     pub(crate) fn sync_flow(self: &Rc<Self>) {
-        self.run("Sync", |r| scm::status(&r), |c, st| {
-            let Some(branch) = st.branch.clone() else {
-                c.show_error(Some("Sync: HEAD is detached: check out a branch".into()));
-                return;
-            };
-            let Some((remote, _)) = st.own_upstream() else {
-                // No upstream of its own: Publish sets one.
-                c.publish_flow();
-                return;
-            };
-            let remote = remote.to_string();
-            let body = format!(
-                "Pulls {} from {remote}/{branch}, then pushes {}.",
-                plural(st.behind as usize, "commit", "commits"),
-                plural(st.ahead as usize, "commit", "commits"),
-            );
-            let w = Rc::downgrade(c);
-            confirm(
-                &format!("Sync {branch} with {remote}?"),
-                &body,
-                "sync",
-                "Sync",
-                move || {
-                    let Some(me) = w.upgrade() else { return };
-                    let env = me.env();
-                    let (branch, remote) = (branch.clone(), remote.clone());
-                    me.run(
-                        "Sync",
-                        move |r| scm::sync(&r, &env).map(|_| ()),
-                        move |_, _| {
-                            toast(&format!(
-                                "Synced <b>{}</b> with {}",
-                                esc(&branch),
-                                esc(&remote)
-                            ))
-                        },
-                    );
-                },
-            );
-        });
+        self.run(
+            "Sync",
+            |r| scm::status(&r),
+            |c, st| {
+                let Some(branch) = st.branch.clone() else {
+                    c.show_error(Some("Sync: HEAD is detached: check out a branch".into()));
+                    return;
+                };
+                let Some((remote, _)) = st.own_upstream() else {
+                    // No upstream of its own: Publish sets one.
+                    c.publish_flow();
+                    return;
+                };
+                let remote = remote.to_string();
+                let body = format!(
+                    "Pulls {} from {remote}/{branch}, then pushes {}.",
+                    plural(st.behind as usize, "commit", "commits"),
+                    plural(st.ahead as usize, "commit", "commits"),
+                );
+                let w = Rc::downgrade(c);
+                confirm(
+                    &format!("Sync {branch} with {remote}?"),
+                    &body,
+                    "sync",
+                    "Sync",
+                    move || {
+                        let Some(me) = w.upgrade() else { return };
+                        let env = me.env();
+                        let (branch, remote) = (branch.clone(), remote.clone());
+                        me.run(
+                            "Sync",
+                            move |r| scm::sync(&r, &env).map(|_| ()),
+                            move |_, _| {
+                                toast(&format!(
+                                    "Synced <b>{}</b> with {}",
+                                    esc(&branch),
+                                    esc(&remote)
+                                ))
+                            },
+                        );
+                    },
+                );
+            },
+        );
     }
 
     // ---- Create PR ---------------------------------------------------------------------

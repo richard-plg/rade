@@ -389,7 +389,10 @@ impl Changes {
         let mut cards = Vec::new();
         for (g, name) in shown.groups.iter().zip(&shown.names) {
             let reused = old.iter().find(|c| {
-                c.path == g.path && c.source == g.source && c.project == g.project && c.name == *name
+                c.path == g.path
+                    && c.source == g.source
+                    && c.project == g.project
+                    && c.name == *name
             });
             let card = match reused {
                 Some(c) => {
@@ -593,10 +596,8 @@ impl Changes {
         self.empty_source
             .set_visible(all_clean && shown.mode == Mode::Source);
         // Not a repository: the single card of Source mode cannot read.
-        let none = shown.mode == Mode::Source
-            && cards
-                .first()
-                .is_some_and(|c| c.read_error().is_some());
+        let none =
+            shown.mode == Mode::Source && cards.first().is_some_and(|c| c.read_error().is_some());
         self.root
             .set_visible_child_name(if none { "none" } else { "page" });
         if let Some(app) = try_app() {
@@ -891,16 +892,20 @@ pub fn debug(p: &Value) -> Result<Value> {
             let card = c.card(s("source"))?;
             let g = group()?;
             if !card.has_file(g, s("path")) {
-                return Err(Error::not_found(format!("no row {} in {}", s("path"), s("group"))));
+                return Err(Error::not_found(format!(
+                    "no row {} in {}",
+                    s("path"),
+                    s("group")
+                )));
             }
             card.click_row(g, s("path"), s("arg"));
         }
         "rightclick" => {
             let card = c.card(s("source"))?;
             let g = group()?;
-            let index = card
-                .index_of(g, s("path"))
-                .ok_or_else(|| Error::not_found(format!("no row {} in {}", s("path"), s("group"))))?;
+            let index = card.index_of(g, s("path")).ok_or_else(|| {
+                Error::not_found(format!("no row {} in {}", s("path"), s("group")))
+            })?;
             extra = Some(("menu", json!(card.right_click(index, None))));
         }
         "menu_activate" => {
@@ -930,7 +935,10 @@ pub fn debug(p: &Value) -> Result<Value> {
         "card_menu_activate" => {
             let card = c.card(s("source"))?;
             if !card.card_menu_activate(s("item")) {
-                return Err(Error::not_found(format!("no card menu item '{}'", s("item"))));
+                return Err(Error::not_found(format!(
+                    "no card menu item '{}'",
+                    s("item")
+                )));
             }
         }
         "key" => {
@@ -1010,4 +1018,3 @@ pub(crate) fn create_pr() {
         c.action("scm_pr");
     }
 }
-
