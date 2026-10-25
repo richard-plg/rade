@@ -14,13 +14,22 @@ misheard names. Use the CONTEXT and, only when needed, read or search files to f
 (the real file, function or command). Do not change anything.
 
 Write only the prompt, nothing before or after it:
-- Line 1: the goal in one sentence.
-- Then 0 to 5 lines starting with "- ": where, constraints, how to know it is done.
+- Line 1: the goal in one sentence. Nothing else on it: no cause, no explanation.
+- Then 0 to 5 lines starting with "- ": where, constraints, how to know it is done. No blank lines.
 - Refer to code as `path:line` or `name` in backticks, using real names from the repository.
 - Language: {LANGUAGE}.
-- Keep the developer's intent and scope. Do not add requirements, opinions or steps they did not ask for.
+- Say what to do, not why: no cause analysis, no plan, no steps or checks they did not ask for.
+- Keep the developer's intent and scope. Do not add requirements or opinions.
 - Fillers, repeats and false starts go. Keep it about as long as what they meant, never longer.
-- If a part cannot be resolved, keep it and mark it [?] "<their words>"."#;
+- A misheard name you worked out is just written as the real name; never mention the mishearing.
+- Only words you could not work out stay, marked in place as [?] "<their words>".
+
+Example (the repository has `handleSubmit` in `src/checkout/CheckoutForm.tsx`):
+SPEECH: ừ thì cái hàm hen đồ sấp mít á, nó bị gọi hai lần, à khi bấm enter á, sửa giùm, à mà đừng đụng cái validate
+PROMPT:
+Sửa `handleSubmit` bị gọi hai lần khi nhấn Enter.
+- Ở `src/checkout/CheckoutForm.tsx`.
+- Không sửa phần validate."#;
 
 /// The turn RADE sends when a message ended on the step limit with no text.
 pub const WRITE_NOW: &str = "Write the prompt now from what you have; use no more tools.";
@@ -31,7 +40,8 @@ const REWRITE: &str = "Rewrite the whole prompt with this change.";
 pub fn system_prompt(cfg: &VoiceConfig) -> String {
     let lang = match cfg.draft_language {
         DraftLanguage::Same => {
-            "the language the developer spoke (keep English technical terms as they are)"
+            "the language of SPEECH, never another one (Vietnamese speech → a Vietnamese prompt); \
+             English technical terms stay as they are"
         }
         DraftLanguage::En => "English",
     };

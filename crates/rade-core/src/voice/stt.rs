@@ -137,7 +137,8 @@ pub fn parse(output: &str) -> Result<String, String> {
         return Err(failed(msg));
     }
     match json.as_ref().and_then(|j| j["text"].as_str()) {
-        Some(t) => Ok(t.trim().to_string()),
+        // One line: whisper.cpp ends each segment with a newline.
+        Some(t) => Ok(t.split_whitespace().collect::<Vec<_>>().join(" ")),
         None => Err(failed(first)),
     }
 }

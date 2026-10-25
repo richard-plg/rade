@@ -36,6 +36,11 @@ fn r124_i_stt_request_reply_and_tentative_words() {
         parse("{\"text\":\" ừ thì sửa cái này \"}").unwrap(),
         "ừ thì sửa cái này"
     );
+    // whisper.cpp ends each segment with a newline: one line of words.
+    assert_eq!(
+        parse("{\"text\":\" Ừ thì sửa nó.\\n À ở cái này.\\n\"}").unwrap(),
+        "Ừ thì sửa nó. À ở cái này."
+    );
     assert_eq!(parse("{\"text\":\" ok \"}\n200").unwrap(), "ok");
     assert_eq!(parse("{\"text\":\"\"}").unwrap(), "");
     assert_eq!(

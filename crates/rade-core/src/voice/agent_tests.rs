@@ -18,7 +18,8 @@ fn r124_e_claude_command_and_env() {
     let cfg = VoiceConfig::default();
     let sys = system_prompt(&cfg);
     assert!(sys.contains(
-        "Language: the language the developer spoke (keep English technical terms as they are)."
+        "Language: the language of SPEECH, never another one (Vietnamese speech → a Vietnamese \
+         prompt); English technical terms stay as they are."
     ));
     assert!(!sys.contains("{LANGUAGE}"));
     let mut want = strs(&[
