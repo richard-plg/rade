@@ -426,10 +426,6 @@ pub fn ui(app: &App, p: &Value) -> Result<Value> {
     if op.starts_with("dialog") {
         return crate::project_dialogs::debug(p);
     }
-    // R107.1: Changes by Project.
-    if op.starts_with("changes") {
-        return crate::changes_project::debug(p);
-    }
     // R102.5: a widget's measurements (spec sheets).
     if op == "geometry" {
         return crate::geometry::op(app.window.upcast_ref(), p);
