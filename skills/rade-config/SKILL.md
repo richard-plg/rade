@@ -13,6 +13,7 @@ Everything is a file under a `.rade` folder or a `rade` command. You edit **only
 | `<workspace root>/.rade/workspace.toml` | a Workspace's config (next to its `[env]`, `[identity]`) |
 | `<source>/.rade.toml` | a repository's own config (counts only once the user trusts it) |
 | `~/.config/rade/config.toml` | the user's own config (ask before editing it) |
+| `~/.config/rade/accounts.toml` | the user's Agent Accounts for every Workspace (`[[account]]`: `agent`, `name`, `config_dir`, `default`, `env_file`, `[account.env]`); change it with `rade account add --user` / `rade account set`, ask first, never write a token into it |
 
 **Never** edit `state.json` or anything under `~/.local/share/rade*`, never run `rade config trust` without the user saying so (a trusted `.rade.toml` runs its `setup` command), never edit `~/.gitconfig` or `gh` files (that is the `rade-workspace` skill).
 

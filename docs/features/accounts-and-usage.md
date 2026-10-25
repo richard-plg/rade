@@ -26,6 +26,69 @@ rade account default acme-team --agent claude
 Then log in once per config dir the agent's own way (e.g. run `CLAUDE_CONFIG_DIR=~/.claude-acme
 claude` and `/login`), and run `rade setup` so each dir gets RADE's hooks.
 
+## Accounts for every Workspace
+
+Logins you use everywhere — say `cl` on `~/.claude` and `clw` on `~/.claude-work` — go in
+`~/.config/rade/accounts.toml` once instead of every Workspace's file. Each Workspace offers them
+after its own accounts:
+
+```sh
+rade account add --user --agent claude --name cl  --config-dir ~/.claude --default
+rade account add --user --agent claude --name clw --config-dir ~/.claude-work
+rade account list            # … claude  clw  ~/.claude-work  (user)
+```
+
+A Workspace that must stay on its own logins (a company one) opts out in its `workspace.toml`:
+
+```toml
+accounts = "own"
+```
+
+Then only its own accounts can be used there (a user account → exit 7). A Workspace's own
+`default = true` wins over the user file's.
+
+## Extra environment: a .env file and variables
+
+An account can carry more than its config dir: a `.env` file (`KEY=VALUE` lines, `export`,
+quotes and `#` comments allowed) read each time one of its Agents starts, and variables of its own.
+A `claude setup-token` login, for example:
+
+```toml
+[[account]]
+agent = "claude"
+name = "clw"
+config_dir = "~/.claude-work"
+env_file = "~/.claude-5-token.env"   # export CLAUDE_CODE_OAUTH_TOKEN=…
+
+[account.env]
+ANTHROPIC_MODEL = "opus"
+```
+
+```sh
+rade account set clw --env-file ~/.claude-5-token.env --env ANTHROPIC_MODEL=opus
+rade account set clw --unset-env ANTHROPIC_MODEL
+```
+
+The Workspace's `[env]` comes first, then the `.env` file, then the account's variables, then the
+account's config dir and `RADE_ACCOUNT` — so the login itself is always the config dir (setting
+`CLAUDE_CONFIG_DIR`, `CODEX_HOME` or `RADE_*` there is refused). Values from the `.env` file never
+reach RADE's state, logs or answers; a missing or broken file stops the spawn (exit 2, with the
+file and line) and a restored Agent comes back as a shell that says why. Detailed limits aren't
+available for a token login.
+
+**Settings → Accounts** (`Ctrl+,`) does the same with a form: one card per account, the config
+dir, the Default switch, the `.env` file with the keys it holds (never their values), and the
+variables one by one with *Add variable*. A Workspace's own accounts show there read-only, with
+*Open file*. Changes reach Agents started afterwards.
+
+## Agents you start by hand
+
+If you type `clw` (or `CLAUDE_CONFIG_DIR=~/.claude-work claude`) in a Terminal, RADE matches the
+config dir the Agent reports against your accounts and gives the Pane that account while the
+Agent runs (`rade list --json` shows `"account_detected": true`): the Statusline and usage follow
+it, and Subagents it starts inherit it. Without `CLAUDE_CONFIG_DIR` it is the account on
+`~/.claude`.
+
 ## Start an Agent under an account
 
 The titlebar **`+`** menu lists the accounts of the Workspace on screen, grouped by agent, with
