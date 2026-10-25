@@ -299,7 +299,9 @@ impl ProjectChanges {
         // One primary Commit (A.65): the focused group's while it has
         // changes (none on a clean checkout, M35); none while a dialog or
         // the palette is open.
-        let modal = crate::palette::is_open() || crate::project_dialogs::is_open();
+        let modal = crate::palette::is_open()
+            || crate::project_dialogs::is_open()
+            || crate::voice_view::is_open();
         if !modal {
             let at = gv
                 .iter()
