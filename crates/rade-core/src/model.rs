@@ -554,6 +554,7 @@ impl State {
                         unread: self.unread(&x.id),
                         title: x.title.clone(),
                         account: x.account.clone(),
+                        account_detected: x.account_detected,
                         cwd: x
                             .url()
                             .map_or_else(|| x.cwd().display().to_string(), Into::into),

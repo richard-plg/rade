@@ -696,7 +696,13 @@ impl App {
         });
         let home = rade_core::paths::home_dir(&rade_core::paths::process_env);
         match model.pane_account(&pane.id, kind, &home) {
-            Some(Ok(a)) => rade_core::account::apply_env(&mut env, &a),
+            Some(Ok(a)) => {
+                // R125.2: the spawn / restore already refused an unreadable
+                // env file; one gone since is reported, the login still set.
+                if let Err(e) = rade_core::account::apply_env(&mut env, &a) {
+                    eprintln!("rade: pane {}: {}", pane.id, e.message);
+                }
+            }
             Some(Err(e)) => eprintln!("rade: pane {}: {}", pane.id, e.message),
             None => {}
         }

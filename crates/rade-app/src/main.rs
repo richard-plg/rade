@@ -180,6 +180,7 @@ fn load_model(
         }
     };
     model.ensure_general(&home);
+    model.user_accounts_file = Some(paths::accounts_file(env));
     freeze_sidebar(&mut model);
     // No process survived the restart (ADR-0005): resume Agents, never
     // replay their prompts (R11.2).
