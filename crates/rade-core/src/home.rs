@@ -553,6 +553,15 @@ mod tests {
         let (s, w) = sc.worktrees["tokens"].clone();
         let g = change_groups(&sc.state, "shop", &sc.links, Some((&s, &w)));
         assert!(g.iter().all(|g| g.worktree.is_none()));
+        // The label follows the checkout's current branch, else the base.
+        let mut links = sc.links.clone();
+        let i = links.iter().position(|l| l.source == "shop-api").unwrap();
+        links[i].head = Some("hotfix/pay".into());
+        let g = change_groups(&sc.state, "shop", &links, Some((&s, &w)));
+        assert_eq!(g[1].label, "hotfix/pay");
+        links[i].head = None;
+        let g = change_groups(&sc.state, "shop", &links, Some((&s, &w)));
+        assert_eq!(g[1].label, links[i].base);
         assert_eq!(group_meta(3, 4), "↑3 · 4");
         assert_eq!(group_meta(0, 3), "3");
         assert_eq!(group_meta(2, 0), "clean");

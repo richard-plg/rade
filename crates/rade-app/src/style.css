@@ -88,7 +88,7 @@ window { font-family: "Inter", sans-serif; font-size: 13px; background-color: @b
 
 /* ---- Sidebar (R20.6) ------------------------------------------------------- */
 .rade-section { font-size: 12px; font-weight: 700; color: @fg3; margin: 8px 6px 2px 16px; }
-.rade-section button { min-height: 24px; min-width: 24px; padding: 0; }
+.rade-section button { min-height: 16px; min-width: 16px; padding: 0; }
 /* Workspace switcher (R23.5): dot + name as the section heading; "!" = a
    hidden Workspace's Agent needs input (the one amber signal, R20.3). */
 .rade-ws-badge { margin-left: 2px; }
@@ -699,7 +699,7 @@ toast > button.circular image { -gtk-icon-size: 16px; }
 .commit-entry { min-height: 24px; border-radius: 5px; border: 1px solid @line2; background: @bg0; font-size: 12px;
   color: @fg; padding: 0 8px; box-shadow: none; outline: none; }
 .commit-entry > text > placeholder { color: @fg3; }
-.draft-button { min-height: 24px; min-width: 24px; padding: 0 6px; border-radius: 6px; border: 1px solid @line2; background: @bg2; box-shadow: none; }
+.draft-button { min-height: 16px; min-width: 16px; padding: 0 6px; border-radius: 6px; border: 1px solid @line2; background: @bg2; box-shadow: none; }
 .draft-button image { -gtk-icon-size: 14px; color: @fg2; }
 .drift-card { margin: 0 8px 10px 8px; padding: 8px 10px; border: 1px solid @wait-line; background: @wait-dim; border-radius: 6px;
   font-family: "Inter", sans-serif; font-size: 12px; color: @fg; }
@@ -712,13 +712,13 @@ toast > button.circular image { -gtk-icon-size: 16px; }
 .drift-card .btn:hover { background: @bg3; }
 .changes-empty { margin: 0 12px 10px 12px; font-family: "Inter", sans-serif; font-size: 12px; color: @fg3; }
 /* M45 (R120-R123): Changes cards, the Diff Pane and Quick Diff. */
-.changes-tool { min-height: 22px; min-width: 22px; padding: 0; border-radius: 5px; border: none; background: none; box-shadow: none; }
-.changes-tool image { -gtk-icon-size: 14px; color: @fg2; }
+.changes-tool, .changes-tool > button { min-height: 22px; min-width: 22px; padding: 0; border-radius: 5px; border: none; background: none; box-shadow: none; }
+.changes-tool image, .changes-tool > button image { -gtk-icon-size: 14px; color: @fg2; }
 .changes-tool:hover { background: @bg3; }
 .scm-list { background: transparent; }
 .scm-list > row { padding: 0; background: transparent; }
 .scm-section { min-height: 22px; padding: 0 10px; font-family: "JetBrains Mono", monospace; font-size: 10.5px; font-weight: 600; color: @fg2; }
-.scm-count { font-family: "JetBrains Mono", monospace; font-feature-settings: "tnum"; font-size: 10px; background: @bg3; border-radius: 8px; padding: 0 5px; color: @fg2; }
+.scm-count { font-family: "JetBrains Mono", monospace; font-feature-settings: "tnum"; font-size: 10px; background: @bg3; border-radius: 8px; padding: 0 5px; min-height: 16px; min-width: 16px; color: @fg2; }
 .scm-folder { min-height: 24px; padding: 0 10px; font-family: "JetBrains Mono", monospace; font-size: 12px; color: @fg2; }
 .scm-folder:hover { background: @bg3; }
 .scm-row-actions { min-height: 20px; }
@@ -734,6 +734,7 @@ toast > button.circular image { -gtk-icon-size: 16px; }
 .commit-more, .commit-more > button { min-height: 26px; min-width: 22px; padding: 0; }
 .commit-more > button { border-radius: 0 6px 6px 0; box-shadow: none; }
 .commit-split.primary .commit-more > button { border: none; border-left: 1px solid alpha(@acc-fg, 0.25); background: @acc; color: @acc-fg; }
+.commit-split.primary.off .commit-more { opacity: 0.5; }
 .commit-more > button image { -gtk-icon-size: 14px; }
 .commit-warning { margin-top: 2px; font-family: "Inter", sans-serif; font-size: 11px; color: @wait; }
 .scm-action-button { min-height: 26px; margin: 8px 10px; padding: 0 12px; border-radius: 6px; border: 1px solid @line2; background: @bg2; box-shadow: none;

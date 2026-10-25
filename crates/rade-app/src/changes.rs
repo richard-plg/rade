@@ -589,7 +589,8 @@ impl Changes {
         self.add.set_label(&format!("+{a}"));
         self.del.set_label(&format!("−{d}"));
         let read = cards.iter().filter(|c| c.has_read()).count();
-        let clean = cards.iter().all(|c| !c.has_changes());
+        // A card with Publish / Push / Pull to offer is not empty.
+        let clean = cards.iter().all(|c| !c.has_changes() && !c.has_action());
         let all_clean = read == cards.len() && clean;
         self.empty_project
             .set_visible(all_clean && shown.mode == Mode::Project);
