@@ -121,7 +121,6 @@ pub fn find_invocation(
     binary: &str,
     config_env: &[String],
 ) -> Option<Invocation> {
-    let base = |a: &str| a.rsplit('/').next() == Some(binary);
     let mut pid = start;
     for _ in 0..MAX_ANCESTORS {
         if pid <= 1 {
@@ -129,17 +128,7 @@ pub fn find_invocation(
         }
         let dir = proc.join(pid.to_string());
         let argv = nul_split(&std::fs::read(dir.join("cmdline")).ok()?);
-        let at = if argv.first().is_some_and(|a| base(a)) {
-            Some(0)
-        } else {
-            argv.iter()
-                .skip(1)
-                .position(|a| !a.starts_with('-'))
-                .map(|i| i + 1)
-                // `sh -c "<script>"` runs a command string, not a file.
-                .filter(|i| base(&argv[*i]) && !argv[1..*i].iter().any(|a| a == "-c"))
-        };
-        if let Some(at) = at {
+        if let Some(at) = program_at(&argv, binary) {
             let env = nul_split(&std::fs::read(dir.join("environ")).unwrap_or_default())
                 .into_iter()
                 .filter_map(|e| {
@@ -158,6 +147,67 @@ pub fn find_invocation(
         pid = parent_of(proc, pid)?;
     }
     None
+}
+
+/// Where `binary` starts in `argv`: argv[0] by basename, or, for
+/// interpreter-wrapped CLIs, the first non-flag argument (not after `-c`:
+/// `sh -c "<script>"` runs a command string, not a file).
+fn program_at(argv: &[String], binary: &str) -> Option<usize> {
+    let base = |a: &str| a.rsplit('/').next() == Some(binary);
+    if argv.first().is_some_and(|a| base(a)) {
+        return Some(0);
+    }
+    argv.iter()
+        .skip(1)
+        .position(|a| !a.starts_with('-'))
+        .map(|i| i + 1)
+        .filter(|i| base(&argv[*i]) && !argv[1..*i].iter().any(|a| a == "-c"))
+}
+
+/// Ancestors checked for an Agent above the hook's own Agent.
+const MAX_NESTING: usize = 64;
+
+/// Whether a hook at `start` runs under an Agent started by another Agent
+/// (Claude Code running `codex exec` in its Bash tool): two Agents among its
+/// ancestors, one of `binaries` each. A process of the same binary right
+/// above another (an npm wrapper over the native CLI) is the same Agent.
+/// The walk ends at the first process whose environment lacks one of
+/// `pane` (`RADE_PANE_ID=…`, `RADE_SOCKET=…`): the app and whatever started
+/// it (an Agent that launched RADE) are outside the Pane. Unreadable
+/// processes end the walk.
+pub fn nested_agent(proc: &Path, start: u32, binaries: &[&str], pane: &[String]) -> bool {
+    let mut pid = start;
+    let (mut prev, mut agents) = (None, 0);
+    for _ in 0..MAX_NESTING {
+        if pid <= 1 {
+            break;
+        }
+        let dir = proc.join(pid.to_string());
+        let env = nul_split(&std::fs::read(dir.join("environ")).unwrap_or_default());
+        if !pane.iter().all(|kv| env.contains(kv)) {
+            break;
+        }
+        let Ok(cmdline) = std::fs::read(dir.join("cmdline")) else {
+            break;
+        };
+        let argv = nul_split(&cmdline);
+        let here = binaries
+            .iter()
+            .find(|b| program_at(&argv, b).is_some())
+            .copied();
+        if here.is_some() && here != prev {
+            agents += 1;
+            if agents == 2 {
+                return true;
+            }
+        }
+        prev = here;
+        let Some(parent) = parent_of(proc, pid) else {
+            break;
+        };
+        pid = parent;
+    }
+    false
 }
 
 /// The argv of the program in the foreground of shell `shell`'s terminal
@@ -268,6 +318,52 @@ mod tests {
         stat(11, -1);
         assert_eq!(foreground_argv(&root, 11), None, "no terminal");
         assert_eq!(foreground_argv(&root, 99), None, "gone");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn r10_hooks_of_an_agent_started_by_another_agent_are_nested() {
+        let root = std::env::temp_dir().join(format!("rade-nest-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let agents = ["claude", "codex", "agy"];
+        let pane = [
+            "RADE_PANE_ID=p_1".to_string(),
+            "RADE_SOCKET=/r.sock".to_string(),
+        ];
+        let e = ["RADE_PANE_ID=p_1", "RADE_SOCKET=/r.sock", "HOME=/h"];
+        let hook = ["/bin/sh", "-c", "rade status done --hook"];
+        // RADE itself was started by an Agent: outside the Pane, not counted.
+        fake(&root, 5, 1, &["claude"], &[]);
+        fake(&root, 10, 5, &["rade-app"], &[]);
+        fake(&root, 20, 10, &["/usr/bin/zsh"], &e);
+        fake(
+            &root,
+            30,
+            20,
+            &["claude", "--dangerously-skip-permissions"],
+            &e,
+        );
+        fake(&root, 31, 30, &hook, &e);
+        assert!(
+            !nested_agent(&root, 31, &agents, &pane),
+            "the Pane's own Agent"
+        );
+        // Claude's Bash tool runs `codex exec`, whose hook reports.
+        fake(&root, 40, 30, &["/usr/bin/zsh", "-c", "codex exec -"], &e);
+        fake(&root, 41, 40, &["codex", "exec", "--json", "-"], &e);
+        fake(&root, 42, 41, &hook, &e);
+        assert!(nested_agent(&root, 42, &agents, &pane));
+        // A Claude inside a Claude, too.
+        fake(&root, 50, 40, &["claude", "-p"], &e);
+        fake(&root, 51, 50, &hook, &e);
+        assert!(nested_agent(&root, 51, &agents, &pane));
+        // An npm wrapper over the native CLI is one Agent.
+        fake(&root, 60, 20, &["node", "/usr/bin/codex", "--yolo"], &e);
+        fake(&root, 61, 60, &["/opt/codex/bin/codex", "--yolo"], &e);
+        fake(&root, 62, 61, &hook, &e);
+        assert!(!nested_agent(&root, 62, &agents, &pane));
+        // Gone or unreadable: not nested.
+        assert!(!nested_agent(&root, 999, &agents, &pane));
         let _ = std::fs::remove_dir_all(&root);
     }
 

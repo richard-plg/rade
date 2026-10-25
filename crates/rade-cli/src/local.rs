@@ -3,9 +3,11 @@
 
 use crate::call_at;
 use rade_core::paths::{self, process_env};
+use rade_core::preset::Preset;
 use rade_core::rpc::{Error, ErrorKind};
 use rade_core::setup;
 use serde_json::{json, Value};
+use std::collections::BTreeMap;
 use std::io::{IsTerminal, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -24,6 +26,22 @@ pub fn hook(
     else {
         return Ok(Value::Null);
     };
+    // An Agent started by the Pane's Agent (`codex exec` from Claude's Bash
+    // tool) inherits RADE_PANE_ID; its reports would relabel the Pane and
+    // replace the session Session Restore resumes.
+    let presets = presets();
+    let binaries: Vec<&str> = presets.values().map(|p| p.binary()).collect();
+    if rade_core::process::nested_agent(
+        Path::new("/proc"),
+        std::os::unix::process::parent_id(),
+        &binaries,
+        &[
+            format!("RADE_PANE_ID={pane}"),
+            format!("RADE_SOCKET={socket}"),
+        ],
+    ) {
+        return Ok(Value::Null);
+    }
     let needs_payload = session_id.is_none() || state.as_deref() == Some("done");
     let text = payload
         .clone()
@@ -35,7 +53,7 @@ pub fn hook(
     let state = hook_state(state, text.as_deref());
     // The report that names the Preset (session start) also records how the
     // Agent was really started, so Session Restore can re-run it (R11.2).
-    let invocation = agent.as_deref().and_then(invocation);
+    let invocation = agent.as_deref().and_then(|a| invocation(&presets, a));
     let params = json!({"pane": pane, "status": state, "session_id": session, "agent": agent,
         "invocation": invocation});
     let _ = call_at(
@@ -103,15 +121,24 @@ pub fn statusline(then: &Option<String>) -> Result<Value, Error> {
     Ok(Value::Null)
 }
 
-/// The Agent process above this hook, found by the Preset's program name.
-fn invocation(agent: &str) -> Option<rade_core::preset::Invocation> {
+/// The Agent Presets of the user's config (built-ins when it is unreadable).
+fn presets() -> BTreeMap<String, Preset> {
     let env: paths::Env = &process_env;
-    let presets = std::fs::read_to_string(paths::config_file(env))
+    let config = std::fs::read_to_string(paths::config_file(env))
         .ok()
         .and_then(|t| rade_core::config::Config::parse(&t).ok())
-        .unwrap_or_default()
+        .unwrap_or_default();
+    config
         .presets()
-        .ok()?;
+        .or_else(|_| rade_core::config::Config::default().presets())
+        .unwrap_or_default()
+}
+
+/// The Agent process above this hook, found by the Preset's program name.
+fn invocation(
+    presets: &BTreeMap<String, Preset>,
+    agent: &str,
+) -> Option<rade_core::preset::Invocation> {
     let p = presets.get(agent)?;
     rade_core::process::find_invocation(
         std::path::Path::new("/proc"),
