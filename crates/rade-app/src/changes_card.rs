@@ -316,8 +316,9 @@ impl Card {
         error.set_wrap_mode(gtk::pango::WrapMode::WordChar);
         error.set_selectable(true);
         error.set_visible(false);
-        body.append(&error);
+        // Outside the body: a folded card still shows a failed operation.
         root.append(&body);
+        root.append(&error);
 
         let outer = gtk::Box::new(gtk::Orientation::Vertical, 0);
         outer.append(&root);
@@ -590,6 +591,11 @@ impl Card {
 
     pub(crate) fn set_label(&self, label: &str) {
         *self.group_label.borrow_mut() = label.to_string();
+        // A reused card follows its checkout's branch at once (not only
+        // when its next read differs).
+        if !label.is_empty() && self.label.label() != label {
+            self.label.set_label(label);
+        }
     }
 
     /// New data from the checkout (or none changed: nothing to do).
@@ -666,6 +672,19 @@ impl Card {
         let text = self.st.borrow().error.clone().or_else(|| self.read_error());
         self.error.set_visible(text.is_some());
         self.error.set_label(text.as_deref().unwrap_or(""));
+    }
+
+    /// The card offers Publish / Push / Pull / Sync (a button under its
+    /// list), changes or not.
+    pub(crate) fn has_action(&self) -> bool {
+        self.snap().is_some_and(|snap| {
+            scm_view::action_button(
+                &snap.status,
+                !snap.status.files.is_empty(),
+                snap.head.is_some(),
+            )
+            .is_some()
+        })
     }
 
     fn folded_default(&self) -> bool {
@@ -867,8 +886,12 @@ impl Card {
     pub(crate) fn update_commit(&self) {
         let s = self.commit_state();
         let free = !self.busy();
-        self.commit
-            .set_sensitive(scm_view::commit_enabled(&s) && free);
+        let enabled = scm_view::commit_enabled(&s) && free;
+        self.commit.set_sensitive(enabled);
+        // The ▾ of a primary Commit looks as disabled as the button.
+        if let Some(split) = self.commit.parent() {
+            set_class(&split, "off", !enabled);
+        }
         for (item, name) in scm_view::commit_menu(&s)
             .into_iter()
             .zip(["c-commit", "c-amend", "c-push", "c-all", "c-undo"])
@@ -1057,7 +1080,9 @@ impl Card {
             "ph-caret-down-symbolic"
         }));
         b.append(&label(group.title(), &[]));
-        b.append(&label(&count.to_string(), &["scm-count"]));
+        let pill = label(&count.to_string(), &["scm-count"]);
+        pill.set_valign(gtk::Align::Center);
+        b.append(&pill);
         let fill = gtk::Box::new(gtk::Orientation::Horizontal, 0);
         fill.set_hexpand(true);
         b.append(&fill);
@@ -1277,6 +1302,8 @@ impl Card {
 
         let l = label(&it.letter.to_string(), &["file-status"]);
         l.add_css_class(&letter_class(it.letter));
+        // 8 px from the counts (A.63): the row gap is 6.
+        l.set_margin_start(2);
         b.append(&l);
 
         let row = gtk::ListBoxRow::new();

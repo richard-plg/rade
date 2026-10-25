@@ -327,6 +327,11 @@ noempty() { # one mono line, key caps, no StatusPage, no warning icon in the Ins
 }
 line() { geo 'inspector empty-line' | jq -r .label; }
 clean=$(rade worktree add shop-web clean-wt --project shop --base develop --json | jq -r .path)
+# Published: a branch without an upstream offers Publish Branch, and a card with
+# an action to offer is not an empty page (M45 fix).
+git init -q --bare "$T/shop-web.git"
+git -C "$WEB" remote add origin "$T/shop-web.git"
+git -C "$clean" -c user.email=t@t -c user.name=t push -q -u origin clean-wt
 cshell=$(rade spawn --source shop-web --worktree clean-wt --tab new --json | jq -r .pane)
 rade focus "$cshell" >/dev/null
 ui '{"op":"right_page","arg":"changes"}' >/dev/null

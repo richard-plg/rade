@@ -270,8 +270,9 @@ respond create
 check "R21-d Create pushes, then runs gh pr create --base main --title --body" eventually 10 is "tr '\n' '|' < '$T/gh.log'" "pr|create|--head|feat-greet|--base|main|--title|Add a greeting|--body|## Summary|- greets everyone|"
 check "R21-d …the remote got the new commit first" test "$(git --git-dir="$T/remote.git" rev-parse feat-greet)" = "$(git -C "$R" rev-parse HEAD)"
 check "R21-d a Toast shows the PR URL" eventually 3 bash -c "toast_ | grep -q 'github.test/shop/pull/7'"
-# A card with changes is unfolded: a clean card folds its error line away (reported).
-printf 'x\n' > "$R/scratch.tmp"; refresh
+# The card is clean and folded here: its error line must still show.
+refresh
+check "R21-d the card is clean and folded" eventually 5 is "card '| [.clean, .folded] | map(tostring) | join(\"|\")'" "true|true"
 touch "$T/gh-unauth"
 scm '{"op":"card_menu_activate","source":"shop","item":"Create Pull Request…"}' >/dev/null
 eventually 5 is "dialog | jq -r .open" true
@@ -282,7 +283,7 @@ shot changes-error
 rm -f "$T/gh-unauth"
 scm '{"op":"card_menu_activate","source":"shop","item":"Fetch"}' >/dev/null
 check "R21-d the card's next successful operation clears the error line" eventually 10 is "card .error" "null"
-rm -f "$R/scratch.tmp"; refresh
+refresh
 
 echo "== R121-d smart commit, R121-e Commit & Push"
 # A fresh branch off main so the previous section's state does not matter.
