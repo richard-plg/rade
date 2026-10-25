@@ -58,6 +58,7 @@
   --syn-type: #ffa657;
   --syn-tag: #7ee787;
   --syn-invalid: #ffa198;
+  --rec-dim: #ff6b6b24;
   --scrim: #00000080;
   --shadow: 0 20px 60px #0000008c;
   --glow: 0 0 0 1px #4fe3c873, 0 0 18px #4fe3c81a;
@@ -121,6 +122,7 @@ body.light {
   --syn-type: #953800;
   --syn-tag: #116329;
   --syn-invalid: #82071e;
+  --rec-dim: #c230301f;
   --scrim: #141a2247;
   --shadow: 0 20px 60px #141e282e;
   --glow: 0 0 0 1px #0b8f7b80, 0 0 18px #0b8f7b00;
