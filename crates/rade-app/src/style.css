@@ -450,19 +450,10 @@ entry.review-filter { min-height: 24px; padding-top: 0; padding-bottom: 0; }
 .rade-search { padding: 4px 4px 4px 6px; }
 .rade-search-count { font-family: "JetBrains Mono", monospace; font-feature-settings: "tnum"; font-size: 12px; min-width: 5em; }
 /* Right Panel: Changes (R21) and Search (R22) */
-.rade-scm-top, .rade-search-top { padding: 8px 8px 6px 8px; }
-.rade-scm-bar { min-height: 28px; }
+.rade-search-top { padding: 8px 8px 6px 8px; }
 .rade-commit-box { border: 1px solid alpha(currentColor, 0.15); border-radius: 8px; background-color: var(--view-bg-color); }
 .rade-commit-msg, .rade-commit-msg text { background-color: transparent; font-size: 13px; }
 .rade-scm-error { color: @err; font-size: 12px; }
-.rade-scm-section { font-size: 11.5px; font-weight: 700; color: @fg3; }
-.rade-scm-list > row.rade-scm-head { min-height: 28px; padding: 4px 4px 0 10px; }
-.rade-scm-list > row.rade-scm-file { min-height: 28px; padding: 0 4px 0 6px; }
-.rade-scm-list > row.rade-scm-diffrow { padding: 0; margin: 0 6px 4px 22px; }
-.rade-scm-act { min-height: 24px; min-width: 24px; padding: 0; }
-.rade-scm-mono { font-family: "JetBrains Mono", monospace; font-feature-settings: "tnum"; font-size: 11.5px; padding: 0 6px; }
-.rade-scm-diff { padding: 0 0 6px 0; border-radius: 6px; background-color: alpha(currentColor, 0.03); }
-.rade-scm-small { font-size: 11.5px; font-weight: normal; min-height: 24px; padding: 0 6px; }
 .rade-strike { text-decoration: line-through; }
 .rade-search-opt { min-width: 26px; padding: 0 4px; font-family: "JetBrains Mono", monospace; font-feature-settings: "tnum"; font-size: 12px; }
 .rade-search-glob { font-size: 12px; min-height: 28px; }
@@ -720,7 +711,6 @@ toast > button.circular image { -gtk-icon-size: 16px; }
   font-size: 11.5px; font-weight: normal; color: @fg; box-shadow: none; }
 .drift-card .btn:hover { background: @bg3; }
 .changes-empty { margin: 0 12px 10px 12px; font-family: "Inter", sans-serif; font-size: 12px; color: @fg3; }
-.changes-details { min-height: 0; min-width: 0; padding: 2px 4px; color: @fg3; background: none; box-shadow: none; }
 /* M45 (R120-R123): Changes cards, the Diff Pane and Quick Diff. */
 .changes-tool { min-height: 22px; min-width: 22px; padding: 0; border-radius: 5px; border: none; background: none; box-shadow: none; }
 .changes-tool image { -gtk-icon-size: 14px; color: @fg2; }
@@ -736,6 +726,8 @@ toast > button.circular image { -gtk-icon-size: 16px; }
 .scm-act image { -gtk-icon-size: 14px; color: @fg2; }
 .scm-act:hover { background: @bg4; }
 .file-row:selected { background: @acc-dim; }
+.scm-list > row.file-row { padding: 0 10px; }
+.commit-entry textview, .commit-entry textview > text { background: transparent; color: @fg; }
 .file-status.st-U { color: @add; }
 .file-status.st-R, .file-status.st-C { color: @run; }
 .file-status.st-conflict { color: @err; }
