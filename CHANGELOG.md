@@ -10,6 +10,8 @@ the 0.x sections were written by hand. Requirement IDs (R…) refer to [docs/int
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-10-25
+
 RADE 1.0.0 is a redesign around Projects: a new look and window chrome, the
 Navigator and Project home, one checkout per Project link, Agent Accounts with
 their usage and limits, and layouts for narrow windows and large text. The
@@ -372,6 +374,7 @@ file or setting behaves.
 - Known unsafe YouTube navigation is blocked before WebKit loads it, with an
   external-browser alternative. Other website crashes remain possible.
 - Quick-start commands and paste shortcuts match the current application.
+- The .deb names its maintainer and no longer sets a library search path on libghostty
 
 ## [0.7.1] - 2026-10-06
 
@@ -1093,4 +1096,5 @@ Initial release: everything built in milestones M0–M12.
   releases with the `.deb` and `SHA256SUMS`, `rade-app --version`, this
   changelog (ADR-0012).
 
-[Unreleased]: https://github.com/richard-plg/rade/commits/main
+[Unreleased]: https://github.com/richard-plg/rade/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/richard-plg/rade/releases/tag/v1.0.0

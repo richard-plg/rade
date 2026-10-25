@@ -1028,7 +1028,7 @@ dependencies = [
 
 [[package]]
 name = "rade-app"
-version = "0.7.1"
+version = "1.0.0"
 dependencies = [
  "cc",
  "gtk4",
@@ -1046,7 +1046,7 @@ dependencies = [
 
 [[package]]
 name = "rade-cli"
-version = "0.7.1"
+version = "1.0.0"
 dependencies = [
  "base64",
  "clap",
@@ -1057,7 +1057,7 @@ dependencies = [
 
 [[package]]
 name = "rade-core"
-version = "0.7.1"
+version = "1.0.0"
 dependencies = [
  "comrak",
  "ignore",
@@ -1078,7 +1078,7 @@ dependencies = [
 
 [[package]]
 name = "rade-ghostty-sys"
-version = "0.7.1"
+version = "1.0.0"
 
 [[package]]
 name = "regex"
