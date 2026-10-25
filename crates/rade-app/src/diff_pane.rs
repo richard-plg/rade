@@ -1369,7 +1369,9 @@ impl DiffPane {
         match r {
             DRow::Hunk(hi) => {
                 classes.push(ROW_CLASSES[0]);
-                code.set_label(&f.hunks[hi].header);
+                code.set_markup(&crate::diff_highlight::hunk_header_markup(
+                    &f.hunks[hi].header,
+                ));
                 code.set_hexpand(true);
                 let show = self.hunk_ops_shown_in(&st);
                 acts.set_visible(show);

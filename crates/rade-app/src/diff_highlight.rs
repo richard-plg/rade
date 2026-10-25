@@ -22,6 +22,13 @@ pub(crate) fn shorten(t: &str) -> std::borrow::Cow<'_, str> {
     }
 }
 
+/// A hunk header (`@@ -1,5 +1,5 @@ fn x`) as Pango markup. Maple Mono (the
+/// default code font) draws `@` as a small swirl, so `@@` reads as one odd
+/// glyph: its `cv01` alternate is the plain `@`.
+pub(crate) fn hunk_header_markup(header: &str) -> String {
+    glib::markup_escape_text(header).replace("@@", "<span font_features=\"cv01\">@@</span>")
+}
+
 /// The Pango markup of each of `texts` (the lines of file `path`), made in
 /// `b`: highlighted when the language is known and the file is not larger
 /// than [`HIGHLIGHT_MAX`], else escaped plain text.

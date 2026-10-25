@@ -261,7 +261,11 @@ impl ReviewView {
                     .folded_hunks
                     .contains(&(f.path.clone(), f.hunks[hi].header.clone()));
                 cells.sign.set_label(if folded { "▸" } else { "▾" });
-                cells.code.set_label(&f.hunks[hi].header);
+                cells
+                    .code
+                    .set_markup(&crate::diff_highlight::hunk_header_markup(
+                        &f.hunks[hi].header,
+                    ));
             }
             Row::Binary(_) => {
                 classes.push(ROW_CLASSES[4]);
