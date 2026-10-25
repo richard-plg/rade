@@ -435,6 +435,7 @@ lines 2 18 > "$R/src/app.rs"
 rade open "$R/src/app.rs" --json >/dev/null
 v=$(rade debug state | jq -r '[.. | objects | select(.kind?.type? == "viewer") | .id][0]')
 vq() { rade debug viewer "$v" info | jq -c '[.quick_diff[] | [.line, .kind] | join(":")] | join(",")' | tr -d '"'; }
+rade debug action color_scheme_light >/dev/null; sleep 0.5   # the relaunch above started in the default (dark) scheme
 check "R123-b the Viewer marks lines 2 and 18 as modified" eventually 8 is "vq" "2:modified,18:modified"
 printf 'extra\n' >> "$R/src/app.rs"
 check "R123-b an edit on disk updates the marks within 5 s (line 21 added)" eventually 5 is "vq" "2:modified,18:modified,21:added"
