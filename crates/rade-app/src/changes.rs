@@ -886,6 +886,7 @@ impl Changes {
             self.status().is_some_and(|s| !s.files.is_empty()) && !self.project_mode();
         let modal = crate::palette::is_open()
             || crate::project_dialogs::is_open()
+            || crate::voice_view::is_open()
             || try_app().is_some_and(|app| {
                 libadwaita::prelude::AdwApplicationWindowExt::visible_dialog(&app.window).is_some()
             });

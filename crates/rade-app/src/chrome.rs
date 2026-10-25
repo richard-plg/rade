@@ -256,6 +256,9 @@ struct Statusline {
     /// The usage cell shown (R110.3): the focused Agent's account.
     usage: RefCell<Option<UsageCell>>,
     hints: gtk::Box,
+    /// The REC cell (R124, D18) and its text.
+    rec: gtk::Box,
+    rec_text: gtk::Label,
     /// (window width, cells generation) of the last fit (R111.1).
     fitted: std::cell::Cell<(i32, u64)>,
     generation: std::cell::Cell<u64>,
@@ -375,7 +378,21 @@ fn shrinkable(w: &gtk::Widget) {
 impl Statusline {
     fn new() -> Self {
         let cells = gtk::Box::new(gtk::Orientation::Horizontal, 0);
-        cells.set_hexpand(true);
+        // The REC cell follows the location cells (R124, D18).
+        let rec = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+        rec.add_css_class("status-cell");
+        rec.add_css_class("status-voice");
+        let rec_icon = gtk::Image::from_icon_name("ph-microphone-fill-symbolic");
+        rec_icon.add_css_class("status-icon");
+        let rec_text = gtk::Label::new(None);
+        rec_text.add_css_class("status-text");
+        rec.append(&rec_icon);
+        rec.append(&rec_text);
+        rec.set_visible(false);
+        let left = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+        left.set_hexpand(true);
+        left.append(&cells);
+        left.append(&rec);
         let hints = gtk::Box::new(gtk::Orientation::Horizontal, 6);
         hints.add_css_class("status-cell");
         hints.add_css_class("status-cell-hints");
@@ -383,7 +400,7 @@ impl Statusline {
         hints.append(&hint(HINTS[1], "jump_unread"));
         let root = gtk::Box::new(gtk::Orientation::Horizontal, 0);
         root.add_css_class("statusline");
-        root.append(&cells);
+        root.append(&left);
         // The system monitor (R116): one persistent widget, updated in place.
         let monitor = crate::sysmon_view::widget();
         root.append(&monitor);
@@ -397,6 +414,8 @@ impl Statusline {
             warned: Default::default(),
             usage: Default::default(),
             hints,
+            rec,
+            rec_text,
             fitted: Default::default(),
             generation: Default::default(),
             dropped: Default::default(),
@@ -592,6 +611,17 @@ impl Statusline {
         shrinkable(self.root.upcast_ref());
     }
 
+    /// `REC m:ss` while a take records, nothing otherwise (R124, D18).
+    fn set_rec(&self, time: Option<&str>) {
+        match time {
+            Some(t) => {
+                self.rec_text.set_label(&format!("REC {t}"));
+                self.rec.set_visible(true);
+            }
+            None => self.rec.set_visible(false),
+        }
+    }
+
     fn info(&self) -> Value {
         let shown = self.shown.borrow();
         let mut cells: Vec<String> = shown.iter().map(|c| c.text.clone()).collect();
@@ -603,6 +633,7 @@ impl Statusline {
             "identity_warning": *self.warned.borrow(),
             "dropped": *self.dropped.borrow(),
             "usage": *self.usage.borrow(),
+            "voice_rec": self.rec.is_visible().then(|| self.rec_text.label().to_string()),
         })
     }
 
@@ -613,6 +644,14 @@ impl Statusline {
             "counts": ws.status_counts().iter().map(|(s, n)| format!("{n} {}", s.words())).collect::<Vec<_>>(),
             "ports": *self.ports.borrow(),
         })
+    }
+}
+
+/// The Statusline's REC cell (R124, D18): `Some("0:06")` shows `REC 0:06`,
+/// `None` hides it.
+pub fn set_voice_rec(time: Option<&str>) {
+    if let Some(app) = try_app() {
+        app.chrome.statusline.set_rec(time);
     }
 }
 
