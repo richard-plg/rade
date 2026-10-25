@@ -42,6 +42,7 @@ pub mod review;
 pub mod review_loop;
 pub mod rpc;
 pub mod scm;
+pub mod scm_view;
 pub mod search;
 pub mod server;
 pub mod settings;
