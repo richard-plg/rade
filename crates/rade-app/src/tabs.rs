@@ -480,6 +480,8 @@ impl WorktreeView {
                 "agent"
             } else if panes.iter().all(|p| p.is_review()) {
                 "review"
+            } else if panes.iter().all(|p| p.is_diff()) {
+                "diff"
             } else if panes
                 .iter()
                 .all(|p| matches!(p.kind, rade_core::PaneKind::Browser { .. }))
@@ -495,7 +497,7 @@ impl WorktreeView {
                 e.widget.glyph.set(m, icon.as_deref(), status);
             }
             let icon = match kind {
-                "review" => Some("ph-git-diff-symbolic"),
+                "review" | "diff" => Some("ph-git-diff-symbolic"),
                 "browser" => Some("ph-globe-simple-symbolic"),
                 "terminal" => Some("ph-terminal-window-symbolic"),
                 _ => None,
