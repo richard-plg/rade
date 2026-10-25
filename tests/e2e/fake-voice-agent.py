@@ -53,13 +53,13 @@ for line in sys.stdin:
     emit({"type": "assistant", "message": {"content": [
         {"type": "tool_use", "name": "Read",
          "input": {"file_path": os.path.join(os.getcwd(), "src/checkout/useTotals.ts")}}]}})
-    time.sleep(0.2)
+    time.sleep(1.0)  # the activity line shows `Read …` for a moment
     chunks = [draft[i:i + 12] for i in range(0, len(draft), 12)]
     for c in chunks:
         emit({"type": "stream_event", "event": {"type": "content_block_delta", "index": 0,
                                                 "delta": {"type": "text_delta", "text": c}}})
         if os.environ.get("FAKE_VOICE_HANG"):
             time.sleep(3600)
-        time.sleep(0.05)
+        time.sleep(0.12)  # a draft that streams for about a second
     emit({"type": "result", "subtype": "success", "is_error": False, "result": draft,
           "num_turns": 2})
