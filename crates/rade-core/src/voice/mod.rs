@@ -3,4 +3,5 @@
 //! `stt` builds the speech-to-text request, `words` marks changed words,
 //! `composer` is the Voice Composer's state machine.
 
+pub mod agent;
 pub mod context;
