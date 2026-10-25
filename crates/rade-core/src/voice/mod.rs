@@ -2,3 +2,5 @@
 //! the voice agent is told, `agent` builds its command and reads its stream,
 //! `stt` builds the speech-to-text request, `words` marks changed words,
 //! `composer` is the Voice Composer's state machine.
+
+pub mod context;

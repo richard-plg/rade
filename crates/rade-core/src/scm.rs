@@ -662,7 +662,7 @@ pub fn parse_draft(kind: DraftKind, out: &str) -> (String, String) {
     }
 }
 
-const RULES_FILES: &[&str] = &[
+pub(crate) const RULES_FILES: &[&str] = &[
     "CLAUDE.md",
     "AGENTS.md",
     "CONTRIBUTING.md",
