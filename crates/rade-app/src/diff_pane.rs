@@ -17,7 +17,7 @@ use rade_core::config::DiffLayout;
 use rade_core::diff::{FileDiff, LineKind};
 use rade_core::diff_view::{self, Pair};
 use rade_core::rpc::Result;
-use rade_core::scm::{self, Change, Section};
+use rade_core::scm::{self, Change, FilePatch, HunkOp, Section};
 use serde_json::{json, Value};
 use std::cell::RefCell;
 use std::path::PathBuf;
@@ -44,6 +44,12 @@ enum DRow {
     Note,
 }
 
+#[derive(Clone, Copy, PartialEq)]
+enum Act {
+    Primary,
+    Discard,
+}
+
 #[derive(Default)]
 struct St {
     root: PathBuf,
@@ -60,6 +66,7 @@ struct St {
     initial: bool,
     raw: String,
     file: Option<FileDiff>,
+    patch: Option<FilePatch>,
     /// The other section holding this file, for the empty state's button.
     other: Option<Section>,
     rows: Vec<DRow>,
@@ -88,6 +95,9 @@ pub struct DiffPane {
     discard: gtk::Button,
     open: gtk::Button,
     close: gtk::Button,
+    lines_stage: gtk::Button,
+    lines_unstage: gtk::Button,
+    lines_discard: gtk::Button,
     error: gtk::Label,
     stack: gtk::Stack,
     empty_button: gtk::Button,
@@ -104,6 +114,13 @@ use sourceview5::prelude::*;
 fn icon_button(icon: &str, tip: &str) -> gtk::Button {
     let b = gtk::Button::from_icon_name(icon);
     b.set_tooltip_text(Some(tip));
+    b.add_css_class("flat");
+    b.set_focus_on_click(false);
+    b
+}
+
+fn text_button(label: &str) -> gtk::Button {
+    let b = gtk::Button::with_label(label);
     b.add_css_class("flat");
     b.set_focus_on_click(false);
     b
@@ -199,6 +216,9 @@ impl DiffPane {
         chip.set_margin_start(8);
         let spacer = gtk::Box::new(gtk::Orientation::Horizontal, 0);
         spacer.set_hexpand(true);
+        let lines_stage = text_button("Stage Selected Lines");
+        let lines_unstage = text_button("Unstage Selected Lines");
+        let lines_discard = text_button("Discard Selected Lines…");
         let prev = icon_button("ph-arrow-line-up-symbolic", "Previous Change (Shift+F7)");
         let next = icon_button("ph-arrow-line-down-symbolic", "Next Change (F7)");
         let layout = icon_button("ph-columns-symbolic", "Side by Side");
@@ -223,6 +243,17 @@ impl DiffPane {
         ] {
             header.append(w);
         }
+        // The selected lines' actions: a row of their own under the header
+        // (they do not fit beside it in a narrow Pane).
+        let lines_bar = gtk::Box::new(gtk::Orientation::Horizontal, 2);
+        lines_bar.add_css_class("diff-header");
+        lines_bar.add_css_class("rade-viewer-header");
+        for b in [&lines_stage, &lines_unstage, &lines_discard] {
+            b.set_visible(false);
+            lines_bar.append(b);
+        }
+        lines_bar.set_visible(false);
+
         let error = gtk::Label::new(None);
         error.set_xalign(0.0);
         error.set_wrap(true);
@@ -255,6 +286,7 @@ impl DiffPane {
         stack.set_visible_child_name("empty");
 
         root.append(&header);
+        root.append(&lines_bar);
         root.append(&error);
         root.append(&stack);
 
@@ -276,6 +308,9 @@ impl DiffPane {
             discard,
             open,
             close,
+            lines_stage,
+            lines_unstage,
+            lines_discard,
             error,
             stack,
             empty_button,
@@ -331,7 +366,17 @@ impl DiffPane {
         on(&self.discard, |v| v.file_discard());
         on(&self.open, |v| v.open_file());
         on(&self.close, |v| v.close_pane());
+        on(&self.lines_stage, |v| v.lines_action(HunkOp::Stage));
+        on(&self.lines_unstage, |v| v.lines_action(HunkOp::Unstage));
+        on(&self.lines_discard, |v| v.lines_action(HunkOp::Discard));
         on(&self.empty_button, |v| v.empty_click());
+
+        let weak = Rc::downgrade(self);
+        self.selection.connect_selection_changed(move |_, _, _| {
+            if let Some(v) = weak.upgrade() {
+                v.update_lines_buttons();
+            }
+        });
 
         // F7 / Shift+F7, Esc, Ctrl+C.
         let keys = gtk::EventControllerKey::new();
@@ -377,6 +422,18 @@ impl DiffPane {
         });
         self.root.add_controller(focus);
 
+        // A right click on a row: the selected lines' actions.
+        let click = gtk::GestureClick::new();
+        click.set_button(3);
+        let weak = Rc::downgrade(self);
+        click.connect_pressed(move |g, _, x, y| {
+            if let Some(v) = weak.upgrade() {
+                g.set_state(gtk::EventSequenceState::Claimed);
+                v.row_menu(x, y);
+            }
+        });
+        self.list.add_controller(click);
+
         // `auto` follows the Pane's width (D17): checked each frame, rows
         // rebuilt only when the side of 900 px changes.
         let weak = Rc::downgrade(self);
@@ -418,6 +475,7 @@ impl DiffPane {
             st.change = None;
             st.raw.clear();
             st.file = None;
+            st.patch = None;
             st.other = None;
             st.rows.clear();
             st.markup.clear();
@@ -532,6 +590,7 @@ impl DiffPane {
             if f.raw.trim().is_empty() {
                 file = None;
             }
+            st.patch = scm::split_patch(&f.raw).into_iter().next();
             st.file = file;
             st.raw = f.raw;
             st.change = f.change;
@@ -732,6 +791,7 @@ impl DiffPane {
         self.stage.set_sensitive(live);
         self.discard.set_sensitive(live);
         drop(st);
+        self.update_lines_buttons();
         self.mark_current();
     }
 
@@ -768,6 +828,50 @@ impl DiffPane {
             out.extend(iter.map(|n| n as usize));
         }
         out
+    }
+
+    /// The selected added / removed lines as (hunk, index in hunk).
+    fn selected_lines(&self) -> Vec<(usize, usize)> {
+        let rows = self.selected_rows();
+        let st = self.st.borrow();
+        let Some(f) = st.file.as_ref() else {
+            return vec![];
+        };
+        let mut out = Vec::new();
+        let mut add = |hi: usize, li: usize| {
+            if f.hunks[hi].lines[li].kind != LineKind::Context && !out.contains(&(hi, li)) {
+                out.push((hi, li));
+            }
+        };
+        for p in rows {
+            match st.rows.get(p).copied() {
+                Some(DRow::Line(hi, li)) => add(hi, li),
+                Some(DRow::Pair(hi, pair)) => {
+                    for i in [pair.left, pair.right].into_iter().flatten() {
+                        add(hi, i);
+                    }
+                }
+                _ => {}
+            }
+        }
+        out
+    }
+
+    /// Modified text files only (D19).
+    fn per_line(&self) -> bool {
+        let st = self.st.borrow();
+        st.section != Some(Section::Untracked) && st.file.as_ref().is_some_and(scm::hunks_apply)
+    }
+
+    fn update_lines_buttons(&self) {
+        let any = self.per_line() && !self.selected_lines().is_empty();
+        let staged = self.st.borrow().section == Some(Section::Staged);
+        self.lines_stage.set_visible(any && !staged);
+        self.lines_discard.set_visible(any && !staged);
+        self.lines_unstage.set_visible(any && staged);
+        if let Some(bar) = self.lines_stage.parent() {
+            bar.set_visible(any);
+        }
     }
 
     fn copy_selection(&self) -> bool {
@@ -852,6 +956,85 @@ impl DiffPane {
                 v.refresh();
             }
         });
+    }
+
+    fn hunk_ops_shown(&self) -> bool {
+        self.per_line() && !self.st.borrow().full
+    }
+
+    fn hunk_action(self: &Rc<Self>, hi: usize, act: Act) {
+        if !self.hunk_ops_shown() {
+            return;
+        }
+        let (root, section, patch) = {
+            let st = self.st.borrow();
+            let (Some(section), Some(fp)) = (st.section, st.patch.as_ref()) else {
+                return;
+            };
+            (st.root.clone(), section, scm::hunk_patch(fp, hi))
+        };
+        let Some(patch) = patch else { return };
+        let (op, what) = match (section, act) {
+            (Section::Staged, _) => (HunkOp::Unstage, "Unstage Hunk"),
+            (_, Act::Primary) => (HunkOp::Stage, "Stage Hunk"),
+            (_, Act::Discard) => (HunkOp::Discard, "Discard Hunk"),
+        };
+        let weak = Rc::downgrade(self);
+        let go = move || {
+            if let Some(v) = weak.upgrade() {
+                let (root, patch) = (root.clone(), patch.clone());
+                v.run(what, move || scm::apply_hunk(&root, &patch, op));
+            }
+        };
+        if op == HunkOp::Discard {
+            ask(
+                "Discard this hunk?",
+                "Its changes are removed from the working tree.",
+                "Discard",
+                go,
+            );
+        } else {
+            go();
+        }
+    }
+
+    /// Stage / Unstage / Discard Selected Lines.
+    fn lines_action(self: &Rc<Self>, op: HunkOp) {
+        if !self.per_line() {
+            return;
+        }
+        let selected = self.selected_lines();
+        let (root, patch) = {
+            let st = self.st.borrow();
+            let Some(fp) = st.patch.as_ref() else { return };
+            (
+                st.root.clone(),
+                scm::lines_patch(fp, &selected, op != HunkOp::Stage),
+            )
+        };
+        let Some(patch) = patch else { return };
+        let what = match op {
+            HunkOp::Stage => "Stage Lines",
+            HunkOp::Unstage => "Unstage Lines",
+            HunkOp::Discard => "Discard Lines",
+        };
+        let weak = Rc::downgrade(self);
+        let go = move || {
+            if let Some(v) = weak.upgrade() {
+                let (root, patch) = (root.clone(), patch.clone());
+                v.run(what, move || scm::apply_hunk(&root, &patch, op));
+            }
+        };
+        if op == HunkOp::Discard {
+            ask(
+                "Discard the selected lines?",
+                "They are removed from the working tree.",
+                "Discard",
+                go,
+            );
+        } else {
+            go();
+        }
     }
 
     fn file_stage(self: &Rc<Self>) {
@@ -991,10 +1174,73 @@ impl DiffPane {
         let _ = app.update(|m| m.diff_navigate(&id, &root, &path, other));
     }
 
+    /// The row menu: the selected lines' actions (a right click on an
+    /// unselected row selects it alone first).
+    fn row_menu(self: &Rc<Self>, x: f64, y: f64) {
+        let pos = (0..self.model.n_items()).find(|p| {
+            let mut child = self.list.first_child();
+            while let Some(c) = child {
+                let hit = c.is_child_visible()
+                    && c.first_child()
+                        .is_some_and(|r| r.widget_name() == p.to_string())
+                    && c.compute_bounds(&self.list).is_some_and(|b| {
+                        b.contains_point(&gtk::graphene::Point::new(x as f32, y as f32))
+                    });
+                if hit {
+                    return true;
+                }
+                child = c.next_sibling();
+            }
+            false
+        });
+        if let Some(p) = pos {
+            if !self.selection.is_selected(p) {
+                self.selection.select_item(p, true);
+            }
+        }
+        if !self.per_line() || self.selected_lines().is_empty() {
+            return;
+        }
+        let staged = self.st.borrow().section == Some(Section::Staged);
+        let pop = gtk::Popover::new();
+        pop.set_parent(&self.list);
+        pop.set_pointing_to(Some(&gdk::Rectangle::new(x as i32, y as i32, 1, 1)));
+        let col = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        let items: Vec<(&str, HunkOp)> = if staged {
+            vec![("Unstage Selected Lines", HunkOp::Unstage)]
+        } else {
+            vec![
+                ("Stage Selected Lines", HunkOp::Stage),
+                ("Discard Selected Lines…", HunkOp::Discard),
+            ]
+        };
+        for (label, op) in items {
+            let b = text_button(label);
+            b.set_halign(gtk::Align::Start);
+            let (weak, p) = (Rc::downgrade(self), pop.downgrade());
+            b.connect_clicked(move |_| {
+                if let Some(p) = p.upgrade() {
+                    p.popdown();
+                }
+                if let Some(v) = weak.upgrade() {
+                    v.lines_action(op);
+                }
+            });
+            col.append(&b);
+        }
+        pop.set_child(Some(&col));
+        pop.connect_closed(|p| {
+            let p = p.clone();
+            glib::idle_add_local_once(move || p.unparent());
+        });
+        pop.popup();
+    }
+
     // ---- rows -------------------------------------------------------------
 
     fn factory(self: &Rc<Self>) -> gtk::SignalListItemFactory {
         let f = gtk::SignalListItemFactory::new();
+        let weak = Rc::downgrade(self);
         f.connect_setup(move |_, item| {
             let item = item.downcast_ref::<gtk::ListItem>().unwrap();
             let row = gtk::Box::new(gtk::Orientation::Horizontal, 0);
@@ -1039,8 +1285,31 @@ impl DiffPane {
                 half.append(&code());
                 sbs.append(&half);
             }
+            // A hunk row's buttons.
+            let acts = gtk::Box::new(gtk::Orientation::Horizontal, 2);
+            for (label, act) in [
+                ("Stage Hunk", Act::Primary),
+                ("Discard Hunk…", Act::Discard),
+            ] {
+                let b = text_button(label);
+                let (weak, item_ref) = (weak.clone(), item.downgrade());
+                b.connect_clicked(move |_| {
+                    let (Some(v), Some(item)) = (weak.upgrade(), item_ref.upgrade()) else {
+                        return;
+                    };
+                    let hi = match v.st.borrow().rows.get(item.position() as usize) {
+                        Some(DRow::Hunk(hi)) => Some(*hi),
+                        _ => None,
+                    };
+                    if let Some(hi) = hi {
+                        v.hunk_action(hi, act);
+                    }
+                });
+                acts.append(&b);
+            }
             row.append(&inl);
             row.append(&sbs);
+            row.append(&acts);
             item.set_child(Some(&row));
         });
         let weak: Weak<DiffPane> = Rc::downgrade(self);
@@ -1067,6 +1336,7 @@ impl DiffPane {
         };
         let inl = row.first_child().and_downcast::<gtk::Box>().unwrap();
         let sbs = inl.next_sibling().and_downcast::<gtk::Box>().unwrap();
+        let acts = sbs.next_sibling().and_downcast::<gtk::Box>().unwrap();
         let l = |w: Option<gtk::Widget>| w.and_downcast::<gtk::Label>().unwrap();
         let (old, new) = {
             let o = l(inl.first_child());
@@ -1088,6 +1358,7 @@ impl DiffPane {
         }
         inl.set_visible(true);
         sbs.set_visible(false);
+        acts.set_visible(false);
         let markup = |hi: usize, li: usize| {
             st.hunk_starts
                 .get(hi)
@@ -1100,6 +1371,16 @@ impl DiffPane {
                 classes.push(ROW_CLASSES[0]);
                 code.set_label(&f.hunks[hi].header);
                 code.set_hexpand(true);
+                let show = self.hunk_ops_shown_in(&st);
+                acts.set_visible(show);
+                if show {
+                    let staged = st.section == Some(Section::Staged);
+                    let first = acts.first_child().and_downcast::<gtk::Button>().unwrap();
+                    first.set_label(if staged { "Unstage Hunk" } else { "Stage Hunk" });
+                    if let Some(second) = first.next_sibling() {
+                        second.set_visible(!staged);
+                    }
+                }
             }
             DRow::Note => code.set_markup("<i>Binary file not shown</i>"),
             DRow::Line(hi, li) => {
@@ -1148,6 +1429,12 @@ impl DiffPane {
         row.set_css_classes(&classes);
     }
 
+    fn hunk_ops_shown_in(&self, st: &St) -> bool {
+        st.section != Some(Section::Untracked)
+            && !st.full
+            && st.file.as_ref().is_some_and(scm::hunks_apply)
+    }
+
     fn current_row_in(&self, st: &St) -> Option<usize> {
         let ord = st.cur?;
         diff_view::change_starts(&Self::row_kinds(st))
@@ -1188,6 +1475,16 @@ impl DiffPane {
         let st = self.st.borrow();
         let section = st.section.unwrap_or(Section::Unstaged);
         let name = st.path.rsplit('/').next().unwrap_or(&st.path);
+        let actions = |hi: usize| -> Vec<&'static str> {
+            let _ = hi;
+            if !self.hunk_ops_shown_in(&st) {
+                vec![]
+            } else if section == Section::Staged {
+                vec!["Unstage Hunk"]
+            } else {
+                vec!["Stage Hunk", "Discard Hunk…"]
+            }
+        };
         let hunks: Vec<Value> = st
             .file
             .as_ref()
@@ -1195,7 +1492,7 @@ impl DiffPane {
                 f.hunks
                     .iter()
                     .enumerate()
-                    .map(|(i, h)| json!({"index": i, "header": h.header}))
+                    .map(|(i, h)| json!({"index": i, "header": h.header, "actions": actions(i)}))
                     .collect()
             })
             .unwrap_or_default();
@@ -1227,6 +1524,7 @@ impl DiffPane {
             "empty": st.file.is_none(),
             "empty_button": empty_button,
             "hunks": hunks,
+            "per_line": self.per_line(),
             "rows": st.rows.len(),
             "text": st.rows.iter().map(|r| Self::row_text(&st, *r)).collect::<Vec<_>>(),
             "selected": selected,
@@ -1241,6 +1539,12 @@ impl DiffPane {
         let s = |k: &str| p.get(k).and_then(Value::as_str);
         let op = s("op").unwrap_or("info");
         let act = s("action").unwrap_or("");
+        let hop = || match act {
+            "stage" => Ok(HunkOp::Stage),
+            "unstage" => Ok(HunkOp::Unstage),
+            "discard" => Ok(HunkOp::Discard),
+            a => Err(Error::usage(format!("unknown action '{a}'"))),
+        };
         match op {
             "info" => {}
             "refresh" => self.refresh(),
@@ -1248,6 +1552,34 @@ impl DiffPane {
             "full" => self.toggle_full(),
             "next" => self.step(true),
             "prev" => self.step(false),
+            "select" => {
+                let rows: Vec<u32> = p
+                    .get("rows")
+                    .and_then(Value::as_array)
+                    .map(|a| {
+                        a.iter()
+                            .filter_map(|v| v.as_u64().map(|n| n as u32))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                self.selection.unselect_all();
+                for r in rows {
+                    self.selection.select_item(r, false);
+                }
+                self.update_lines_buttons();
+            }
+            "hunk" => {
+                let hi: usize = s("arg")
+                    .and_then(|a| a.parse().ok())
+                    .ok_or_else(|| Error::usage("hunk wants arg = the hunk index"))?;
+                let a = if hop()? == HunkOp::Discard {
+                    Act::Discard
+                } else {
+                    Act::Primary
+                };
+                self.hunk_action(hi, a);
+            }
+            "lines" => self.lines_action(hop()?),
             "file" => match act {
                 "stage" | "unstage" => self.file_stage(),
                 "discard" => self.file_discard(),
