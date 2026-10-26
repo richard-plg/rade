@@ -310,3 +310,13 @@ fn discard_dialog_texts() {
         "2 untracked files go to the trash. Staged changes stay."
     );
 }
+
+#[test]
+fn r120_missing_checkout_is_calm_not_an_error() {
+    assert_eq!(card_read(false, false), CardRead::NoCheckout);
+    // Nothing is run for it, so a failure cannot be reported.
+    assert_eq!(card_read(false, true), CardRead::NoCheckout);
+    assert_eq!(card_read(true, true), CardRead::Failed);
+    assert_eq!(card_read(true, false), CardRead::Ready);
+    assert_eq!(NO_CHECKOUT, "No checkout yet");
+}

@@ -26,7 +26,9 @@ commit box come the groups, each with its count and bulk buttons:
 - **Staged Changes** — what the next commit holds.
 - **Changes** — modified files and untracked files (`U`).
 
-A clean card folds to its header, unless it has a Publish or Sync button to show.
+A clean card folds to its header, unless it has a Publish or Sync button to show. A link whose
+checkout does not exist yet (a Project checkout nobody created) folds too and says "No checkout yet"
+in muted text; it counts as clean, and no error is shown for it.
 
 Hover, select or focus a row and its counts give way to buttons: Open File, Stage Changes, Discard
 Changes (Delete File for an untracked one), Unstage Changes, or Mark as Resolved for a conflict.

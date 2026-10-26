@@ -528,12 +528,19 @@ impl Changes {
                     .iter()
                     .zip(envs)
                     .map(|(g, env)| {
-                        let base = if g.base.is_empty() {
+                        // A directory that is not there yet: nothing is run.
+                        let missing = rade_core::scm_view::card_read(g.path.exists(), false)
+                            == rade_core::scm_view::CardRead::NoCheckout;
+                        let base = if g.base.is_empty() && !missing {
                             rade_core::git::default_branch(&g.path).unwrap_or_else(|| "main".into())
                         } else {
                             g.base.clone()
                         };
-                        let snap = scm::snapshot(&g.path, &base).map_err(|e| e.message);
+                        let snap = if missing {
+                            Err(rade_core::scm_view::NO_CHECKOUT.to_string())
+                        } else {
+                            scm::snapshot(&g.path, &base).map_err(|e| e.message)
+                        };
                         let identity = (snap.is_ok() && !g.project.is_empty()).then(|| {
                             rade_core::chrome::identity_warning(
                                 email.as_deref(),
@@ -545,6 +552,7 @@ impl Changes {
                             Read {
                                 snap,
                                 identity: identity.flatten(),
+                                missing,
                             },
                         )
                     })
@@ -855,6 +863,7 @@ impl Changes {
                 ScmSort::Path => "path", ScmSort::Name => "name", ScmSort::Status => "status",
             },
             "visible": self.root.is_mapped(),
+            "empty": self.empty_project.is_visible() || self.empty_source.is_visible(),
             "busy": self.refreshing.get() || cards.iter().any(|c| c.busy()),
             "focus": focus,
             "cards": cards.iter().map(|c| c.info()).collect::<Vec<_>>(),
