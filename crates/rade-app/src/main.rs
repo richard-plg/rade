@@ -77,6 +77,8 @@ mod tokens;
 mod tokens_gen;
 #[cfg(test)]
 mod tokens_tests;
+mod update;
+mod update_view;
 mod usage_view;
 mod viewer;
 mod voice;
@@ -424,6 +426,7 @@ fn build(gtk_app: &adw::Application) {
     // Worktrees made outside RADE show up in the sidebar (R12).
     worktrees::import_all();
     fanout::watch_verdicts();
+    update::start();
     log_renders();
 }
 
@@ -458,6 +461,7 @@ fn scrub_inherited_agent_session_env() {
                 || k.starts_with("CLAUDE_CODE_")
                 || k == "RADE_PROJECT"
                 || k == rade_core::rpc::DEBUG_ENV
+                || update::ENV_VARS.contains(&k.as_str())
         })
         .collect();
     for k in stale {
@@ -512,6 +516,9 @@ fn main() {
     // or other child process inherits it.
     let _ =
         handlers::DEBUG_SOCKET.set(std::env::var(rade_core::rpc::DEBUG_ENV).as_deref() == Ok("1"));
+    // The Update overrides (R127, D27) are read from the launching
+    // environment, then removed with the rest.
+    update::read_env();
     import_login_shell_env();
     scrub_inherited_agent_session_env();
     hand_off_to_running_instance();
