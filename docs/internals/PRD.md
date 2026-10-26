@@ -253,6 +253,8 @@ Superseded in 1.0.0 by R102, R103 (ADR-0036: the terminal-native visual system a
 
 **1.0.0 amendment (R107):** The Changes page shows the focused Project grouped by Source link, each group with its own message box and Commit (R107.1); Create PR's default base is the Worktree's recorded base, the link's base for a link's own checkout (R99.2). Per-file, per-hunk, Generate, Push and Pull stand.
 
+**M45 amendment (R120–R122, ADR-0045):** items 1–5, 8 and 9 are replaced by R120 and R121 (one card per link, row click → Diff Pane, Commit ▾, Sync / Publish / Fetch); per-hunk staging (item 3) moved to the Diff Pane (R122.3). Create PR (6) and Generate (7) stand.
+
 The Right Panel's Changes page for the active Worktree, VS Code-like. RADE runs `git` / `gh` only on the owner's click; Agents only draft text (ADR-0013, superseding ADR-0008's exclusion).
 
 1. **Lists.** Staged, Changes (unstaged, conflicts marked `!`) and Untracked, from `git status --porcelain=v2`, each with a count; a row shows the status letter (M A D R U !), the file name and its folder (dim). The Changes toggle of the switcher shows the number of changed files. Outside a git repository (General, a plain folder) the page says so.
@@ -977,7 +979,7 @@ AC:
 
 ## R107 — Changes by Project, Activity, palette, Search scope, identity (M37)
 
-1. **Changes by Project** (R21 amended): the Inspector's Changes page shows the focused Project (`PROJECT · SHOP +a −r`), one group per link (its Worktree or checkout, files, its own message box and Commit), the drift card (R100) and clean links folded to `clean`.
+1. **Changes by Project** (R21 amended): the Inspector's Changes page shows the focused Project (`PROJECT · SHOP +a −r`), one group per link (its Worktree or checkout, files, its own message box and Commit), the drift card (R100) and clean links folded to `clean`. (M45: the card's layout is R120; Commit and sync are R121.)
 2. **Activity**: an Inspector tab listing Agent waiting / done, PR opened, commit and account limit events (R110), newest first, at most 500, in memory only (nothing written; empty after a restart).
 3. **Palette** (R14 amended): items are Source links (`shared-ui · Shop · develop`), Projects, Worktrees (`tokens · Billing · shared-ui ← release/2.4`), Panes by name, files, and actions such as `Add <source> to Project…`, `Change base of <source> in <Project>…`, `Fan-out on <source>…`; no absolute paths or Pane ids in titles; scope chips All / Sources / Worktrees / Actions / Files.
 4. **Search scope** (R22 amended): `link` (the focused link's checkout or Worktree) or `Project` (every link of the Project, results grouped by link).
@@ -1303,6 +1305,71 @@ AC:
   - the header shows the summary and a `Ready for review` Notification exists.
 - R119-f [M44] (e2e): Given the state of R119-e. When the app is killed (`-9`) and relaunched. Then the Rounds, comment states, viewed marks and summary are back.
 - R119-g [M44] (e2e): Given the Review of R119-e in round 3. When screenshots are taken in dark and light at 1440 × 900. Then they match golden H within 0.5 % (`tests/e2e/golden/m44/`, approved by the owner).
+
+## R120 — Changes page, VS Code model (M45, ADR-0045)
+
+Amends R21.1–R21.5, R21.8, R21.9 and R107.1. One page: a card per Source link of the focused Project (a checkout outside every Project: one card for it, header `SOURCE · <NAME>`); there is no single-checkout Details page.
+
+1. **Card.** Header: fold chevron, link name, its Worktree or branch, meta (`↑3 · 4`), a sync button (`↑a ↓b`, own upstream) or Publish button (no own upstream), a `…` menu (Fetch, Pull, Push…, Sync…, Publish Branch…, Create Pull Request…, Stage All Changes, Unstage All Changes, Discard All Changes…). Body: the commit area (R121), then the groups Merge Changes, Staged Changes, Changes (untracked files in Changes as `U`); an empty group is left out; a clean card folds to its header unless it shows an action button.
+2. **Rows.** File icon, name, folder (list view), `+a −d` against the group's side (staged: index vs `HEAD`; Changes: working tree vs index; untracked: its lines), status letter right-most (`M` `wait`, `A`/`U` `add`, `D` `del` + struck name, `R`/`C` `run`, `!` `err`). Hover, selection or focus swaps the counts for actions: Open File; Changes: Discard Changes, Stage Changes; Staged: Unstage Changes; Merge: Mark as Resolved (stage). Group headers: count and Stage All / Unstage All / Discard All.
+3. **Click and keys.** A click selects the row and opens its diff in the Diff Pane (R122), focus staying in the list; a double click focuses the Diff Pane; Ctrl / Shift extend the selection. Enter opens, Space stages / unstages the selection, Delete discards it (asks), Ctrl+A selects all.
+4. **Discard.** Tracked files: their unstaged changes (`git restore --worktree`). Untracked files go to the trash; if that fails a second dialog offers to delete them permanently. One dialog names the count.
+5. **Context menu.** Changes (tracked): Open Changes, Open File, Open File to the Side, Stage Changes, Discard Changes…, Copy Path, Copy Relative Path. Changes (untracked): Open Changes, Open File, Open File to the Side, Stage Changes, Delete File…, Add to .gitignore, Copy Path, Copy Relative Path. Staged: Open Changes, Open File, Open File to the Side, Unstage Changes, Copy Path, Copy Relative Path. Merge: Open File, Open File to the Side, Mark as Resolved, Copy Path, Copy Relative Path. Add to .gitignore appends `/<path>` to the repository's `.gitignore`.
+6. **View.** List or tree (compact folders, folders first), sort by path, name or status (list), from the page header; kept in `[scm] view` / `[scm] sort`.
+
+AC:
+- R120-a [M45] (unit): Given a status with a conflicted file, a file staged only, a file staged and modified again, a modified file and an untracked file. When the card's groups are built. Then they are Merge Changes (1 row, `!`), Staged Changes (2 rows, the index letters), Changes (3 rows: two `M`, one `U`), in that order, and a status with no conflict has no Merge Changes group.
+- R120-b [M45] (unit): Given changed paths `src/ui/a.rs`, `src/ui/b.rs`, `src/main.rs`, `README.md`, `a/b/c/one.rs`. When rows are built as a tree. Then they are `a/b/c/` → one.rs, `src/` → `ui/` → a.rs, b.rs, then main.rs, then README.md; as a list sorted by name: `a.rs`, `b.rs`, `main.rs`, `one.rs`, `README.md` (case ignored); by status: the `U` rows after the `M` rows, each by path.
+- R120-c [M45] (e2e): Given a checkout with a modified, a staged and an untracked file. When the modified row is clicked. Then a Diff Pane `app.rs (Working Tree)` opens right of the focused Pane, keyboard focus is still in the Changes list and nothing was staged; a click on the staged row shows `util.rs (Staged)` in the same Diff Pane.
+- R120-d [M45] (e2e): Given 2 modified rows and 1 untracked row selected. When Space is pressed in the list. Then the 3 are staged; Space on the 3 staged rows unstages them; Delete on the 3 asks once (`Discard changes in 3 files?`), and confirming restores the 2 tracked files and moves the untracked one to `$XDG_DATA_HOME/Trash/files/`.
+- R120-e [M45] (e2e): Given an untracked `app.log`. When its context menu is read and Add to .gitignore activated. Then the items are R120.5's untracked list, `.gitignore` ends with `/app.log` and the row is gone.
+- R120-f [M45] (e2e): Given the default config. When View as Tree is clicked, then Sort by Name chosen. Then `config.toml` holds `view = "tree"` and `sort = "name"` under `[scm]` with its other lines unchanged, and after a relaunch the page is still a tree.
+- R120-g [M45] (e2e): Given scene A in dark and light. When `debug.ui geometry` measures the Changes page. Then rows A.58–A.69 and A.81–A.86 of `docs/internals/design/spec/a-workspace.md` are within tolerance.
+- R120-h [M45] (e2e): Given a Terminal in a repository that is in no Project. When Changes is shown. Then one card, header `SOURCE · SHOP`, `debug.scm` `mode` = `source`; no op returns a `checkout` page.
+
+## R121 — Commit and sync (M45, ADR-0045)
+
+Amends R21.4 and R21.5.
+
+1. **Message box.** 1–10 lines, placeholder `Message (Ctrl+Enter to commit on ‘<branch>’)`; Up on the first line / Down on the last line cycle through the last 20 commit messages of the checkout; a first line over 72 characters shows `Subject: <n> characters (keep it ≤ 72)`.
+2. **Commit ▾.** Commit (Ctrl+Enter), Commit (Amend), Commit & Push, Commit All, Undo Last Commit. With a message, nothing staged and changes present, Commit asks `Stage all <n> changes and commit?`. Amend with an empty box keeps the last message. Amend and Undo Last Commit are disabled while HEAD is on a remote branch. Undo Last Commit keeps its changes staged and puts its message in the box. Commit & Push asks Push's confirmation after committing.
+3. **Action button.** A card without changes shows `Publish Branch` (no own upstream) or `Sync Changes ↑a ↓b` (own upstream, something to pull or push). Sync asks once, pulls `--ff-only`, then pushes; a failed pull pushes nothing.
+4. **Fetch.** From the card's `…` menu and the page's `…` (Fetch All). `[scm] autofetch = true` fetches every card every `autofetch_period` seconds (default 180, 60–3600); off by default (ADR-0045 amends ADR-0013).
+
+AC:
+- R121-a [M45] (unit): Given a repository with two commits. When Commit (Amend) runs with an empty message, Commit All with an untracked file present, and Undo Last Commit. Then the amend keeps the subject, Commit All's commit holds the untracked file, and Undo leaves HEAD at the first commit with the undone files staged and returns the undone message; on a root commit Undo empties HEAD and stages everything.
+- R121-b [M45] (unit): Given the card states (staged, changes, message, HEAD pushed, has HEAD). When the commit menu is built. Then Commit is enabled iff a message and any change; Amend iff HEAD exists and is not pushed; Undo iff HEAD exists and is not pushed; Commit All iff any change and a message; and the smart prompt is asked iff message, no staged, changes.
+- R121-c [M45] (unit): Given a first line of 72 characters, then 73. When the warning is built. Then none, then `Subject: 73 characters (keep it ≤ 72)`; and the history cursor walks newest → oldest on Up and back to the draft on Down.
+- R121-d [M45] (e2e): Given 2 unstaged changes and a message. When Commit is clicked. Then the dialog `Stage all 2 changes and commit?` shows, and confirming commits both files with the message.
+- R121-e [M45] (e2e): Given a commit to make on a branch with an upstream. When Commit & Push is chosen and the Push confirmation confirmed. Then the bare remote has the commit and Undo Last Commit is disabled.
+- R121-f [M45] (e2e): Given a clean branch without upstream. Then the action button reads `Publish Branch`; publishing sets `origin/<branch>`. Given another clone pushed one commit and a local commit exists. When Fetch runs. Then the header shows `↑1 ↓1` and the action button `Sync Changes ↑1 ↓1`; Sync with a fast-forwardable remote pulls then pushes; with a diverged remote the card shows `Sync: ` and git's message and the remote is unchanged.
+- R121-g [M45] (e2e): Given the default config. When the auto-fetch timer ticks (`debug.scm autofetch_tick`). Then nothing is fetched; with `[scm] autofetch = true` the tick fetches and the behind count updates.
+
+## R122 — Diff Pane (M45, ADR-0045)
+
+1. **Open.** From a Changes row or its menu: the active Tab's Diff Pane shows the file (else one opens right of the focused Pane, else in a new Tab). Header: file icon, name, folder, `(Working Tree)` / `(Staged)` / `(Untracked)`, Previous / Next Change, layout toggle, Show Full File toggle, Stage File or Unstage File, Discard File (not staged), Open File, Close. Esc closes it.
+2. **Rows.** Inline (old / new line numbers, sign, highlighted code) or side by side (old left, new right, removed and added lines paired in order, filler where one side has none); `auto` = side by side from 900 px. Three lines of context; Show Full File shows the whole file.
+3. **Hunks and lines.** On a modified text file each hunk header has Stage Hunk / Unstage Hunk / Discard Hunk…; selected lines can be staged, unstaged or discarded (`Stage Selected Lines` in the header and the row menu). Discard asks.
+4. **Moves.** F7 / Shift+F7 = next / previous change, wrapping.
+5. **Freshness.** Every 2 s while on screen and after its own actions; no longer changed → `No changes` and a button to the other section when it has the file. Kept across a restart (`{"type": "diff", "root", "path", "section"}`).
+
+AC:
+- R122-a [M45] (unit): Given a hunk `ctx, -a, -b, +A, ctx, +C`. When paired side by side. Then the pairs are (ctx, ctx), (-a, +A), (-b, —), (ctx, ctx), (—, +C).
+- R122-b [M45] (unit): Given a two-hunk edit of a ten-line file and the second added line of hunk 1 selected. When the lines patch is made and applied for stage, then the index's patch for unstage, then for discard. Then the index holds only that line; unstaging it empties the index diff; discarding a selected removed line restores only that line in the working tree.
+- R122-c [M45] (unit): Given rows with change blocks starting at rows 4, 10, 30. When moving next from row 0, 10, 30 and previous from 4. Then 4, 30, 4 (wrap), 30 (wrap).
+- R122-d [M45] (e2e): Given `src/app.rs` with two changed hunks shown in the Diff Pane. When Stage Hunk is clicked on hunk 2, then line `CHANGED 2` selected and Stage Selected Lines clicked. Then `git diff --cached` holds hunk 2 and then also only `CHANGED 2`; Discard Hunk… asks before anything changes.
+- R122-e [M45] (e2e): Given the Diff Pane 1000 px wide with layout `auto`. When it is measured and toggled. Then it is side by side; at 600 px inline; the toggle forces inline at 1000 px; Show Full File shows every line of the file; F7 from the last change goes to the first.
+- R122-f [M45] (e2e): Given a Diff Pane on `app.rs (Working Tree)`. When the app is relaunched. Then the Pane is back with the same file; after `git add src/app.rs` it shows `No changes` and `Open Staged Changes`, which switches it to `app.rs (Staged)`.
+
+## R123 — Quick Diff (M45, ADR-0045)
+
+1. A Viewer of a tracked file in a git repository marks lines changed against the index in its gutter: added (`add` bar), modified (`run` bar), deleted (`del` triangle on the line after the deletion). `[scm] quick_diff = false` turns it off.
+2. A click on a mark opens a peek with that change's hunk and Stage Change, Revert Change… (asks), Open Changes (the Diff Pane). One popover at a time (R90).
+3. Marks follow the file: on reload and every 3 s while the Viewer is on screen.
+
+AC:
+- R123-a [M45] (unit): Given a `-U0` diff with a one-line modification at 2, two added lines at 5–6, a deletion after 8 and a deletion at the top. When marks are built. Then (2 modified), (5 added), (6 added), (9 deleted), (1 deleted).
+- R123-b [M45] (e2e): Given a Viewer on a modified tracked file. When it is inspected. Then `debug.viewer info` lists its marks; an edit on disk updates them within 5 s; the peek on a mark shows its hunk and Stage Change stages it (the mark goes); with `quick_diff = false` there are no marks; an untracked file has none.
 
 ## Non-goals (v1)
 

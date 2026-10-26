@@ -382,7 +382,7 @@ impl SearchView {
     /// Every sync: the focused Project's links (R107.4); the scope toggle
     /// shows only in a Project.
     pub fn follow_scope(self: &Rc<Self>, ws: &rade_core::State) {
-        let now = crate::changes_project::focused(ws);
+        let now = crate::changes::focused(ws);
         let (groups, focused) = match &now {
             Some((_, _, gs)) => (
                 gs.iter()

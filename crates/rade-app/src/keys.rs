@@ -351,7 +351,8 @@ pub fn run_action(action: &str) {
         }
         "open_browser" => crate::browser::open_browser(None),
         // Right Panel pages (R21.9, R22.5).
-        "show_changes" | "scm_commit" | "scm_pull" | "scm_push" | "scm_pr" => {
+        "show_changes" | "scm_commit" | "scm_pull" | "scm_push" | "scm_pr" | "scm_fetch"
+        | "scm_sync" | "scm_publish" | "scm_undo_commit" | "scm_view_tree" | "scm_view_list" => {
             if let Some(c) = crate::changes::get() {
                 c.action(action);
             }

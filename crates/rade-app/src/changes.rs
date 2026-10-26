@@ -1,96 +1,80 @@
-//! The Right Panel's Changes page (PRD R21, ADR-0013): the active
-//! Worktree's Staged / Changes / Untracked files with stage, unstage and
-//! discard per file and per hunk, the commit box with Generate, Pull /
-//! Push and Create PR. git and `gh` run off the GTK thread and only on a
-//! click (or the palette action standing for it); Push, Discard and Create
-//! PR ask first. The git work itself is `rade_core::scm`.
+//! The Inspector's Changes page (PRD R120, R121; ADR-0013, ADR-0045; spec
+//! A.58–A.86): one card per Source link of the focused Project — a
+//! checkout outside every Project shows one card for itself — under the
+//! header `PROJECT · SHOP` / `SOURCE · SHOP-API` with the totals, the list /
+//! tree toggle, Refresh and `…` (Fetch All, Sort by). This is the shell:
+//! which cards, the reads of their checkouts, the polls, the opt-in
+//! auto-fetch and `debug.scm`. A card is `changes_card.rs`, what its buttons
+//! do `changes_ops.rs`, the logic `rade_core::scm_view` / `rade_core::scm`.
+//! git runs off the GTK thread, on a click, a poll of the visible page or
+//! the auto-fetch timer when the owner turned it on.
 
 use crate::app::try_app;
+use crate::changes_card::{parse_group, Card, Read};
 use adw::prelude::*;
 use gtk::{gio, glib};
 use gtk4 as gtk;
 use libadwaita as adw;
-use rade_core::diff;
+use rade_core::config::{ScmSort, ScmView};
+use rade_core::home::{self, Group};
+use rade_core::linkview::LinkView;
 use rade_core::rpc::{Error, Result};
-use rade_core::scm::{self, Change, DraftKind, HunkOp, PushPlan, Section, Status, SECTIONS};
+use rade_core::scm;
 use serde_json::{json, Value};
 use std::cell::{Cell, RefCell};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
-/// Lines of one file's diff shown in the panel; the Review shows the rest.
-const MAX_LINES: usize = 400;
-/// Rows per list (a build output committed by mistake lists 50k files).
-const MAX_ROWS: usize = 500;
 const POLL: Duration = Duration::from_secs(3);
 
-type Key = (String, Section);
-
-#[derive(Default)]
-struct State {
-    root: Option<PathBuf>,
-    /// What the list shows: the status (or why there is none) and the
-    /// raw diffs of the expanded files.
-    shown: Option<(std::result::Result<Status, String>, HashMap<Key, String>)>,
-    expanded: HashSet<Key>,
-    /// The ListBox rows that are files, by index.
-    rows: Vec<Option<Key>>,
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Mode {
+    Project,
+    Source,
 }
 
-/// The open Create PR dialog's fields (`debug.scm`).
-struct PrForm {
-    title: gtk::Entry,
-    base: gtk::Entry,
-    body: gtk::TextView,
-    generate: gtk::Button,
-    note: gtk::Label,
+/// What the page shows; cards are rebuilt when it changes.
+#[derive(Clone, Debug, PartialEq)]
+struct Shown {
+    mode: Mode,
+    title: String,
+    groups: Vec<Group>,
+    /// The Sources' display names, by group.
+    names: Vec<String>,
 }
 
 pub struct Changes {
     pub root: gtk::Stack,
-    branch: gtk::Label,
-    sync: gtk::Label,
-    pull: gtk::Button,
-    push: gtk::Button,
-    pr: gtk::Button,
-    message: gtk::TextView,
-    hint: gtk::Label,
-    generate: gtk::Button,
-    commit: gtk::Button,
-    error: gtk::Label,
-    spinner: adw::Spinner,
-    list: gtk::ListBox,
-    scroll: gtk::ScrolledWindow,
-    /// The message box and its buttons: hidden while nothing can be committed.
-    commit_box: gtk::Box,
-    /// The clean checkout's empty state (R103.6).
-    clean: gtk::Box,
-    state: RefCell<State>,
-    /// Bumped when the Worktree changes: older answers are dropped.
+    body: gtk::Box,
+    title: gtk::Label,
+    add: gtk::Label,
+    del: gtk::Label,
+    view_btn: gtk::Button,
+    page_actions: gio::SimpleActionGroup,
+    empty_project: gtk::Box,
+    empty_source: gtk::Box,
+    cards: RefCell<Vec<Rc<Card>>>,
+    shown: RefCell<Option<Shown>>,
+    reads: RefCell<HashMap<PathBuf, Read>>,
+    messages: RefCell<HashMap<PathBuf, String>>,
+    monitors: RefCell<HashMap<PathBuf, gio::FileMonitor>>,
+    last_fetch: RefCell<HashMap<PathBuf, Instant>>,
+    /// Bumped when the cards change: older answers are dropped.
     generation: Cell<u64>,
     refreshing: Cell<bool>,
     again: Cell<bool>,
-    ops: Cell<u32>,
-    drafting: RefCell<Option<Arc<AtomicBool>>>,
-    pr_form: RefCell<Option<PrForm>>,
-    git_monitor: RefCell<Option<gio::FileMonitor>>,
+    autofetching: Cell<bool>,
     panel_shown: Cell<bool>,
-    /// The focused checkout is in a Project: Changes by Project (R107.1).
-    project_mode: Cell<bool>,
-    /// …but the single-checkout page was asked for (`Details`).
-    detail: Cell<bool>,
-    /// Back from the single-checkout page to the Project.
-    back: gtk::Button,
-    /// The focused checkout's identity warning above its Commit (R107.5).
-    identity: gtk::Label,
 }
 
 thread_local! {
     static CHANGES: RefCell<Option<Rc<Changes>>> = const { RefCell::new(None) };
+}
+
+pub fn get() -> Option<Rc<Changes>> {
+    CHANGES.with(|c| c.borrow().clone())
 }
 
 /// Re-check Commit's primary state (palette or a dialog opened / closed).
@@ -100,192 +84,151 @@ pub fn sync_primary() {
     }
 }
 
-pub fn get() -> Option<Rc<Changes>> {
-    CHANGES.with(|c| c.borrow().clone())
+/// Read the checkouts again (after an operation).
+pub(crate) fn refresh_soon() {
+    if let Some(c) = get() {
+        c.refresh();
+    }
 }
 
-fn icon_button(icon: &str, tip: &str) -> gtk::Button {
+fn tool(icon: &str, tip: &str) -> gtk::Button {
     let b = gtk::Button::from_icon_name(icon);
     b.add_css_class("flat");
+    b.add_css_class("changes-tool");
     b.set_tooltip_text(Some(tip));
     b.set_valign(gtk::Align::Center);
     b
 }
 
-fn text_of(v: &gtk::TextView) -> String {
-    let b = v.buffer();
-    b.text(&b.start_iter(), &b.end_iter(), false).to_string()
-}
-
-fn git_class(letter: char) -> &'static str {
-    match letter {
-        'A' => "rade-git-added",
-        'D' => "rade-git-deleted",
-        'U' | '?' => "rade-git-untracked",
-        '!' => "rade-git-conflicted",
-        _ => "rade-git-modified",
+fn label(text: &str, classes: &[&str]) -> gtk::Label {
+    let l = gtk::Label::new(Some(text));
+    l.set_xalign(0.0);
+    for c in classes {
+        l.add_css_class(c);
     }
+    l
 }
 
-/// Build the page; the Right Panel shows it (R20.10).
+/// Build the page; the Inspector shows it (R20.10).
 pub fn install() -> gtk::Widget {
-    let branch = gtk::Label::new(None);
-    branch.set_xalign(0.0);
-    branch.set_ellipsize(gtk::pango::EllipsizeMode::End);
-    branch.set_max_width_chars(24);
-    // A short branch name is never cut for "not pushed" (that one ellipsizes).
-    branch.set_width_chars(10);
-    branch.add_css_class("heading");
-    let sync = gtk::Label::new(None);
-    sync.add_css_class("rade-meta");
-    sync.set_hexpand(true);
-    sync.set_xalign(0.0);
-    sync.set_ellipsize(gtk::pango::EllipsizeMode::End);
-    let pull = icon_button("rade-pull-symbolic", "Pull (git pull --ff-only)");
-    let push = icon_button("rade-push-symbolic", "Push…");
-    let pr = icon_button("rade-pr-symbolic", "Create Pull Request…");
-    let back = icon_button("ph-cube-symbolic", "Back to the Project's changes");
-    back.add_css_class("changes-back");
-    back.set_visible(false);
-    let bar = gtk::Box::new(gtk::Orientation::Horizontal, 4);
-    bar.add_css_class("rade-scm-bar");
-    bar.append(&back);
-    let glyph = gtk::Image::from_icon_name("rade-branch-symbolic");
-    glyph.add_css_class("rade-dim");
-    bar.append(&glyph);
-    bar.append(&branch);
-    bar.append(&sync);
-    bar.append(&pull);
-    bar.append(&push);
-    bar.append(&pr);
-
-    let message = gtk::TextView::new();
-    message.set_wrap_mode(gtk::WrapMode::WordChar);
-    message.set_accepts_tab(false);
-    message.add_css_class("rade-commit-msg");
-    message.set_top_margin(6);
-    message.set_bottom_margin(6);
-    message.set_left_margin(8);
-    message.set_right_margin(8);
-    let hint = gtk::Label::new(Some("Message (Ctrl+Enter to commit)"));
-    hint.add_css_class("rade-dim");
-    hint.set_halign(gtk::Align::Start);
-    hint.set_valign(gtk::Align::Start);
-    hint.set_margin_start(9);
-    hint.set_margin_top(6);
-    hint.set_can_target(false);
-    let msg_scroll = gtk::ScrolledWindow::new();
-    msg_scroll.set_child(Some(&message));
-    msg_scroll.set_min_content_height(56);
-    msg_scroll.set_max_content_height(140);
-    msg_scroll.set_propagate_natural_height(true);
-    msg_scroll.set_hscrollbar_policy(gtk::PolicyType::Never);
-    let msg_overlay = gtk::Overlay::new();
-    msg_overlay.set_child(Some(&msg_scroll));
-    msg_overlay.add_overlay(&hint);
-    msg_overlay.add_css_class("rade-commit-box");
-
-    let generate = gtk::Button::new();
-    generate.set_child(Some(
-        &adw::ButtonContent::builder()
-            .icon_name("document-edit-symbolic")
-            .label("Generate")
-            .build(),
-    ));
-    generate.add_css_class("flat");
-    generate.set_tooltip_text(Some(
-        "Ask an Agent to draft the message from the staged diff ([scm] draft_command)",
-    ));
-    let spinner = adw::Spinner::new();
-    spinner.set_visible(false);
-    let commit = gtk::Button::with_label("Commit");
-    commit.add_css_class("commit-button");
-    commit.set_tooltip_text(Some("Commit the staged changes (Ctrl+Enter)"));
-    let actions = gtk::Box::new(gtk::Orientation::Horizontal, 6);
-    actions.append(&generate);
-    actions.append(&spinner);
-    let fill = gtk::Box::new(gtk::Orientation::Horizontal, 0);
-    fill.set_hexpand(true);
-    actions.append(&fill);
-    actions.append(&commit);
-
-    let error = gtk::Label::new(None);
-    error.add_css_class("rade-scm-error");
-    error.set_wrap(true);
-    error.set_wrap_mode(gtk::pango::WrapMode::WordChar);
-    error.set_xalign(0.0);
-    error.set_selectable(true);
-    error.set_visible(false);
-
-    let list = gtk::ListBox::new();
-    list.set_selection_mode(gtk::SelectionMode::None);
-    list.add_css_class("navigation-sidebar");
-    list.add_css_class("rade-scm-list");
+    let body = gtk::Box::new(gtk::Orientation::Vertical, 0);
+    body.add_css_class("changes-project");
+    let header = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+    header.add_css_class("changes-header");
+    let title = label("", &["section-label", "changes-title"]);
+    title.set_hexpand(true);
+    header.append(&title);
+    let add = label("", &["changes-total-add"]);
+    let del = label("", &["changes-total-del"]);
+    header.append(&add);
+    header.append(&del);
+    let view_btn = tool("ph-tree-view-symbolic", "View as Tree");
+    header.append(&view_btn);
+    let refresh = tool("ph-arrows-clockwise-symbolic", "Refresh");
+    header.append(&refresh);
+    let more = gtk::MenuButton::new();
+    more.set_icon_name("ph-dots-three-symbolic");
+    more.add_css_class("flat");
+    more.add_css_class("changes-tool");
+    more.set_tooltip_text(Some("More Actions…"));
+    more.set_valign(gtk::Align::Center);
+    header.append(&more);
+    body.append(&header);
+    let empty_project = crate::chrome::empty_state(&rade_core::chrome::EMPTY_PROJECT_CHANGES);
+    let empty_source = crate::chrome::empty_state(&rade_core::chrome::EMPTY_CHANGES);
+    empty_project.set_visible(false);
+    empty_source.set_visible(false);
+    body.append(&empty_project);
+    body.append(&empty_source);
     let scroll = gtk::ScrolledWindow::new();
-    scroll.set_vexpand(true);
     scroll.set_hscrollbar_policy(gtk::PolicyType::Never);
-    scroll.set_child(Some(&list));
-
-    let top = gtk::Box::new(gtk::Orientation::Vertical, 6);
-    top.add_css_class("rade-scm-top");
-    top.append(&bar);
-    let identity = gtk::Label::new(None);
-    identity.add_css_class("changes-identity");
-    identity.set_wrap(true);
-    identity.set_xalign(0.0);
-    identity.set_visible(false);
-    let commit_box = gtk::Box::new(gtk::Orientation::Vertical, 6);
-    commit_box.append(&identity);
-    commit_box.append(&msg_overlay);
-    commit_box.append(&actions);
-    top.append(&commit_box);
-    top.append(&error);
-    let clean = crate::chrome::empty_state(&rade_core::chrome::EMPTY_CHANGES);
-    clean.set_visible(false);
-    let page = gtk::Box::new(gtk::Orientation::Vertical, 0);
-    page.add_css_class("rade-changes");
-    page.append(&top);
-    page.append(&clean);
-    page.append(&scroll);
+    scroll.set_vexpand(true);
+    scroll.set_child(Some(&body));
 
     let none = crate::chrome::empty_state(&rade_core::chrome::EMPTY_NO_REPO);
     let root = gtk::Stack::new();
-    root.add_named(&page, Some("repo"));
+    root.add_named(&scroll, Some("page"));
     root.add_named(&none, Some("none"));
-    root.add_named(&crate::changes_project::install(), Some("project"));
 
     let c = Rc::new(Changes {
         root,
-        branch,
-        sync,
-        pull,
-        push,
-        pr,
-        message,
-        hint,
-        generate,
-        commit,
-        error,
-        spinner,
-        list,
-        scroll,
-        commit_box,
-        clean,
-        state: RefCell::default(),
+        body,
+        title,
+        add,
+        del,
+        view_btn: view_btn.clone(),
+        page_actions: gio::SimpleActionGroup::new(),
+        empty_project,
+        empty_source,
+        cards: RefCell::default(),
+        shown: RefCell::default(),
+        reads: RefCell::default(),
+        messages: RefCell::default(),
+        monitors: RefCell::default(),
+        last_fetch: RefCell::default(),
         generation: Cell::new(0),
         refreshing: Cell::new(false),
         again: Cell::new(false),
-        ops: Cell::new(0),
-        drafting: RefCell::default(),
-        pr_form: RefCell::default(),
-        git_monitor: RefCell::default(),
+        autofetching: Cell::new(false),
         panel_shown: Cell::new(false),
-        project_mode: Cell::new(false),
-        detail: Cell::new(false),
-        back,
-        identity,
     });
-    c.connect();
+
+    // Header: the toggle, Refresh and the `…` menu (Fetch All, Sort by).
+    let w = Rc::downgrade(&c);
+    view_btn.connect_clicked(move |_| {
+        if let Some(c) = w.upgrade() {
+            let next = match current_view() {
+                ScmView::List => "tree",
+                ScmView::Tree => "list",
+            };
+            c.set_view(next);
+        }
+    });
+    let w = Rc::downgrade(&c);
+    refresh.connect_clicked(move |_| {
+        if let Some(c) = w.upgrade() {
+            c.refresh();
+        }
+    });
+    let fetch = gio::SimpleAction::new("fetch-all", None);
+    let w = Rc::downgrade(&c);
+    fetch.connect_activate(move |_, _| {
+        if let Some(c) = w.upgrade() {
+            c.fetch_all();
+        }
+    });
+    c.page_actions.add_action(&fetch);
+    let sort = gio::SimpleAction::new_stateful(
+        "sort",
+        Some(glib::VariantTy::STRING),
+        &"path".to_variant(),
+    );
+    let w = Rc::downgrade(&c);
+    sort.connect_activate(move |_, v| {
+        if let (Some(c), Some(v)) = (w.upgrade(), v.and_then(|v| v.get::<String>())) {
+            c.set_sort(&v);
+        }
+    });
+    c.page_actions.add_action(&sort);
+    let menu = gio::Menu::new();
+    let top = gio::Menu::new();
+    top.append(Some("Fetch All"), Some("page.fetch-all"));
+    menu.append_section(None, &top);
+    let sorts = gio::Menu::new();
+    for (l, v) in [
+        ("Sort by Path", "path"),
+        ("Sort by Name", "name"),
+        ("Sort by Status", "status"),
+    ] {
+        let i = gio::MenuItem::new(Some(l), None);
+        i.set_action_and_target_value(Some("page.sort"), Some(&v.to_variant()));
+        sorts.append_item(&i);
+    }
+    menu.append_section(None, &sorts);
+    more.set_menu_model(Some(&menu));
+    header.insert_action_group("page", Some(&c.page_actions));
+    c.update_chrome();
+
     CHANGES.with(|x| *x.borrow_mut() = Some(c.clone()));
     // While the page is on screen and the window active (R21.8).
     glib::timeout_add_local(POLL, || {
@@ -296,173 +239,198 @@ pub fn install() -> gtk::Widget {
         }
         glib::ControlFlow::Continue
     });
+    // The opt-in auto-fetch (R121.4), whether or not the page is visible.
+    glib::timeout_add_seconds_local(30, || {
+        if let Some(c) = get() {
+            c.autofetch_tick();
+        }
+        glib::ControlFlow::Continue
+    });
     c.root.clone().upcast()
 }
 
+fn current_view() -> ScmView {
+    try_app().map_or(ScmView::default(), |a| a.config.borrow().scm.view)
+}
+
+fn current_sort() -> ScmSort {
+    try_app().map_or(ScmSort::default(), |a| a.config.borrow().scm.sort)
+}
+
+/// The Project of the focused checkout and its Changes groups, if it is
+/// in one (a linked Worktree's recorded Project, else the first Project
+/// whose link uses this checkout).
+pub fn focused(ws: &rade_core::State) -> Option<(String, String, Vec<home::Group>)> {
+    let links: Vec<LinkView> = crate::navdata::links(ws);
+    let projects = crate::navdata::projects(ws);
+    let (s, w) = ws.active();
+    if s.is_general() {
+        return None;
+    }
+    let canon = crate::projects::canon;
+    let here = canon(&w.path);
+    let project = if ws.is_main_worktree(&s.id, &w.id) {
+        projects
+            .iter()
+            .find(|p| {
+                links.iter().any(|l| {
+                    l.project == p.id
+                        && l.source == s.id
+                        && l.path.as_deref().is_some_and(|x| canon(x) == here)
+                })
+            })
+            .or_else(|| {
+                // A Terminal on a link's Project checkout lives in the
+                // main Worktree: the link whose checkout holds its cwd.
+                let cwd = ws
+                    .active_tab()
+                    .and_then(|t| t.pane(&t.focused))
+                    .and_then(|p| match &p.kind {
+                        rade_core::PaneKind::Terminal { cwd, .. } => Some(canon(cwd)),
+                        _ => None,
+                    });
+                projects.iter().find(|p| {
+                    links.iter().any(|l| {
+                        l.project == p.id
+                            && l.source == s.id
+                            && l.path
+                                .as_deref()
+                                .zip(cwd.as_deref())
+                                .is_some_and(|(x, c)| c.starts_with(canon(x)))
+                    })
+                })
+            })
+    } else {
+        w.project
+            .as_deref()
+            .and_then(|id| projects.iter().find(|p| p.id == id))
+            .filter(|p| links.iter().any(|l| l.project == p.id && l.source == s.id))
+    }?;
+    let groups = home::change_groups(ws, &project.id, &links, Some((&s.id, &w.id)));
+    Some((project.id.clone(), project.name.clone(), groups))
+}
+
+/// What the page shows for the focused checkout (D1).
+fn shown_for(ws: &rade_core::State) -> Shown {
+    let name_of = |id: &str| ws.source(id).map_or(id.to_string(), |s| s.name.clone());
+    if let Some((_, pname, groups)) = focused(ws) {
+        let names = groups.iter().map(|g| name_of(&g.source)).collect();
+        return Shown {
+            mode: Mode::Project,
+            title: rade_core::scm_view::header_title(Some(&pname), ""),
+            groups,
+            names,
+        };
+    }
+    let (s, w) = ws.active();
+    let group = Group {
+        project: String::new(),
+        source: s.id.clone(),
+        path: w.path.clone(),
+        worktree: Some((s.id.clone(), w.id.clone())),
+        // The card shows the branch itself.
+        label: String::new(),
+        // Empty: the read resolves the default branch off the GTK thread.
+        base: ws.comparison_base(&w.path).unwrap_or_default(),
+    };
+    Shown {
+        mode: Mode::Source,
+        title: rade_core::scm_view::header_title(None, &s.name),
+        groups: vec![group],
+        names: vec![s.name.clone()],
+    }
+}
+
 impl Changes {
-    fn connect(self: &Rc<Self>) {
-        let w = Rc::downgrade(self);
-        self.back.connect_clicked(move |_| {
-            if let Some(c) = w.upgrade() {
-                c.set_detail(false);
-            }
-        });
-        let w = Rc::downgrade(self);
-        self.message.buffer().connect_changed(move |_| {
-            if let Some(c) = w.upgrade() {
-                c.update_buttons();
-            }
-        });
-        let keys = gtk::EventControllerKey::new();
-        let w = Rc::downgrade(self);
-        keys.connect_key_pressed(move |_, key, _, state| {
-            let enter = matches!(key, gtk::gdk::Key::Return | gtk::gdk::Key::KP_Enter);
-            let mods = state
-                & (gtk::gdk::ModifierType::CONTROL_MASK
-                    | gtk::gdk::ModifierType::SHIFT_MASK
-                    | gtk::gdk::ModifierType::ALT_MASK);
-            if enter && mods == gtk::gdk::ModifierType::CONTROL_MASK {
-                if let Some(c) = w.upgrade() {
-                    c.commit_clicked();
-                }
-                return glib::Propagation::Stop;
-            }
-            glib::Propagation::Proceed
-        });
-        self.message.add_controller(keys);
-        let w = Rc::downgrade(self);
-        self.commit.connect_clicked(move |_| {
-            if let Some(c) = w.upgrade() {
-                c.commit_clicked();
-            }
-        });
-        let w = Rc::downgrade(self);
-        self.generate.connect_clicked(move |_| {
-            if let Some(c) = w.upgrade() {
-                c.generate_commit();
-            }
-        });
-        let w = Rc::downgrade(self);
-        self.pull.connect_clicked(move |_| {
-            if let Some(c) = w.upgrade() {
-                c.pull_clicked();
-            }
-        });
-        let w = Rc::downgrade(self);
-        self.push.connect_clicked(move |_| {
-            if let Some(c) = w.upgrade() {
-                c.push_clicked();
-            }
-        });
-        let w = Rc::downgrade(self);
-        self.pr.connect_clicked(move |_| {
-            if let Some(c) = w.upgrade() {
-                c.pr_clicked();
-            }
-        });
-        let w = Rc::downgrade(self);
-        self.list.connect_row_activated(move |_, row| {
-            let Some(c) = w.upgrade() else { return };
-            let key = c
-                .state
-                .borrow()
-                .rows
-                .get(row.index() as usize)
-                .cloned()
-                .flatten();
-            if let Some(k) = key {
-                c.toggle(&k);
-            }
-        });
-    }
-
-    /// Whether the page shows the focused Project (R107.1).
-    pub fn project_mode(&self) -> bool {
-        self.project_mode.get() && !self.detail.get()
-    }
-
-    /// `project` (Changes by Project), `checkout` (one checkout's page) or
-    /// `none` (not a repository).
-    pub fn mode(&self) -> &'static str {
-        match self.root.visible_child_name().as_deref() {
-            Some("project") => "project",
-            Some("none") => "none",
-            _ => "checkout",
+    /// Every sync: what is in focus; the cards follow it.
+    pub fn follow_project(self: &Rc<Self>, ws: &rade_core::State) {
+        let now = shown_for(ws);
+        if self.shown.borrow().as_ref() != Some(&now) {
+            *self.shown.borrow_mut() = Some(now);
+            self.generation.set(self.generation.get() + 1);
+            self.rebuild_cards();
+            self.refresh();
         }
-    }
-
-    /// The single-checkout page (`Details`) or back to the Project.
-    pub fn set_detail(self: &Rc<Self>, on: bool) {
-        self.detail.set(on);
-        self.show_page();
+        self.sync_drift(ws);
+        // The focused checkout's identity warning (R107.5) for a checkout
+        // outside every Project.
+        let warn = crate::chrome::identity_warning(ws);
+        for c in self.cards.borrow().iter() {
+            c.set_focus_identity(warn.clone());
+        }
         self.sync_primary();
     }
 
-    /// Every sync: is the focused checkout in a Project?
-    pub fn follow_project(self: &Rc<Self>, ws: &rade_core::State) {
-        let Some(pc) = crate::changes_project::get() else {
+    /// Every sync: refresh when the Inspector comes into view (R21.8).
+    pub fn follow(self: &Rc<Self>, _root: &Path, panel_shown: bool) {
+        let was = self.panel_shown.replace(panel_shown);
+        if panel_shown && !was {
+            self.refresh();
+        }
+    }
+
+    pub(crate) fn remember_message(&self, path: &Path, text: &str) {
+        let mut m = self.messages.borrow_mut();
+        if text.is_empty() {
+            m.remove(path);
+        } else {
+            m.insert(path.to_path_buf(), text.to_string());
+        }
+    }
+
+    fn rebuild_cards(self: &Rc<Self>) {
+        let Some(shown) = self.shown.borrow().clone() else {
             return;
         };
-        // This page shows the focused checkout: its identity warning.
-        let warn = crate::chrome::identity_warning(ws);
-        self.identity.set_label(warn.as_deref().unwrap_or(""));
-        self.identity.set_visible(warn.is_some());
-        let was = self.project_mode.get();
-        let on = pc.follow(ws);
-        if on != was {
-            self.detail.set(false);
+        let old: Vec<Rc<Card>> = std::mem::take(&mut *self.cards.borrow_mut());
+        for c in &old {
+            self.body.remove(&c.outer);
         }
-        self.project_mode.set(on);
-        self.show_page();
-    }
-
-    /// Which page the stack shows.
-    fn show_page(self: &Rc<Self>) {
-        self.back.set_visible(self.project_mode.get());
-        if self.project_mode() {
-            self.root.set_visible_child_name("project");
-            if let Some(pc) = crate::changes_project::get() {
-                pc.render();
+        let mut cards = Vec::new();
+        for (g, name) in shown.groups.iter().zip(&shown.names) {
+            let reused = old.iter().find(|c| {
+                c.path == g.path
+                    && c.source == g.source
+                    && c.project == g.project
+                    && c.name == *name
+            });
+            let card = match reused {
+                Some(c) => {
+                    c.set_label(&g.label);
+                    c.clone()
+                }
+                None => {
+                    let c = Card::new(g, name);
+                    c.set_label(&g.label);
+                    if let Some(t) = self.messages.borrow().get(&g.path) {
+                        c.set_message(t);
+                    }
+                    c
+                }
+            };
+            if let Some(r) = self.reads.borrow().get(&g.path) {
+                card.set_read(r.clone());
             }
-            return;
+            self.body.append(&card.outer);
+            cards.push(card);
         }
-        let repo = !matches!(self.state.borrow().shown, Some((Err(_), _)));
-        self.root
-            .set_visible_child_name(if repo { "repo" } else { "none" });
-        if let Some(st) = self.status() {
-            if let Some(app) = try_app() {
-                app.chrome.right.set_count("changes", st.files.len());
+        // A `.git` monitor per card (an Agent's `git add`, a commit).
+        let paths: Vec<PathBuf> = shown.groups.iter().map(|g| g.path.clone()).collect();
+        self.monitors.borrow_mut().retain(|p, _| paths.contains(p));
+        for p in &paths {
+            if !self.monitors.borrow().contains_key(p) {
+                if let Some(m) = self.watch_git(p) {
+                    self.monitors.borrow_mut().insert(p.clone(), m);
+                }
             }
         }
+        *self.cards.borrow_mut() = cards;
+        self.update_header();
     }
 
-    fn root_dir(&self) -> Option<PathBuf> {
-        self.state.borrow().root.clone()
-    }
-
-    /// Follow the active Worktree (every sync); refresh when it changes or
-    /// the Right Panel comes into view (R21.8).
-    pub fn follow(self: &Rc<Self>, root: &Path, panel_shown: bool) {
-        let was_shown = self.panel_shown.replace(panel_shown);
-        if self.state.borrow().root.as_deref() != Some(root) {
-            self.generation.set(self.generation.get() + 1);
-            {
-                let mut st = self.state.borrow_mut();
-                st.root = Some(root.to_path_buf());
-                st.shown = None;
-                st.expanded.clear();
-            }
-            self.show_error(None);
-            self.watch_git(root);
-            self.refresh();
-        } else if panel_shown && !was_shown {
-            self.refresh();
-        }
-    }
-
-    /// Refresh at once when git's own folder changes (commit, checkout,
-    /// an Agent's `git add`). A linked worktree's `.git` is a file naming it.
-    fn watch_git(self: &Rc<Self>, root: &Path) {
+    /// Refresh at once when git's own folder changes (commit, checkout, an
+    /// Agent's `git add`). A linked worktree's `.git` is a file naming it.
+    fn watch_git(self: &Rc<Self>, root: &Path) -> Option<gio::FileMonitor> {
         let dot = root.join(".git");
         let dir = if dot.is_file() {
             std::fs::read_to_string(&dot)
@@ -475,59 +443,118 @@ impl Changes {
             gio::File::for_path(d)
                 .monitor_directory(gio::FileMonitorFlags::NONE, gio::Cancellable::NONE)
                 .ok()
+        })?;
+        monitor.set_rate_limit(500);
+        let w = Rc::downgrade(self);
+        monitor.connect_changed(move |_, f, _, _| {
+            // Lock files come and go during every git call.
+            if f.basename()
+                .is_some_and(|n| n.to_string_lossy().ends_with(".lock"))
+            {
+                return;
+            }
+            if let Some(c) = w.upgrade() {
+                if c.panel_shown.get() {
+                    c.refresh();
+                }
+            }
         });
-        if let Some(m) = &monitor {
-            m.set_rate_limit(500);
-            let w = Rc::downgrade(self);
-            m.connect_changed(move |_, f, _, _| {
-                // Lock files come and go during every git call.
-                if f.basename()
-                    .is_some_and(|n| n.to_string_lossy().ends_with(".lock"))
-                {
-                    return;
-                }
-                if let Some(c) = w.upgrade() {
-                    if c.panel_shown.get() {
-                        c.refresh();
-                    }
-                }
-            });
-        }
-        *self.git_monitor.borrow_mut() = monitor;
+        Some(monitor)
     }
 
-    /// Re-read the status (and the expanded files' diffs) off the GTK
-    /// thread; the list is rebuilt only when something changed.
+    /// The drift card of a drifted link, below its card (A.67).
+    fn sync_drift(&self, ws: &rade_core::State) {
+        let Some(shown) = self.shown.borrow().clone() else {
+            return;
+        };
+        if shown.mode != Mode::Project {
+            for c in self.cards.borrow().iter() {
+                c.set_drift(None);
+            }
+            return;
+        }
+        let links = crate::navdata::links(ws);
+        for (c, g) in self.cards.borrow().iter().zip(&shown.groups) {
+            let drift = links
+                .iter()
+                .find(|l| l.project == g.project && l.source == g.source)
+                .and_then(|l| {
+                    l.drift
+                        .as_ref()
+                        .filter(|_| g.worktree.is_none())
+                        .map(|d| home::drift_card(&l.source, &l.project_name, d))
+                });
+            c.set_drift(drift);
+        }
+    }
+
+    /// Read each card's checkout again (one read at a time).
     pub fn refresh(self: &Rc<Self>) {
-        let Some(root) = self.root_dir() else { return };
+        let Some(shown) = self.shown.borrow().clone() else {
+            return;
+        };
+        if shown.groups.is_empty() {
+            self.update_header();
+            return;
+        }
         if self.refreshing.replace(true) {
             self.again.set(true);
             return;
         }
         let generation = self.generation.get();
-        let expanded: Vec<Key> = self.state.borrow().expanded.iter().cloned().collect();
+        // Each checkout's `user.email` is read under its Source's
+        // Workspace env (R23.3), as its Commit runs.
+        let (email, envs) = match try_app() {
+            Some(app) => {
+                let m = app.model.borrow();
+                let email = m
+                    .workspace(m.active_workspace())
+                    .and_then(|w| rade_core::workspace::WorkspaceFile::read(&w.root).ok())
+                    .and_then(|f| f.identity.git_email);
+                let envs: Vec<_> = shown
+                    .groups
+                    .iter()
+                    .map(|g| crate::app::workspace_env(&m, &g.source))
+                    .collect();
+                (email, envs)
+            }
+            None => (None, vec![Vec::new(); shown.groups.len()]),
+        };
+        let groups = shown.groups.clone();
         let w = Rc::downgrade(self);
         crate::worktrees::in_background(
             move || {
-                let st = scm::status(&root).map_err(|e| e.message);
-                let mut diffs = HashMap::new();
-                if let Ok(s) = &st {
-                    for (path, sec) in expanded {
-                        if let Some(c) =
-                            s.files.iter().find(|c| c.path == path && c.in_section(sec))
-                        {
-                            let d = scm::file_diff(&root, c, sec).unwrap_or_else(|e| e.message);
-                            diffs.insert((path, sec), d);
-                        }
-                    }
-                }
-                (st, diffs)
+                groups
+                    .iter()
+                    .zip(envs)
+                    .map(|(g, env)| {
+                        let base = if g.base.is_empty() {
+                            rade_core::git::default_branch(&g.path).unwrap_or_else(|| "main".into())
+                        } else {
+                            g.base.clone()
+                        };
+                        let snap = scm::snapshot(&g.path, &base).map_err(|e| e.message);
+                        let identity = (snap.is_ok() && !g.project.is_empty()).then(|| {
+                            rade_core::chrome::identity_warning(
+                                email.as_deref(),
+                                crate::titlebar::read_email(&g.path, env).as_deref(),
+                            )
+                        });
+                        (
+                            g.path.clone(),
+                            Read {
+                                snap,
+                                identity: identity.flatten(),
+                            },
+                        )
+                    })
+                    .collect::<HashMap<_, _>>()
             },
-            move |(st, diffs)| {
+            move |reads| {
                 let Some(c) = w.upgrade() else { return };
                 c.refreshing.set(false);
                 if c.generation.get() == generation {
-                    c.apply(st, diffs);
+                    c.apply_reads(reads);
                 }
                 if c.again.take() {
                     c.refresh();
@@ -536,830 +563,208 @@ impl Changes {
         );
     }
 
-    fn apply(
-        self: &Rc<Self>,
-        st: std::result::Result<Status, String>,
-        diffs: HashMap<Key, String>,
-    ) {
-        let same = self
-            .state
-            .borrow()
-            .shown
-            .as_ref()
-            .is_some_and(|(s, d)| *s == st && *d == diffs);
-        if same {
-            return;
-        }
-        // Expanded files that are gone close.
-        if let Ok(s) = &st {
-            self.state
-                .borrow_mut()
-                .expanded
-                .retain(|(p, sec)| s.files.iter().any(|c| &c.path == p && c.in_section(*sec)));
-        }
-        self.state.borrow_mut().shown = Some((st, diffs));
-        self.render();
-    }
-
-    fn status(&self) -> Option<Status> {
-        match &self.state.borrow().shown {
-            Some((Ok(s), _)) => Some(s.clone()),
-            _ => None,
-        }
-    }
-
-    fn render(self: &Rc<Self>) {
-        let (st, diffs) = match &self.state.borrow().shown {
-            Some((s, d)) => (s.clone(), d.clone()),
-            None => return,
-        };
-        let Ok(st) = st else {
-            if !self.project_mode() {
-                self.root.set_visible_child_name("none");
-                if let Some(app) = try_app() {
-                    app.chrome.right.set_count("changes", 0);
-                }
+    fn apply_reads(self: &Rc<Self>, reads: HashMap<PathBuf, Read>) {
+        for c in self.cards.borrow().iter() {
+            if let Some(r) = reads.get(&c.path) {
+                c.set_read(r.clone());
             }
+        }
+        self.reads.borrow_mut().extend(reads);
+        self.update_header();
+        self.sync_primary();
+    }
+
+    /// The header, the empty states, the Inspector's count and which page
+    /// shows.
+    fn update_header(&self) {
+        let Some(shown) = self.shown.borrow().clone() else {
             return;
         };
-        if self.project_mode() {
-            self.root.set_visible_child_name("project");
-        } else {
-            self.root.set_visible_child_name("repo");
-            if let Some(app) = try_app() {
-                app.chrome.right.set_count("changes", st.files.len());
-            }
-        }
-        self.branch
-            .set_label(st.branch.as_deref().unwrap_or("(detached)"));
-        self.branch.set_tooltip_text(Some(&match &st.upstream {
-            Some(u) => format!("Upstream: {u}"),
-            None => "No upstream: the first Push sets one".into(),
-        }));
-        self.sync
-            .set_label(&match (&st.upstream, st.own_upstream()) {
-                (Some(_), Some(_)) => format!("↑{} ↓{}", st.ahead, st.behind),
-                _ => "not pushed".into(),
-            });
-
-        let vadj = self.scroll.vadjustment();
-        let pos = vadj.value();
-        while let Some(r) = self.list.first_child() {
-            self.list.remove(&r);
-        }
-        let mut rows: Vec<Option<Key>> = Vec::new();
-        let expanded = self.state.borrow().expanded.clone();
-        for sec in SECTIONS {
-            let items = st.section(sec);
-            if items.is_empty() {
-                continue;
-            }
-            self.list.append(&self.section_row(sec, &items));
-            rows.push(None);
-            let more = items.len().saturating_sub(MAX_ROWS);
-            for c in items.into_iter().take(MAX_ROWS) {
-                let key = (c.path.clone(), sec);
-                let open = expanded.contains(&key);
-                self.list.append(&self.file_row(c, sec, open));
-                rows.push(Some(key.clone()));
-                if open {
-                    if let Some(raw) = diffs.get(&key) {
-                        self.list.append(&self.diff_row(c, sec, raw));
-                        rows.push(None);
-                    }
-                }
-            }
-            if more > 0 {
-                let l = gtk::Label::new(Some(&format!("… and {more} more")));
-                l.add_css_class("rade-meta");
-                l.set_xalign(0.0);
-                l.set_margin_start(28);
-                self.list.append(&plain_row(&l));
-                rows.push(None);
-            }
-        }
-        // Clean: one line and key hints instead of the commit box (R103.6).
-        let clean = st.files.is_empty();
-        self.clean.set_visible(clean);
-        self.commit_box.set_visible(!clean);
-        self.scroll.set_visible(!clean);
-        self.state.borrow_mut().rows = rows;
-        // Keep the scroll position across the rebuild.
-        glib::idle_add_local_once(move || vadj.set_value(pos));
-        self.update_buttons();
-    }
-
-    fn section_row(self: &Rc<Self>, sec: Section, items: &[&Change]) -> gtk::ListBoxRow {
-        let b = gtk::Box::new(gtk::Orientation::Horizontal, 4);
-        let title = gtk::Label::new(Some(sec.title()));
-        title.add_css_class("rade-scm-section");
-        let n = gtk::Label::new(Some(&items.len().to_string()));
-        n.add_css_class("rade-meta");
-        n.set_hexpand(true);
-        n.set_xalign(0.0);
-        b.append(&title);
-        b.append(&n);
-        let paths: Vec<String> = items.iter().flat_map(|c| scm::paths_of(c)).collect();
-        let (icon, tip) = match sec {
-            Section::Staged => ("list-remove-symbolic", "Unstage All"),
-            _ => ("list-add-symbolic", "Stage All"),
-        };
-        let all = icon_button(icon, tip);
-        let w = Rc::downgrade(self);
-        all.connect_clicked(move |_| {
-            if let Some(c) = w.upgrade() {
-                c.stage_paths(paths.clone(), sec != Section::Staged);
-            }
+        let cards = self.cards.borrow();
+        self.title.set_label(&shown.title);
+        let (a, d) = cards.iter().fold((0, 0), |(a, d), c| {
+            let t = c.totals();
+            (a + t.0, d + t.1)
         });
-        b.append(&all);
-        let row = gtk::ListBoxRow::new();
-        row.set_child(Some(&b));
-        row.set_activatable(false);
-        row.add_css_class("rade-scm-head");
-        row
-    }
-
-    fn file_row(self: &Rc<Self>, c: &Change, sec: Section, open: bool) -> gtk::ListBoxRow {
-        let b = gtk::Box::new(gtk::Orientation::Horizontal, 6);
-        let chevron = gtk::Image::from_icon_name(if open {
-            "pan-down-symbolic"
-        } else {
-            "pan-end-symbolic"
-        });
-        chevron.add_css_class("rade-dim");
-        let letter = c.letter(sec);
-        let mark = gtk::Label::new(Some(&letter.to_string()));
-        mark.add_css_class("rade-git-mark");
-        mark.add_css_class(git_class(letter));
-        let (dir, name) = match c.path.rsplit_once('/') {
-            Some((d, n)) => (d.to_string(), n.to_string()),
-            None => (String::new(), c.path.clone()),
-        };
-        let name_l = gtk::Label::new(Some(&name));
-        name_l.set_xalign(0.0);
-        name_l.set_ellipsize(gtk::pango::EllipsizeMode::Middle);
-        name_l.add_css_class(git_class(letter));
-        if letter == 'D' {
-            name_l.add_css_class("rade-strike");
-        }
-        let dir_l = gtk::Label::new(Some(&dir));
-        dir_l.set_xalign(0.0);
-        dir_l.set_hexpand(true);
-        dir_l.set_ellipsize(gtk::pango::EllipsizeMode::Start);
-        dir_l.add_css_class("rade-meta");
-        b.append(&chevron);
-        b.append(&name_l);
-        b.append(&dir_l);
-        b.append(&mark);
-        let tip = match &c.orig {
-            Some(o) => format!("{o} → {}", c.path),
-            None => c.path.clone(),
-        };
-        b.set_tooltip_text(Some(&tip));
-        let key = (c.path.clone(), sec);
-        let w = Rc::downgrade(self);
-        let add = |icon: &str, tip: &str, op: &'static str| {
-            let btn = icon_button(icon, tip);
-            btn.add_css_class("rade-scm-act");
-            let (w, key) = (w.clone(), key.clone());
-            btn.connect_clicked(move |_| {
-                if let Some(c) = w.upgrade() {
-                    c.file_op(&key, op);
-                }
-            });
-            b.append(&btn);
-        };
-        match sec {
-            Section::Staged => add("list-remove-symbolic", "Unstage", "unstage"),
-            Section::Unstaged => {
-                add("edit-undo-symbolic", "Discard Changes…", "discard");
-                add("list-add-symbolic", "Stage", "stage");
-            }
-            Section::Untracked => {
-                add("user-trash-symbolic", "Delete File…", "discard");
-                add("list-add-symbolic", "Stage", "stage");
-            }
-        }
-        let row = gtk::ListBoxRow::new();
-        row.set_child(Some(&b));
-        row.add_css_class("rade-scm-file");
-        row
-    }
-
-    fn diff_row(self: &Rc<Self>, c: &Change, sec: Section, raw: &str) -> gtk::ListBoxRow {
-        let v = gtk::Box::new(gtk::Orientation::Vertical, 0);
-        v.add_css_class("rade-scm-diff");
-        let tools = gtk::Box::new(gtk::Orientation::Horizontal, 4);
-        tools.set_halign(gtk::Align::End);
-        let open = gtk::Button::new();
-        open.set_child(Some(
-            &adw::ButtonContent::builder()
-                .icon_name("document-open-symbolic")
-                .label("Open File")
-                .build(),
-        ));
-        open.add_css_class("flat");
-        open.add_css_class("rade-scm-small");
-        let path = self.root_dir().unwrap_or_default().join(&c.path);
-        open.connect_clicked(move |_| crate::files::open_in_viewer(&path));
-        tools.append(&open);
-        let review = gtk::Button::new();
-        review.set_child(Some(
-            &adw::ButtonContent::builder()
-                .icon_name("rade-review-symbolic")
-                .label("Review")
-                .build(),
-        ));
-        review.add_css_class("flat");
-        review.add_css_class("rade-scm-small");
-        review.set_tooltip_text(Some("The Worktree's full diff, full width (Ctrl+Shift+R)"));
-        review.connect_clicked(|_| crate::keys::run_action("open_review"));
-        tools.append(&review);
-        v.append(&tools);
-        let files = diff::parse(raw, &[]);
-        let patches = scm::split_patch(raw);
-        let Some(f) = files.first() else {
-            let l = gtk::Label::new(Some(if raw.starts_with("git ") {
-                raw
+        self.add.set_label(&format!("+{a}"));
+        self.del.set_label(&format!("−{d}"));
+        let read = cards.iter().filter(|c| c.has_read()).count();
+        // A card with Publish / Push / Pull to offer is not empty.
+        let clean = cards.iter().all(|c| !c.has_changes() && !c.has_action());
+        let all_clean = read == cards.len() && clean;
+        self.empty_project
+            .set_visible(all_clean && shown.mode == Mode::Project);
+        self.empty_source
+            .set_visible(all_clean && shown.mode == Mode::Source);
+        // Not a repository: the single card of Source mode cannot read.
+        let none =
+            shown.mode == Mode::Source && cards.first().is_some_and(|c| c.read_error().is_some());
+        self.root
+            .set_visible_child_name(if none { "none" } else { "page" });
+        if let Some(app) = try_app() {
+            let n = if none {
+                0
             } else {
-                "No textual changes (mode or empty file)"
-            }));
-            l.add_css_class("rade-meta");
-            l.set_wrap(true);
-            l.set_xalign(0.0);
-            v.append(&l);
-            return plain_row(&v);
-        };
-        if f.binary {
-            let l = gtk::Label::new(Some("Binary file"));
-            l.add_css_class("rade-meta");
-            v.append(&l);
-            return plain_row(&v);
+                cards.iter().map(|c| c.file_count()).sum()
+            };
+            app.chrome.right.set_count("changes", n);
         }
-        let per_hunk = scm::hunks_apply(f) && sec != Section::Untracked;
-        let mut shown = 0;
-        for (hi, h) in f.hunks.iter().enumerate() {
-            if shown >= MAX_LINES {
-                let more = gtk::Label::new(Some("… more in the Review"));
-                more.add_css_class("rade-meta");
-                v.append(&more);
-                break;
-            }
-            let head = gtk::Box::new(gtk::Orientation::Horizontal, 2);
-            head.add_css_class("rade-diff-hunk");
-            let hl = gtk::Label::new(Some(&h.header));
-            hl.set_xalign(0.0);
-            hl.set_hexpand(true);
-            hl.set_ellipsize(gtk::pango::EllipsizeMode::End);
-            hl.add_css_class("rade-scm-mono");
-            head.append(&hl);
-            if per_hunk {
-                let patch = patches
-                    .first()
-                    .and_then(|p| scm::hunk_patch(p, hi))
-                    .unwrap_or_default();
-                let add = |icon: &str, tip: &str, op: HunkOp| {
-                    let b = icon_button(icon, tip);
-                    b.add_css_class("rade-scm-act");
-                    let (w, patch) = (Rc::downgrade(self), patch.clone());
-                    b.connect_clicked(move |_| {
-                        if let Some(c) = w.upgrade() {
-                            c.hunk_op(patch.clone(), op);
-                        }
-                    });
-                    head.append(&b);
-                };
-                match sec {
-                    Section::Staged => add("list-remove-symbolic", "Unstage Hunk", HunkOp::Unstage),
-                    _ => {
-                        add("edit-undo-symbolic", "Discard Hunk…", HunkOp::Discard);
-                        add("list-add-symbolic", "Stage Hunk", HunkOp::Stage);
-                    }
-                }
-            }
-            v.append(&head);
-            for l in h.lines.iter().take(MAX_LINES.saturating_sub(shown)) {
-                let (sign, class) = match l.kind {
-                    diff::LineKind::Added => ('+', Some("rade-diff-added")),
-                    diff::LineKind::Removed => ('-', Some("rade-diff-removed")),
-                    diff::LineKind::Context => (' ', None),
-                };
-                let t = gtk::Label::new(Some(&format!("{sign}{}", l.text)));
-                t.set_xalign(0.0);
-                t.set_ellipsize(gtk::pango::EllipsizeMode::End);
-                t.add_css_class("rade-scm-mono");
-                if let Some(c) = class {
-                    t.add_css_class(c);
-                }
-                v.append(&t);
-            }
-            shown += h.lines.len();
-        }
-        plain_row(&v)
     }
 
-    fn toggle(self: &Rc<Self>, key: &Key) {
-        {
-            let mut st = self.state.borrow_mut();
-            if !st.expanded.remove(key) {
-                st.expanded.insert(key.clone());
-            }
-            // Force the rebuild with the diff.
-            st.shown = st.shown.take().map(|(s, mut d)| {
-                d.remove(key);
-                (s, d)
-            });
-        }
-        self.render();
-        self.refresh();
-    }
-
-    /// Commit is the screen's one primary button (R103.6) while there is
-    /// something to commit and no modal surface (palette, dialog) is over
-    /// the screen, which then holds the primary (decision log M33).
+    /// Commit is the screen's one primary button (R103.6): the focused
+    /// checkout's card while it has changes and no modal surface (palette,
+    /// dialog) is over the screen, which then holds the primary (decision
+    /// log M33).
     pub fn sync_primary(&self) {
-        // Changes by Project draws its own primary Commit (one per page).
-        if let Some(pc) = crate::changes_project::get() {
-            pc.repaint();
-        }
-        let committable =
-            self.status().is_some_and(|s| !s.files.is_empty()) && !self.project_mode();
+        let Some(app) = try_app() else { return };
         let modal = crate::palette::is_open()
             || crate::project_dialogs::is_open()
-            || try_app().is_some_and(|app| {
-                libadwaita::prelude::AdwApplicationWindowExt::visible_dialog(&app.window).is_some()
-            });
-        if committable && !modal {
-            self.commit.add_css_class("suggested-action");
-        } else {
-            self.commit.remove_css_class("suggested-action");
+            || adw::prelude::AdwApplicationWindowExt::visible_dialog(&app.window).is_some();
+        let (fs, fw) = {
+            let m = app.model.borrow();
+            let (s, w) = m.active();
+            (s.id.clone(), w.path.clone())
+        };
+        for c in self.cards.borrow().iter() {
+            c.set_primary(!modal && c.source == fs && rade_core::git::same(&c.path, &fw));
         }
     }
 
-    fn update_buttons(&self) {
-        let st = self.status();
-        let staged = st
-            .as_ref()
-            .is_some_and(|s| !s.section(Section::Staged).is_empty());
-        let msg = !text_of(&self.message).trim().is_empty();
-        self.hint
-            .set_visible(self.message.buffer().char_count() == 0);
-        self.commit
-            .set_sensitive(staged && msg && self.ops.get() == 0);
-        self.sync_primary();
-        let branch = st.as_ref().is_some_and(|s| s.branch.is_some());
-        self.push.set_sensitive(branch);
-        self.pr.set_sensitive(branch);
-        let upstream = st.as_ref().is_some_and(|s| s.upstream.is_some());
-        self.pull.set_sensitive(upstream);
-        self.pull.set_tooltip_text(Some(if upstream {
-            "Pull (git pull --ff-only)"
-        } else {
-            "Pull: no upstream yet (Push sets one)"
-        }));
-        let drafting = self.drafting.borrow().is_some();
-        if let Some(c) = self.generate.child().and_downcast::<adw::ButtonContent>() {
-            c.set_label(if drafting { "Cancel" } else { "Generate" });
+    /// The toggle's icon, the sort items' state, from the config.
+    fn update_chrome(&self) {
+        let view = current_view();
+        match view {
+            ScmView::List => {
+                self.view_btn.set_icon_name("ph-tree-view-symbolic");
+                self.view_btn.set_tooltip_text(Some("View as Tree"));
+            }
+            ScmView::Tree => {
+                self.view_btn.set_icon_name("ph-list-symbolic");
+                self.view_btn.set_tooltip_text(Some("View as List"));
+            }
         }
-        self.spinner.set_visible(self.ops.get() > 0 || drafting);
-    }
-
-    fn show_error(&self, e: Option<String>) {
-        self.error.set_visible(e.is_some());
-        self.error.set_label(e.as_deref().unwrap_or(""));
-    }
-
-    /// Run git work off the GTK thread, then `ok` with its result; an
-    /// error shows in the page (R21.8). The list refreshes either way.
-    /// The Workspace env for this Worktree's push / pull / gh / Draft
-    /// (R23.3).
-    fn env(&self) -> Vec<(String, String)> {
-        match (self.root_dir(), try_app()) {
-            (Some(root), Some(app)) => crate::app::workspace_env_at(&app.model.borrow(), &root),
-            _ => Vec::new(),
+        if let Some(a) = self
+            .page_actions
+            .lookup_action("sort")
+            .and_downcast::<gio::SimpleAction>()
+        {
+            a.set_enabled(view == ScmView::List);
+            a.set_state(
+                &match current_sort() {
+                    ScmSort::Path => "path",
+                    ScmSort::Name => "name",
+                    ScmSort::Status => "status",
+                }
+                .to_variant(),
+            );
         }
     }
 
-    fn run<T: Send + 'static>(
-        self: &Rc<Self>,
-        what: &'static str,
-        work: impl FnOnce(PathBuf) -> Result<T> + Send + 'static,
-        ok: impl FnOnce(&Rc<Self>, T) + 'static,
-    ) {
-        let Some(root) = self.root_dir() else { return };
-        self.show_error(None);
-        self.ops.set(self.ops.get() + 1);
-        self.update_buttons();
+    /// `[scm] view` / `sort` through the Settings writer (comments kept),
+    /// then every card from its last read.
+    fn write_scm(self: &Rc<Self>, key: &str, value: &str) {
+        match crate::settings_view::write_setting(key, Some(toml::Value::String(value.into()))) {
+            Ok(config) => {
+                crate::keys::apply_config(config);
+                self.update_chrome();
+                for c in self.cards.borrow().iter() {
+                    c.render();
+                }
+            }
+            Err(e) => {
+                if let Some(c) = self.cards.borrow().first() {
+                    c.show_error(Some(format!("View: {e}")));
+                }
+            }
+        }
+    }
+
+    pub(crate) fn set_view(self: &Rc<Self>, v: &str) {
+        self.write_scm("scm.view", v);
+    }
+
+    pub(crate) fn set_sort(self: &Rc<Self>, v: &str) {
+        self.write_scm("scm.sort", v);
+    }
+
+    /// Fetch every card's remote.
+    pub(crate) fn fetch_all(self: &Rc<Self>) {
+        for c in self.cards.borrow().clone() {
+            c.fetch(true);
+        }
+    }
+
+    /// The auto-fetch timer's callback (D14): each card whose last fetch is
+    /// older than the period, one at a time, in one background job.
+    pub fn autofetch_tick(self: &Rc<Self>) {
+        let Some(app) = try_app() else { return };
+        let scm_cfg = app.config.borrow().scm.clone();
+        if !scm_cfg.autofetch || self.autofetching.get() {
+            return;
+        }
+        let period = Duration::from_secs(u64::from(scm_cfg.autofetch_secs()));
+        let now = Instant::now();
+        let mut due = Vec::new();
+        for c in self.cards.borrow().iter() {
+            let last = self.last_fetch.borrow().get(&c.path).copied();
+            if last.is_some_and(|t| now.duration_since(t) < period) {
+                continue;
+            }
+            if let Some(snap) = c.snap() {
+                due.push((c.path.clone(), snap.status, c.env()));
+            }
+        }
+        if due.is_empty() {
+            return;
+        }
+        for (p, _, _) in &due {
+            self.last_fetch.borrow_mut().insert(p.clone(), now);
+        }
+        self.autofetching.set(true);
         let w = Rc::downgrade(self);
         crate::worktrees::in_background(
-            move || work(root),
-            move |r| {
+            move || {
+                due.into_iter()
+                    .map(|(p, st, env)| {
+                        let r = scm::fetch_remote(&p, &st).and_then(|r| scm::fetch(&p, &r, &env));
+                        (p, r.map_err(|e| e.message))
+                    })
+                    .collect::<Vec<_>>()
+            },
+            move |results| {
                 let Some(c) = w.upgrade() else { return };
-                c.ops.set(c.ops.get() - 1);
-                match r {
-                    Ok(v) => ok(&c, v),
-                    Err(e) => c.show_error(Some(format!("{what}: {}", e.message))),
+                c.autofetching.set(false);
+                for (p, r) in results {
+                    if let Err(e) = r {
+                        if let Some(card) = c.cards.borrow().iter().find(|x| x.path == p) {
+                            card.show_error(Some(format!("Fetch: {e}")));
+                        }
+                    }
                 }
-                c.update_buttons();
                 c.refresh();
             },
         );
     }
 
-    fn change(&self, key: &Key) -> Option<(Change, bool)> {
-        let st = self.status()?;
-        let c = st
-            .files
+    /// The card palette actions and Ctrl+Shift+M mean: the active
+    /// Worktree's, else the first with changes, else the first.
+    fn focused_card(&self) -> Option<Rc<Card>> {
+        let cards = self.cards.borrow();
+        let app = try_app()?;
+        let (fs, fw) = {
+            let m = app.model.borrow();
+            let (s, w) = m.active();
+            (s.id.clone(), w.path.clone())
+        };
+        cards
             .iter()
-            .find(|c| c.path == key.0 && c.in_section(key.1))?;
-        Some((c.clone(), st.initial))
+            .find(|c| c.source == fs && rade_core::git::same(&c.path, &fw))
+            .or_else(|| cards.iter().find(|c| c.has_changes()))
+            .or_else(|| cards.first())
+            .cloned()
     }
 
-    fn stage_paths(self: &Rc<Self>, paths: Vec<String>, stage: bool) {
-        let initial = self.status().is_some_and(|s| s.initial);
-        if stage {
-            self.run("Stage", move |r| scm::stage(&r, &paths), |_, _| ());
-        } else {
-            self.run(
-                "Unstage",
-                move |r| scm::unstage(&r, &paths, initial),
-                |_, _| (),
-            );
-        }
-    }
-
-    /// A file row's button (R21.2): stage, unstage, discard (asks).
-    fn file_op(self: &Rc<Self>, key: &Key, op: &str) {
-        let Some((c, _)) = self.change(key) else {
-            return;
-        };
-        match op {
-            "stage" => self.stage_paths(scm::paths_of(&c), true),
-            "unstage" => self.stage_paths(scm::paths_of(&c), false),
-            _ => {
-                let (heading, body) = if c.untracked() {
-                    (
-                        format!("Delete “{}”?", c.path),
-                        "The file is not tracked by git: deleting it can't be undone.".to_string(),
-                    )
-                } else {
-                    (
-                        format!("Discard changes in “{}”?", c.path),
-                        "Its unstaged changes are lost; staged changes stay.".to_string(),
-                    )
-                };
-                let w = Rc::downgrade(self);
-                confirm(
-                    &heading,
-                    &body,
-                    "discard",
-                    if c.untracked() { "Delete" } else { "Discard" },
-                    move || {
-                        if let Some(me) = w.upgrade() {
-                            let c = c.clone();
-                            me.run("Discard", move |r| scm::discard(&r, &c), |_, _| ());
-                        }
-                    },
-                );
-            }
-        }
-    }
-
-    /// A hunk's button (R21.3); discard asks first.
-    fn hunk_op(self: &Rc<Self>, patch: String, op: HunkOp) {
-        let go = {
-            let w = Rc::downgrade(self);
-            move |patch: String| {
-                if let Some(me) = w.upgrade() {
-                    me.run("Hunk", move |r| scm::apply_hunk(&r, &patch, op), |_, _| ());
-                }
-            }
-        };
-        if op == HunkOp::Discard {
-            confirm(
-                "Discard this hunk?",
-                "Its changes are removed from the working tree.",
-                "discard",
-                "Discard",
-                move || go(patch.clone()),
-            );
-        } else {
-            go(patch);
-        }
-    }
-
-    fn commit_clicked(self: &Rc<Self>) {
-        let msg = text_of(&self.message);
-        if !self.commit.is_sensitive() {
-            if msg.trim().is_empty() {
-                self.show_error(Some(
-                    "Commit: write a message first (or Generate one)".into(),
-                ));
-            } else if self.ops.get() == 0 {
-                self.show_error(Some("Commit: nothing is staged".into()));
-            }
-            return;
-        }
-        self.run(
-            "Commit",
-            move |r| scm::commit(&r, &msg),
-            |c, done| {
-                c.message.buffer().set_text("");
-                if let Some(root) = c.root_dir() {
-                    let (short, subject) = done.split_once(' ').unwrap_or((&done, ""));
-                    let source = crate::app::app()
-                        .model
-                        .borrow()
-                        .worktrees()
-                        .find(|(_, w)| rade_core::git::same(&w.path, &root))
-                        .map(|(s, _)| s.name.clone())
-                        .unwrap_or_default();
-                    crate::activity_view::committed(&root, &source, short, subject);
-                }
-                toast(&format!(
-                    "Committed <b>{}</b>",
-                    glib::markup_escape_text(&done)
-                ));
-            },
-        );
-    }
-
-    /// Generate (R21.7): the Draft command's reply fills `done`; a second
-    /// click cancels it.
-    fn draft(self: &Rc<Self>, kind: DraftKind, done: impl FnOnce(String, String) + 'static) {
-        if let Some(flag) = self.drafting.borrow_mut().take() {
-            flag.store(true, Ordering::Relaxed);
-            self.update_buttons();
-            return;
-        }
-        let Some(root) = self.root_dir() else { return };
-        let Some(app) = try_app() else { return };
-        // The Worktree's layered `[scm] draft_command` (R29.2).
-        let at = app
-            .model
-            .borrow()
-            .worktrees()
-            .find(|(_, w)| w.path == root)
-            .map(|(s, w)| (s.id.clone(), w.id.clone()));
-        let command = match &at {
-            Some((s, w)) => app.config_for(s, Some(w)).scm.draft_command,
-            None => app.config.borrow().scm.draft_command.clone(),
-        };
-        let wt_base = app.model.borrow().comparison_base(&root);
-        let env = self.env();
-        let cancel = Arc::new(AtomicBool::new(false));
-        *self.drafting.borrow_mut() = Some(cancel.clone());
-        self.show_error(None);
-        self.update_buttons();
-        let w = Rc::downgrade(self);
-        crate::worktrees::in_background(
-            move || {
-                let base = wt_base.or_else(|| rade_core::git::default_branch(&root));
-                let input = scm::gather_draft(&root, kind, base.as_deref())?;
-                let prompt = scm::draft_prompt(kind, &input);
-                scm::run_draft(&command, &root, &prompt, scm::DRAFT_TIMEOUT, &cancel, &env)
-                    .map(|out| scm::parse_draft(kind, &out))
-            },
-            move |r: Result<(String, String)>| {
-                let Some(c) = w.upgrade() else { return };
-                c.drafting.borrow_mut().take();
-                c.update_buttons();
-                match r {
-                    Ok((a, b)) => done(a, b),
-                    Err(e) => c.show_error(Some(format!("Generate: {}", e.message))),
-                }
-            },
-        );
-    }
-
-    fn generate_commit(self: &Rc<Self>) {
-        let w = Rc::downgrade(self);
-        self.draft(DraftKind::Commit, move |msg, _| {
-            if let Some(c) = w.upgrade() {
-                c.message.buffer().set_text(&msg);
-                c.message.grab_focus();
-            }
-        });
-    }
-
-    fn pull_clicked(self: &Rc<Self>) {
-        let env = self.env();
-        self.run("Pull", move |r| scm::pull(&r, &env), |_, _| toast("Pulled"));
-    }
-
-    fn push_clicked(self: &Rc<Self>) {
-        self.run(
-            "Push",
-            |r| scm::push_plan(&r, &scm::status(&r)?),
-            |c, plan| c.confirm_push(plan),
-        );
-    }
-
-    fn confirm_push(self: &Rc<Self>, plan: PushPlan) {
-        let n = plan.commits;
-        let mut body = format!(
-            "{n} commit{} on {} → {}/{}.",
-            if n == 1 { "" } else { "s" },
-            plan.branch,
-            plan.remote,
-            plan.branch
-        );
-        if plan.set_upstream {
-            body.push_str(&format!(
-                "\nSets {}/{} as the branch's upstream.",
-                plan.remote, plan.branch
-            ));
-        }
-        let w = Rc::downgrade(self);
-        confirm(
-            &format!("Push to {}?", plan.remote),
-            &body,
-            "push",
-            "Push",
-            move || {
-                let Some(me) = w.upgrade() else { return };
-                let plan = plan.clone();
-                let env = me.env();
-                me.run(
-                    "Push",
-                    move |r| scm::push(&r, &plan, &env).map(|_| plan),
-                    |_, p| {
-                        toast(&format!(
-                            "Pushed <b>{}</b> to {}",
-                            glib::markup_escape_text(&p.branch),
-                            glib::markup_escape_text(&p.remote)
-                        ))
-                    },
-                );
-            },
-        );
-    }
-
-    fn pr_clicked(self: &Rc<Self>) {
-        // A Worktree's recorded base (R28.3) is its PR's base.
-        let wt_base = self
-            .root_dir()
-            .zip(try_app())
-            .and_then(|(r, a)| a.model.borrow().comparison_base(&r));
-        self.run(
-            "Create PR",
-            |r| {
-                let st = scm::status(&r)?;
-                let branch = st
-                    .branch
-                    .clone()
-                    .ok_or_else(|| Error::usage("HEAD is detached: check out a branch"))?;
-                let base = scm::pr_base(
-                    wt_base
-                        // A Fan-out Worktree's base is a commit: not a PR base.
-                        .filter(|b| !(b.len() >= 7 && b.bytes().all(|c| c.is_ascii_hexdigit())))
-                        .or_else(|| rade_core::git::default_branch(&r))
-                        .as_deref(),
-                );
-                let plan = if st.own_upstream().is_none() || st.ahead > 0 {
-                    Some(scm::push_plan(&r, &st)?)
-                } else {
-                    None
-                };
-                Ok((branch, base, plan))
-            },
-            |c, (branch, base, plan)| c.pr_dialog(branch, base, plan),
-        );
-    }
-
-    /// Create PR (R21.6): the form is the confirmation.
-    fn pr_dialog(self: &Rc<Self>, branch: String, base: String, plan: Option<PushPlan>) {
-        let title = gtk::Entry::new();
-        title.set_placeholder_text(Some("Title"));
-        title.set_activates_default(true);
-        let base_e = gtk::Entry::new();
-        base_e.set_text(&base);
-        let base_row = gtk::Box::new(gtk::Orientation::Horizontal, 6);
-        let bl = gtk::Label::new(Some(&format!("{branch} →")));
-        bl.add_css_class("rade-dim");
-        base_e.set_hexpand(true);
-        base_e.set_tooltip_text(Some("Base branch"));
-        base_row.append(&bl);
-        base_row.append(&base_e);
-        let body = gtk::TextView::new();
-        body.set_wrap_mode(gtk::WrapMode::WordChar);
-        body.set_top_margin(6);
-        body.set_left_margin(6);
-        body.set_right_margin(6);
-        body.add_css_class("rade-commit-msg");
-        let bs = gtk::ScrolledWindow::new();
-        bs.set_child(Some(&body));
-        bs.set_min_content_height(160);
-        bs.set_min_content_width(420);
-        bs.add_css_class("rade-commit-box");
-        let generate = gtk::Button::new();
-        generate.set_child(Some(
-            &adw::ButtonContent::builder()
-                .icon_name("document-edit-symbolic")
-                .label("Generate")
-                .build(),
-        ));
-        generate.set_halign(gtk::Align::Start);
-        generate.set_tooltip_text(Some(
-            "Ask an Agent to draft the title and description from the branch's diff",
-        ));
-        let note = gtk::Label::new(Some(&match &plan {
-            Some(p) if p.set_upstream => format!(
-                "Pushes {branch} to {} first ({} commit{}, sets its upstream).",
-                p.remote,
-                p.commits,
-                if p.commits == 1 { "" } else { "s" }
-            ),
-            Some(p) => format!(
-                "Pushes {} commit{} to {} first.",
-                p.commits,
-                if p.commits == 1 { "" } else { "s" },
-                p.remote
-            ),
-            None => "The branch is pushed.".into(),
-        }));
-        note.add_css_class("rade-meta");
-        note.set_wrap(true);
-        note.set_xalign(0.0);
-        let label = |t: &str| {
-            let l = gtk::Label::new(Some(t));
-            l.add_css_class("rade-meta");
-            l.set_xalign(0.0);
-            l
-        };
-        let form = gtk::Box::new(gtk::Orientation::Vertical, 6);
-        form.append(&label("Title"));
-        form.append(&title);
-        form.append(&label("Base branch"));
-        form.append(&base_row);
-        form.append(&label("Description"));
-        form.append(&bs);
-        form.append(&generate);
-        form.append(&note);
-        let w = Rc::downgrade(self);
-        let (t2, b2) = (title.clone(), body.clone());
-        generate.connect_clicked(move |_| {
-            let Some(c) = w.upgrade() else { return };
-            let (t, b) = (t2.clone(), b2.clone());
-            c.draft(DraftKind::Pr, move |title, body| {
-                t.set_text(&title);
-                b.buffer().set_text(&body);
-            });
-        });
-        let d = adw::AlertDialog::new(Some("Create Pull Request"), None);
-        d.set_extra_child(Some(&form));
-        d.add_response("cancel", "Cancel");
-        d.add_response("create", "Create");
-        d.set_response_appearance("create", adw::ResponseAppearance::Suggested);
-        d.set_default_response(Some("create"));
-        d.set_close_response("cancel");
-        let w = Rc::downgrade(self);
-        let (t3, b3, base3) = (title.clone(), body.clone(), base_e.clone());
-        d.connect_response(None, move |_, r| {
-            let Some(c) = w.upgrade() else { return };
-            c.pr_form.borrow_mut().take();
-            if r != "create" {
-                return;
-            }
-            let (title, body, base) = (
-                t3.text().to_string(),
-                text_of(&b3),
-                base3.text().to_string(),
-            );
-            let (branch, plan) = (branch.clone(), plan.clone());
-            let env = c.env();
-            c.run(
-                "Create PR",
-                move |r| {
-                    if let Some(p) = &plan {
-                        scm::push(&r, p, &env)?;
-                    }
-                    scm::create_pr(&r, "gh", &branch, base.trim(), &title, &body, &env)
-                },
-                move |c, url| {
-                    if let Some(root) = c.root_dir() {
-                        crate::activity_view::pr_created(&root, &url);
-                    }
-                    let u = url.clone();
-                    crate::app::app().chrome.toast(
-                        &format!("Pull request created: {}", glib::markup_escape_text(&url)),
-                        Some(("Open", Box::new(move || crate::viewer::launch_uri(&u)))),
-                    );
-                },
-            );
-        });
-        *self.pr_form.borrow_mut() = Some(PrForm {
-            title: title.clone(),
-            base: base_e,
-            body,
-            generate,
-            note,
-        });
-        crate::menus::present(d, &["cancel", "create"]);
-        title.grab_focus();
-    }
-
-    /// Show the page (opening the Right Panel); `focus` the message box.
+    /// Show the page (opening the Inspector); `focus` the message box.
     pub fn show(self: &Rc<Self>, focus_message: bool) {
         let Some(app) = try_app() else { return };
         if !app.model.borrow().file_tree {
@@ -1368,206 +773,216 @@ impl Changes {
         app.chrome.right.show("changes");
         self.refresh();
         if focus_message {
-            self.message.grab_focus();
+            if let Some(c) = self.focused_card() {
+                c.focus_message();
+            }
         }
     }
 
-    /// Palette actions (R21.9).
+    /// Palette actions (R21.9, R120, R121).
     pub fn action(self: &Rc<Self>, id: &str) {
         match id {
             "show_changes" => self.show(false),
             "scm_commit" => self.show(true),
-            "scm_pull" => {
+            "scm_view_tree" => {
                 self.show(false);
-                self.pull_clicked();
+                self.set_view("tree");
             }
-            "scm_push" => {
+            "scm_view_list" => {
                 self.show(false);
-                self.push_clicked();
+                self.set_view("list");
             }
-            "scm_pr" => {
+            _ => {
                 self.show(false);
-                self.pr_clicked();
+                let Some(c) = self.focused_card() else { return };
+                match id {
+                    "scm_pull" => c.pull(),
+                    "scm_push" => c.push_flow(),
+                    "scm_pr" => c.pr_clicked(),
+                    "scm_fetch" => c.fetch(true),
+                    "scm_sync" => c.sync_flow(),
+                    "scm_publish" => c.publish_flow(),
+                    "scm_undo_commit" => c.undo(),
+                    _ => {}
+                }
             }
-            _ => {}
         }
     }
 
+    fn card(&self, key: &str) -> Result<Rc<Card>> {
+        if key.is_empty() {
+            return self
+                .focused_card()
+                .ok_or_else(|| Error::not_found("no Changes card"));
+        }
+        self.cards
+            .borrow()
+            .iter()
+            .find(|c| c.source == key || c.name == key)
+            .cloned()
+            .ok_or_else(|| Error::not_found(format!("no Changes card '{key}'")))
+    }
+
+    // ---- debug.scm -------------------------------------------------------------------
+
     fn info(&self) -> Value {
-        let st = self.state.borrow();
-        let (status, error) = match &st.shown {
-            Some((Ok(s), _)) => (Some(s), None),
-            Some((Err(e), _)) => (None, Some(e.clone())),
-            None => (None, None),
+        let cards = self.cards.borrow();
+        let shown = self.shown.borrow();
+        let page = self.root.visible_child_name().map(|s| s.to_string());
+        let mode = match (page.as_deref(), shown.as_ref().map(|s| s.mode)) {
+            (Some("none"), _) | (_, None) => "none",
+            (_, Some(Mode::Project)) => "project",
+            (_, Some(Mode::Source)) => "source",
         };
-        let sections: serde_json::Map<String, Value> = SECTIONS
-            .iter()
-            .map(|sec| {
-                let rows: Vec<Value> = status.map_or(vec![], |s| {
-                    s.section(*sec)
-                        .iter()
-                        .map(|c| json!({"path": c.path, "letter": c.letter(*sec).to_string()}))
-                        .collect()
-                });
-                (
-                    serde_json::to_value(sec)
-                        .unwrap()
-                        .as_str()
-                        .unwrap()
-                        .to_string(),
-                    json!(rows),
-                )
+        let focus = cards.iter().find_map(|c| {
+            let (list, msg) = c.focus_in();
+            (list || msg).then(|| json!({"source": c.source, "in_list": list, "in_message": msg}))
+        });
+        let pr = cards.iter().find_map(|c| {
+            c.pr_form.borrow().as_ref().map(|f| {
+                json!({"title": f.title.text().as_str(), "base": f.base.text().as_str(),
+                       "body": crate::changes_card::text_of(&f.body),
+                       "note": f.note.label().as_str()})
             })
-            .collect();
-        let diffs: Vec<Value> = st
-            .shown
-            .iter()
-            .flat_map(|(_, d)| d.iter())
-            .map(|((p, s), raw)| {
-                let f = diff::parse(raw, &[]);
-                let hunks: Vec<&str> = f.first().map_or(vec![], |f| f.hunks.iter().map(|h| h.header.as_str()).collect());
-                json!({"path": p, "section": s, "hunks": hunks, "per_hunk": f.first().is_some_and(|f| scm::hunks_apply(f) && *s != Section::Untracked)})
-            })
-            .collect();
-        let pr = self.pr_form.borrow().as_ref().map(|f| {
-            json!({"title": f.title.text().as_str(), "base": f.base.text().as_str(),
-                   "body": text_of(&f.body), "note": f.note.label().as_str()})
         });
         json!({
-            "root": st.root,
-            "page": self.root.visible_child_name().map(|s| s.to_string()),
-            "repo_error": error,
-            "branch": status.and_then(|s| s.branch.clone()),
-            "upstream": status.and_then(|s| s.upstream.clone()),
-            "sync": self.sync.label().as_str(),
-            "ahead": status.map(|s| s.ahead), "behind": status.map(|s| s.behind),
-            "sections": sections,
-            "expanded": diffs,
-            "message": text_of(&self.message),
-            "commit_enabled": self.commit.is_sensitive(),
-            // Set for the focused checkout (drawn while the commit area is).
-            "identity": self.identity.get_visible().then(|| self.identity.label().to_string()),
-            "error": self.error.is_visible().then(|| self.error.label().to_string()),
-            "busy": self.ops.get() > 0 || self.refreshing.get(),
-            "drafting": self.drafting.borrow().is_some(),
-            "pr": pr,
+            "mode": mode,
+            "header": self.title.label().as_str(),
+            "add": self.add.label().as_str(),
+            "del": self.del.label().as_str(),
+            "view": match current_view() { ScmView::List => "list", ScmView::Tree => "tree" },
+            "sort": match current_sort() {
+                ScmSort::Path => "path", ScmSort::Name => "name", ScmSort::Status => "status",
+            },
             "visible": self.root.is_mapped(),
-            "focus_in_message": self.message.has_focus(),
+            "busy": self.refreshing.get() || cards.iter().any(|c| c.busy()),
+            "focus": focus,
+            "cards": cards.iter().map(|c| c.info()).collect::<Vec<_>>(),
+            "pr": pr,
         })
     }
 }
 
-fn plain_row(w: &impl IsA<gtk::Widget>) -> gtk::ListBoxRow {
-    let row = gtk::ListBoxRow::new();
-    row.set_child(Some(w));
-    row.set_activatable(false);
-    row.set_selectable(false);
-    row.add_css_class("rade-scm-diffrow");
-    row
-}
-
-fn toast(markup: &str) {
-    if let Some(app) = try_app() {
-        app.chrome.toast(markup, None);
-    }
-}
-
-/// Ask before a destructive or publishing action (ADR-0013).
-fn confirm(heading: &str, body: &str, id: &'static str, label: &str, yes: impl Fn() + 'static) {
-    let d = adw::AlertDialog::new(Some(heading), Some(body));
-    d.add_response("cancel", "Cancel");
-    d.add_response(id, label);
-    d.set_response_appearance(
-        id,
-        if id == "discard" {
-            adw::ResponseAppearance::Destructive
-        } else {
-            adw::ResponseAppearance::Suggested
-        },
-    );
-    d.set_default_response(Some("cancel"));
-    d.set_close_response("cancel");
-    d.connect_response(None, move |_, r| {
-        if r == id {
-            yes();
-        }
-    });
-    crate::menus::present(d, &["cancel", id]);
-}
-
-/// `debug.scm` (`{"op", "path"?, "section"?, "hunk"?, "text"?, …}`, E2E):
-/// drives the page as clicks do. Ops: `info`, `show`, `refresh`, `click`
-/// (a file row), `stage` / `unstage` / `discard` (its buttons), `stage_all`
-/// / `unstage_all` (`section`), `hunk` (`hunk` index, `action` stage /
-/// unstage / discard), `message` (`text`), `generate`, `commit`, `pull`,
-/// `push`, `pr`, `pr_fill` (`title`, `body`, `base`), `pr_generate`,
-/// `open` (Open File). Dialogs are answered with `debug.dialog`.
+/// `debug.scm` (§6 of the M45 plan, E2E): every op drives the widgets' own
+/// handlers — clicks, keys, menu items — and answers with `info`. Ops:
+/// `info`, `show`, `refresh`, `view`, `sort`, `fetch_all`, `fold`,
+/// `group_fold`, `folder_fold`, `click`, `rightclick`, `menu_activate`,
+/// `row_action`, `group_action`, `card_menu`, `card_menu_activate`, `key`,
+/// `message`, `history`, `generate`, `commit`, `action_button`,
+/// `sync_button`, `pr_fill`, `pr_generate`, `autofetch_tick`. Dialogs are
+/// answered with `debug.dialog`.
 pub fn debug(p: &Value) -> Result<Value> {
     let c = get().ok_or_else(|| Error::internal("no Changes page"))?;
     let s = |k: &str| p.get(k).and_then(Value::as_str).unwrap_or("");
-    let section = || -> Result<Section> {
-        serde_json::from_value(json!(s("section")))
-            .map_err(|_| Error::usage("section must be staged, unstaged or untracked"))
+    let group = || -> Result<rade_core::scm_view::Group> {
+        parse_group(s("group"))
+            .ok_or_else(|| Error::usage("group must be merge, staged or changes"))
     };
-    let key = || -> Result<Key> { Ok((s("path").to_string(), section()?)) };
+    let mut extra: Option<(&str, Value)> = None;
     match s("op") {
         "" | "info" => {}
         "show" => c.show(false),
         "refresh" => c.refresh(),
-        "click" => c.toggle(&key()?),
-        "stage" | "unstage" | "discard" => {
-            let k = key()?;
-            if c.change(&k).is_none() {
-                return Err(Error::not_found(format!("no row {} in {:?}", k.0, k.1)));
+        "view" => c.set_view(s("arg")),
+        "sort" => c.set_sort(s("arg")),
+        "fetch_all" => c.fetch_all(),
+        "fold" => c.card(s("source"))?.toggle_fold(),
+        "group_fold" => c.card(s("source"))?.toggle_group(group()?),
+        "folder_fold" => c.card(s("source"))?.toggle_folder(group()?, s("path")),
+        "click" => {
+            let card = c.card(s("source"))?;
+            let g = group()?;
+            if !card.has_file(g, s("path")) {
+                return Err(Error::not_found(format!(
+                    "no row {} in {}",
+                    s("path"),
+                    s("group")
+                )));
             }
-            c.file_op(&k, s("op"));
+            card.click_row(g, s("path"), s("arg"));
         }
-        "stage_all" | "unstage_all" => {
-            let sec = section()?;
-            let paths: Vec<String> = c
-                .status()
-                .map(|st| {
-                    st.section(sec)
-                        .iter()
-                        .flat_map(|c| scm::paths_of(c))
-                        .collect()
-                })
-                .unwrap_or_default();
-            c.stage_paths(paths, s("op") == "stage_all");
+        "rightclick" => {
+            let card = c.card(s("source"))?;
+            let g = group()?;
+            let index = card.index_of(g, s("path")).ok_or_else(|| {
+                Error::not_found(format!("no row {} in {}", s("path"), s("group")))
+            })?;
+            extra = Some(("menu", json!(card.right_click(index, None))));
         }
-        "hunk" => {
-            let k = key()?;
-            let raw = c
-                .state
-                .borrow()
-                .shown
-                .as_ref()
-                .and_then(|(_, d)| d.get(&k).cloned())
-                .ok_or_else(|| Error::usage("click the file first (its diff is not shown)"))?;
-            let i = p.get("hunk").and_then(Value::as_u64).unwrap_or(0) as usize;
-            let patch = scm::split_patch(&raw)
-                .first()
-                .and_then(|f| scm::hunk_patch(f, i))
-                .ok_or_else(|| Error::not_found(format!("no hunk {i}")))?;
-            let op = match s("action") {
-                "stage" => HunkOp::Stage,
-                "unstage" => HunkOp::Unstage,
-                "discard" => HunkOp::Discard,
-                a => return Err(Error::usage(format!("unknown hunk action '{a}'"))),
-            };
-            c.hunk_op(patch, op);
+        "menu_activate" => {
+            let card = c.card(s("source"))?;
+            if !card.ctx_activate(s("item")) {
+                return Err(Error::not_found(format!("no menu item '{}'", s("item"))));
+            }
         }
-        "message" => c.message.buffer().set_text(s("text")),
-        "generate" => c.generate.emit_clicked(),
-        "commit" => c.commit_clicked(),
-        "pull" => c.pull.emit_clicked(),
-        "push" => c.push.emit_clicked(),
-        "pr" => c.pr.emit_clicked(),
+        "row_action" => {
+            let card = c.card(s("source"))?;
+            let b = card
+                .find_act(group()?, Some(s("path")), s("arg"))
+                .ok_or_else(|| Error::not_found(format!("no row action '{}'", s("arg"))))?;
+            b.emit_clicked();
+        }
+        "group_action" => {
+            let card = c.card(s("source"))?;
+            let b = card
+                .find_act(group()?, None, s("arg"))
+                .ok_or_else(|| Error::not_found(format!("no group action '{}'", s("arg"))))?;
+            b.emit_clicked();
+        }
+        "card_menu" => {
+            let card = c.card(s("source"))?;
+            extra = Some(("menu", json!(card.menu_labels())));
+        }
+        "card_menu_activate" => {
+            let card = c.card(s("source"))?;
+            if !card.card_menu_activate(s("item")) {
+                return Err(Error::not_found(format!(
+                    "no card menu item '{}'",
+                    s("item")
+                )));
+            }
+        }
+        "key" => {
+            let card = c.card(s("source"))?;
+            if !card.key(s("key")) {
+                return Err(Error::usage(
+                    "key must be space, delete, enter, up, down or ctrl+a",
+                ));
+            }
+        }
+        "message" => c.card(s("source"))?.message.buffer().set_text(s("text")),
+        "history" => {
+            let card = c.card(s("source"))?;
+            card.history_key(s("arg") == "up");
+        }
+        "generate" => c.card(s("source"))?.generate(),
+        "commit" => {
+            let card = c.card(s("source"))?;
+            match s("variant") {
+                "" | "commit" => card.commit_clicked(),
+                v @ ("amend" | "push" | "all" | "undo") => {
+                    if !card.commit_variant_enabled(v) {
+                        return Err(Error::usage(format!("Commit ({v}) is disabled")));
+                    }
+                    if v == "undo" {
+                        card.undo();
+                    } else {
+                        card.commit_variant(v);
+                    }
+                }
+                v => return Err(Error::usage(format!("unknown commit variant '{v}'"))),
+            }
+        }
+        "action_button" => c.card(s("source"))?.action_button_clicked(),
+        "sync_button" => c.card(s("source"))?.sync_button_clicked(),
         "pr_fill" | "pr_generate" => {
-            let f = c.pr_form.borrow();
-            let f = f
-                .as_ref()
+            let cards = c.cards.borrow();
+            let card = cards
+                .iter()
+                .find(|x| x.pr_form.borrow().is_some())
                 .ok_or_else(|| Error::usage("the Create PR dialog is not open"))?;
+            let f = card.pr_form.borrow();
+            let f = f.as_ref().expect("form");
             if s("op") == "pr_generate" {
                 f.generate.emit_clicked();
             } else {
@@ -1581,13 +996,14 @@ pub fn debug(p: &Value) -> Result<Value> {
                 }
             }
         }
-        "open" => {
-            let root = c.root_dir().unwrap_or_default();
-            crate::files::open_in_viewer(&root.join(s("path")));
-        }
+        "autofetch_tick" => c.autofetch_tick(),
         o => return Err(Error::usage(format!("unknown op '{o}'"))),
     }
-    Ok(c.info())
+    let mut info = c.info();
+    if let (Some((k, v)), Some(o)) = (extra, info.as_object_mut()) {
+        o.insert(k.to_string(), v);
+    }
+    Ok(info)
 }
 
 /// *Approve ▾ → Commit myself…* (R119.4): the Changes page, message focused.

@@ -381,6 +381,12 @@ pub const ACTIONS: &[(&str, &str)] = &[
     ("scm_pull", "Pull"),
     ("scm_push", "Push…"),
     ("scm_pr", "Create Pull Request…"),
+    ("scm_fetch", "Fetch"),
+    ("scm_sync", "Sync Changes…"),
+    ("scm_publish", "Publish Branch…"),
+    ("scm_undo_commit", "Undo Last Commit"),
+    ("scm_view_tree", "Changes: View as Tree"),
+    ("scm_view_list", "Changes: View as List"),
     ("spawn_agent", "Spawn Agent…"),
     ("fanout", "Fan-out…"),
     ("mark_all_read", "Mark All Notifications Read"),
@@ -431,6 +437,10 @@ fn pane_title(p: &crate::Pane) -> String {
             .file_name()
             .map_or("Viewer".into(), |n| n.to_string_lossy().into_owned()),
         PaneKind::Review { .. } => "Review".into(),
+        PaneKind::Diff { path, .. } => format!(
+            "Diff · {}",
+            path.rsplit('/').next().unwrap_or(path.as_str())
+        ),
         PaneKind::Browser { url, .. } => {
             // The host, or a file's name: never a local path.
             let rest = url.split_once("://").map_or(url.as_str(), |(_, r)| r);

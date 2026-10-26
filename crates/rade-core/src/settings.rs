@@ -42,6 +42,7 @@ pub const CATEGORIES: &[&str] = &[
     "Theme",
     "Notifications",
     "Agents",
+    "Source Control",
     "Statusline",
 ];
 
@@ -164,6 +165,48 @@ pub const SETTINGS: &[Setting] = &[
         label: "Max children",
         description: "Agents one Agent may spawn.",
         kind: Kind::Integer { min: 1, max: 64 },
+    },
+    Setting {
+        key: "scm.view",
+        category: "Source Control",
+        label: "Changes view",
+        description: "List or tree of the changed files.",
+        kind: Kind::Choice(&["list", "tree"]),
+    },
+    Setting {
+        key: "scm.sort",
+        category: "Source Control",
+        label: "Sort changes by",
+        description: "Path, file name or status (list view).",
+        kind: Kind::Choice(&["path", "name", "status"]),
+    },
+    Setting {
+        key: "scm.autofetch",
+        category: "Source Control",
+        label: "Auto-fetch",
+        description: "Fetch every Changes card's remote in the background. Never pulls or pushes.",
+        kind: Kind::Bool,
+    },
+    Setting {
+        key: "scm.autofetch_period",
+        category: "Source Control",
+        label: "Auto-fetch every (seconds)",
+        description: "60 to 3600.",
+        kind: Kind::Integer { min: 60, max: 3600 },
+    },
+    Setting {
+        key: "scm.diff_layout",
+        category: "Source Control",
+        label: "Diff Pane layout",
+        description: "Side by side from 900 px wide (auto), inline or side by side.",
+        kind: Kind::Choice(&["auto", "inline", "side_by_side"]),
+    },
+    Setting {
+        key: "scm.quick_diff",
+        category: "Source Control",
+        label: "Quick Diff in the Viewer",
+        description: "Mark lines changed against the index in the Viewer's gutter.",
+        kind: Kind::Bool,
     },
     Setting {
         key: "status_bar",
@@ -341,6 +384,24 @@ fn edit_value(v: &toml::Value) -> Result<toml_edit::Value, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn r120_f_scm_settings_rows_are_found() {
+        for k in [
+            "scm.view",
+            "scm.sort",
+            "scm.autofetch",
+            "scm.autofetch_period",
+            "scm.diff_layout",
+            "scm.quick_diff",
+        ] {
+            let s = find(k).unwrap_or_else(|| panic!("{k}"));
+            assert_eq!(s.category, "Source Control");
+        }
+        assert!(set("", "scm.view", toml::Value::String("tree".into())).is_ok());
+        assert!(set("", "scm.view", toml::Value::String("grid".into())).is_err());
+        assert!(set("", "scm.autofetch_period", toml::Value::Integer(30)).is_err());
+    }
 
     #[test]
     fn r112_a_every_setting_has_a_category_a_default_and_a_valid_kind() {
