@@ -347,7 +347,13 @@ fn open_session(pane_id: &str) -> bool {
             })
         });
         let input = context::GatherInput {
-            dir: pane.cwd().clone(),
+            // The Pane's last known cwd can be gone (a removed Worktree or
+            // Project checkout, an agent that never reports OSC 7): the voice
+            // agent can't start in a missing folder.
+            dir: [pane.cwd().clone(), worktree.path.clone(), home.clone()]
+                .into_iter()
+                .find(|d| d.is_dir())
+                .unwrap_or_else(|| home.clone()),
             agent: pane.agent_name().map(str::to_string),
             model: rade_core::chrome::pane_model(pane),
             session_id: pane.session_id.clone(),

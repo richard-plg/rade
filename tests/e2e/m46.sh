@@ -412,6 +412,25 @@ close_composer
 rpc debug.ui '{"op":"toasts_clear"}' >/dev/null
 fi
 
+# A Pane whose recorded folder is gone (a removed Worktree; an agent that
+# never reports OSC 7): the voice agent starts in the next folder that exists
+# instead of failing with "No such file or directory" (owner's run, 2026-10-26).
+if want q; then
+echo "== R124-k a Pane whose folder is gone"
+rade worktree add shop gone >/dev/null
+GONE=$(rade worktree list shop --json | jq -r '.worktrees[] | select(.worktree=="gone") | .path')
+orphan=$(rade spawn --agent claude --source shop --worktree gone --name orphan "look around" --json | jq -r .pane)
+sleep 2
+rm -rf "$GONE"
+rade focus "$orphan" >/dev/null; sleep 0.5
+: >"$FAKE_VOICE_LOG"
+take 2 || true
+check "R124-k the voice agent of a Pane whose folder was deleted still drafts, started in \$HOME" \
+    bash -c "[[ \$(vq .state) == ready ]] && jq -e -s '[.[] | select(.start)] | .[0].cwd == \"$HOME\"' '$FAKE_VOICE_LOG' >/dev/null"
+close_composer
+rade close "$orphan" --force >/dev/null 2>&1 || true
+fi
+
 # ======================================================================== r
 if want r; then
 echo "== R124-r spec I scenes, goldens, 1280 px and Text scale 200 %"
