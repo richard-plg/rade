@@ -167,17 +167,27 @@ fn program_at(argv: &[String], binary: &str) -> Option<usize> {
 /// Ancestors checked for an Agent above the hook's own Agent.
 const MAX_NESTING: usize = 64;
 
+/// Programs that are a Pane's login shell when they are the outermost
+/// match in the Pane: never an Agent there, even when a Preset's command is one of
+/// them (`[agents.lead] command = "bash"` would otherwise make every Agent
+/// started by hand in a `bash` Pane look nested).
+const SHELLS: [&str; 6] = ["sh", "bash", "zsh", "fish", "dash", "ksh"];
+
 /// Whether a hook at `start` runs under an Agent started by another Agent
 /// (Claude Code running `codex exec` in its Bash tool): two Agents among its
 /// ancestors, one of `binaries` each. A process of the same binary right
 /// above another (an npm wrapper over the native CLI) is the same Agent.
 /// The walk ends at the first process whose environment lacks one of
 /// `pane` (`RADE_PANE_ID=…`, `RADE_SOCKET=…`): the app and whatever started
-/// it (an Agent that launched RADE) are outside the Pane. Unreadable
-/// processes end the walk.
+/// it (an Agent that launched RADE) are outside the Pane. The outermost
+/// Agent is not one when it is a shell ([`SHELLS`]): that is the Pane's own
+/// shell (maybe under a `sh -c` wrapper) an Agent was started from.
+/// Unreadable processes end the walk.
 pub fn nested_agent(proc: &Path, start: u32, binaries: &[&str], pane: &[String]) -> bool {
     let mut pid = start;
     let (mut prev, mut agents) = (None, 0);
+    // Whether the outermost Agent counted so far is a shell.
+    let mut outer_shell = false;
     for _ in 0..MAX_NESTING {
         if pid <= 1 {
             break;
@@ -195,11 +205,9 @@ pub fn nested_agent(proc: &Path, start: u32, binaries: &[&str], pane: &[String])
             .iter()
             .find(|b| program_at(&argv, b).is_some())
             .copied();
-        if here.is_some() && here != prev {
+        if let Some(b) = here.filter(|_| here != prev) {
             agents += 1;
-            if agents == 2 {
-                return true;
-            }
+            outer_shell = SHELLS.contains(&b);
         }
         prev = here;
         let Some(parent) = parent_of(proc, pid) else {
@@ -207,7 +215,7 @@ pub fn nested_agent(proc: &Path, start: u32, binaries: &[&str], pane: &[String])
         };
         pid = parent;
     }
-    false
+    agents - usize::from(outer_shell) >= 2
 }
 
 /// The argv of the program in the foreground of shell `shell`'s terminal
@@ -364,6 +372,34 @@ mod tests {
         assert!(!nested_agent(&root, 62, &agents, &pane));
         // Gone or unreadable: not nested.
         assert!(!nested_agent(&root, 999, &agents, &pane));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn r11_2_an_agent_started_by_hand_in_a_shell_pane_is_not_nested() {
+        let root = std::env::temp_dir().join(format!("rade-hand-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        // A Preset whose command is `bash` (m2's `lead`) next to a script Agent.
+        let agents = ["fake-agent.sh", "bash", "codex"];
+        let pane = [
+            "RADE_PANE_ID=p_1".to_string(),
+            "RADE_SOCKET=/r.sock".to_string(),
+        ];
+        let e = ["RADE_PANE_ID=p_1", "RADE_SOCKET=/r.sock"];
+        let hook = ["rade", "status", "done", "--hook"];
+        fake(&root, 5, 1, &["rade-app"], &[]);
+        fake(&root, 8, 5, &["/bin/sh", "-c", "/bin/bash --posix"], &e);
+        fake(&root, 10, 8, &["/bin/bash", "--posix"], &e);
+        fake(&root, 20, 10, &["bash", "/t/fake-agent.sh", "--flag-x"], &e);
+        fake(&root, 21, 20, &hook, &e);
+        assert!(
+            !nested_agent(&root, 21, &agents, &pane),
+            "the Pane's shell is not an Agent"
+        );
+        // An Agent started by that Agent still is nested.
+        fake(&root, 30, 20, &["codex", "exec"], &e);
+        fake(&root, 31, 30, &hook, &e);
+        assert!(nested_agent(&root, 31, &agents, &pane));
         let _ = std::fs::remove_dir_all(&root);
     }
 
