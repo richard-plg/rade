@@ -3,9 +3,11 @@
 
 use crate::call_at;
 use rade_core::paths::{self, process_env};
+use rade_core::preset::Preset;
 use rade_core::rpc::{Error, ErrorKind};
 use rade_core::setup;
 use serde_json::{json, Value};
+use std::collections::BTreeMap;
 use std::io::{IsTerminal, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -24,6 +26,22 @@ pub fn hook(
     else {
         return Ok(Value::Null);
     };
+    // An Agent started by the Pane's Agent (`codex exec` from Claude's Bash
+    // tool) inherits RADE_PANE_ID; its reports would relabel the Pane and
+    // replace the session Session Restore resumes.
+    let presets = presets();
+    let binaries: Vec<&str> = presets.values().map(|p| p.binary()).collect();
+    if rade_core::process::nested_agent(
+        Path::new("/proc"),
+        std::os::unix::process::parent_id(),
+        &binaries,
+        &[
+            format!("RADE_PANE_ID={pane}"),
+            format!("RADE_SOCKET={socket}"),
+        ],
+    ) {
+        return Ok(Value::Null);
+    }
     let needs_payload = session_id.is_none() || state.as_deref() == Some("done");
     let text = payload
         .clone()
@@ -35,7 +53,7 @@ pub fn hook(
     let state = hook_state(state, text.as_deref());
     // The report that names the Preset (session start) also records how the
     // Agent was really started, so Session Restore can re-run it (R11.2).
-    let invocation = agent.as_deref().and_then(invocation);
+    let invocation = agent.as_deref().and_then(|a| invocation(&presets, a));
     let params = json!({"pane": pane, "status": state, "session_id": session, "agent": agent,
         "invocation": invocation});
     let _ = call_at(
@@ -103,15 +121,24 @@ pub fn statusline(then: &Option<String>) -> Result<Value, Error> {
     Ok(Value::Null)
 }
 
-/// The Agent process above this hook, found by the Preset's program name.
-fn invocation(agent: &str) -> Option<rade_core::preset::Invocation> {
+/// The Agent Presets of the user's config (built-ins when it is unreadable).
+fn presets() -> BTreeMap<String, Preset> {
     let env: paths::Env = &process_env;
-    let presets = std::fs::read_to_string(paths::config_file(env))
+    let config = std::fs::read_to_string(paths::config_file(env))
         .ok()
         .and_then(|t| rade_core::config::Config::parse(&t).ok())
-        .unwrap_or_default()
+        .unwrap_or_default();
+    config
         .presets()
-        .ok()?;
+        .or_else(|_| rade_core::config::Config::default().presets())
+        .unwrap_or_default()
+}
+
+/// The Agent process above this hook, found by the Preset's program name.
+fn invocation(
+    presets: &BTreeMap<String, Preset>,
+    agent: &str,
+) -> Option<rade_core::preset::Invocation> {
     let p = presets.get(agent)?;
     rade_core::process::find_invocation(
         std::path::Path::new("/proc"),
@@ -137,9 +164,12 @@ fn session_from(text: &str) -> Option<String> {
 fn hook_state(state: &Option<String>, payload: Option<&str>) -> Option<String> {
     let busy = || {
         let v: Value = serde_json::from_str(payload?).ok()?;
-        Some(v["background_tasks"].as_array()?.iter().any(|t| {
-            matches!(t["status"].as_str(), Some("running" | "pending"))
-        }))
+        Some(
+            v["background_tasks"]
+                .as_array()?
+                .iter()
+                .any(|t| matches!(t["status"].as_str(), Some("running" | "pending"))),
+        )
     };
     match state.as_deref() {
         Some("done") if busy() == Some(true) => Some("running".into()),
@@ -296,18 +326,32 @@ mod tests {
     fn stop_with_running_background_tasks_stays_running() {
         let done = Some("done".to_string());
         let bg = |s: &str| {
-            format!(r#"{{"hook_event_name":"Stop","background_tasks":[{{"id":"b1","type":"shell","status":"{s}"}}]}}"#)
+            format!(
+                r#"{{"hook_event_name":"Stop","background_tasks":[{{"id":"b1","type":"shell","status":"{s}"}}]}}"#
+            )
         };
-        assert_eq!(hook_state(&done, Some(&bg("running"))).as_deref(), Some("running"));
-        assert_eq!(hook_state(&done, Some(&bg("pending"))).as_deref(), Some("running"));
-        assert_eq!(hook_state(&done, Some(&bg("completed"))).as_deref(), Some("done"));
+        assert_eq!(
+            hook_state(&done, Some(&bg("running"))).as_deref(),
+            Some("running")
+        );
+        assert_eq!(
+            hook_state(&done, Some(&bg("pending"))).as_deref(),
+            Some("running")
+        );
+        assert_eq!(
+            hook_state(&done, Some(&bg("completed"))).as_deref(),
+            Some("done")
+        );
         let none = r#"{"hook_event_name":"Stop","background_tasks":[]}"#;
         assert_eq!(hook_state(&done, Some(none)).as_deref(), Some("done"));
         assert_eq!(hook_state(&done, None).as_deref(), Some("done"));
         assert_eq!(hook_state(&done, Some("not json")).as_deref(), Some("done"));
         // Only `done` is held back; other reports pass through.
         let waiting = Some("waiting".to_string());
-        assert_eq!(hook_state(&waiting, Some(&bg("running"))).as_deref(), Some("waiting"));
+        assert_eq!(
+            hook_state(&waiting, Some(&bg("running"))).as_deref(),
+            Some("waiting")
+        );
         assert_eq!(hook_state(&None, Some(&bg("running"))), None);
     }
 }
