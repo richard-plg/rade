@@ -923,9 +923,23 @@ fn spawn_restart_runs_the_helper_which_execs_exe() {
     let mut gone = std::process::Command::new("/bin/true").spawn().unwrap();
     let pid = gone.id();
     gone.wait().unwrap();
-    let mut child = restart_child(pid, Path::new("/bin/true")).unwrap();
+    let dir = std::env::temp_dir().join(format!("rade-restart-{}", std::process::id()));
+    let state = dir.join("state.json");
+    let lock = state.with_extension("json.lock");
+    let mut child = restart_child(pid, Path::new("/bin/true"), &lock).unwrap();
     let started = std::time::Instant::now();
     assert!(child.wait().unwrap().success());
     assert!(started.elapsed() < std::time::Duration::from_secs(5));
-    assert!(spawn_restart(pid, Path::new("/bin/true")).is_ok());
+    assert!(spawn_restart(pid, Path::new("/bin/true"), &lock).is_ok());
+
+    // The old app's lock still held: the helper waits until it is free.
+    let held = crate::store::lock(&state).unwrap();
+    let mut child = restart_child(pid, Path::new("/bin/true"), &lock).unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(600));
+    assert!(child.try_wait().unwrap().is_none(), "exec'd while the lock was held");
+    drop(held);
+    let started = std::time::Instant::now();
+    assert!(child.wait().unwrap().success());
+    assert!(started.elapsed() < std::time::Duration::from_secs(5));
+    let _ = std::fs::remove_dir_all(&dir);
 }

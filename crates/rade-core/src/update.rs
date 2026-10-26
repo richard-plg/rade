@@ -652,14 +652,18 @@ pub fn install_outcome(code: i32, stderr: &str) -> InstallOutcome {
     }
 }
 
-const RESTART_SCRIPT: &str = r#"i=0; while [ "$i" -lt 300 ] && [ -e "/proc/$1" ] && [ "$(cut -d" " -f3 "/proc/$1/stat" 2>/dev/null)" != Z ]; do sleep 0.2; i=$((i+1)); done; exec "$2""#;
+/// Wait for the old pid to go (a zombie counts as gone), then for its
+/// `state.json.lock` flock to be free: a zombie leader's other threads can
+/// still hold it while they exit, and the new app refuses to start then.
+const RESTART_SCRIPT: &str = r#"i=0; while [ "$i" -lt 300 ] && [ -e "/proc/$1" ] && [ "$(cut -d" " -f3 "/proc/$1/stat" 2>/dev/null)" != Z ]; do sleep 0.2; i=$((i+1)); done; flock -w 30 "$3" true 2>/dev/null; exec "$2""#;
 
-fn restart_child(pid: u32, exe: &Path) -> std::io::Result<std::process::Child> {
+fn restart_child(pid: u32, exe: &Path, lock: &Path) -> std::io::Result<std::process::Child> {
     use std::os::unix::process::CommandExt;
     use std::process::{Command, Stdio};
     let mut cmd = Command::new("sh");
     cmd.args(["-c", RESTART_SCRIPT, "rade-restart", &pid.to_string()])
         .arg(exe)
+        .arg(lock)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
@@ -674,10 +678,11 @@ fn restart_child(pid: u32, exe: &Path) -> std::io::Result<std::process::Child> {
     cmd.spawn()
 }
 
-/// D21: a detached helper that waits for `pid` to go (up to 60 s), then
+/// D21: a detached helper that waits for `pid` to go (up to 60 s) and for
+/// `lock` (the app's `state.json.lock`) to be free (up to 30 s), then
 /// execs `exe`.
-pub fn spawn_restart(pid: u32, exe: &Path) -> std::io::Result<()> {
-    restart_child(pid, exe).map(|_| ())
+pub fn spawn_restart(pid: u32, exe: &Path, lock: &Path) -> std::io::Result<()> {
+    restart_child(pid, exe, lock).map(|_| ())
 }
 
 // ------------------------------------------------------------------ phases

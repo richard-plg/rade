@@ -899,7 +899,8 @@ fn restart() {
         );
         return;
     }
-    if let Err(e) = core::spawn_restart(std::process::id(), &exe) {
+    let lock = app().paths.state.with_extension("json.lock");
+    if let Err(e) = core::spawn_restart(std::process::id(), &exe, &lock) {
         toast(&format!("Couldn't restart: {e}"), None);
         return;
     }
