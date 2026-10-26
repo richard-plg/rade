@@ -475,7 +475,9 @@ impl App {
         // So do menus (a popover has the keyboard: R19.1, R19.6).
         let typing = crate::palette::is_open()
             || gtk::prelude::GtkWindowExt::focus(&self.window).is_some_and(|w| {
-                is_text_entry(&w) || w.ancestor(gtk::Popover::static_type()).is_some()
+                is_text_entry(&w)
+                    || w.ancestor(gtk::Popover::static_type()).is_some()
+                    || crate::voice_view::holds(&w)
             });
         self.focus_pane_widget(&model, typing);
         crate::layout_mode::show_inspector(

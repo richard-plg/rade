@@ -90,3 +90,48 @@ fn r124_i_stt_request_reply_and_tentative_words() {
     assert!(level(&[i16::MAX; 100]) > 0.99 && level(&[i16::MAX; 100]) <= 1.0);
     assert!(level(&[1000; 100]) > level(&[100; 100]));
 }
+
+/// 50 ms of a tone at `amp` (0..1 of full scale), or silence at 0.
+fn frames(amp: f64, n: usize) -> Vec<i16> {
+    (0..n * 800)
+        .map(|i| ((i as f64 * 0.17).sin() * amp * 32767.0) as i16)
+        .collect()
+}
+
+#[test]
+fn r124_s_silence_gate_and_hallucinations() {
+    // Silence and a quiet room (-50 dBFS) hold no speech.
+    assert_eq!(speech_ms(&frames(0.0, 40), 0.1), 0);
+    assert_eq!(speech_ms(&frames(0.003, 40), 0.1), 0);
+    // Talking (-20 dBFS) for 0.5 s within 2 s of room noise does.
+    let mut take = frames(0.003, 20);
+    take.extend(frames(0.1, 10));
+    take.extend(frames(0.003, 10));
+    assert_eq!(speech_ms(&take, 0.1), 500);
+    assert!(has_speech(&take, 0.1));
+    // A cough-length blip (100 ms) is not a take.
+    let mut blip = frames(0.003, 20);
+    blip.extend(frames(0.1, 2));
+    assert!(!has_speech(&blip, 0.1));
+    // A loud room raises the bar: noise at -26 dBFS everywhere is not speech.
+    assert!(!has_speech(&frames(0.05, 40), 0.1));
+    // …up to a point: a loud steady voice (-10 dBFS, no pauses) still counts.
+    assert!(has_speech(&frames(0.3, 40), 0.1));
+
+    // Whisper's YouTube outros on silence or noise go; real words stay.
+    assert_eq!(
+        drop_hallucinations(
+            "Hãy subscribe cho kênh Ghiền Mì Gõ để không bỏ lỡ những video hấp dẫn."
+        ),
+        ""
+    );
+    assert_eq!(
+        drop_hallucinations("Sửa cái hàm useTotals. Cảm ơn các bạn đã theo dõi!"),
+        "Sửa cái hàm useTotals."
+    );
+    assert_eq!(drop_hallucinations("Thanks for watching!"), "");
+    assert_eq!(
+        drop_hallucinations("thêm nút subscribe vào trang settings"),
+        "thêm nút subscribe vào trang settings"
+    );
+}

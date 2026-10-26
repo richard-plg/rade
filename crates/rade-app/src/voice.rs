@@ -755,7 +755,13 @@ fn stt_request(kind: Kind) {
         return;
     };
     std::thread::spawn(move || {
-        let result = transcribe(&cfg, &pcm, &vocabulary, &key, &curl);
+        // Silence or steady noise never reaches Whisper (it makes sentences
+        // up); what comes back loses its known made-up outros.
+        let result = if stt::has_speech(&pcm, cfg.min_speech_level()) {
+            transcribe(&cfg, &pcm, &vocabulary, &key, &curl).map(|t| stt::drop_hallucinations(&t))
+        } else {
+            Ok(String::new())
+        };
         post(Msg::Stt {
             session,
             kind,
@@ -985,6 +991,7 @@ pub fn debug(p: &Value) -> Result<Value> {
             crate::voice_view::type_text(text);
             Ok(json!({}))
         }
+        "pick" => crate::voice_view::debug_pick(),
         "heard_toggle" => {
             crate::voice_view::toggle_heard();
             Ok(json!({}))
@@ -1003,7 +1010,7 @@ fn pairs(r: &[std::ops::Range<usize>]) -> Value {
 }
 
 fn info() -> Value {
-    let (v, pane, edited, agent, recorder, requests) = with(|c| {
+    let (v, pane, edited, agent, recorder, requests, speech_ms) = with(|c| {
         let mut v = c.composer.view();
         let mut pane = c.pane.clone();
         // A `debug.voice scene` shows a composer the controller knows nothing of.
@@ -1027,6 +1034,11 @@ fn info() -> Value {
                     "bytes": c.pcm.lock().map_or(0, |p| p.len() * 2)})
             }),
             c.stt_requests,
+            // How much of the take so far is speech (calibrating
+            // `min_speech_level`).
+            c.pcm
+                .lock()
+                .map_or(0, |p| stt::speech_ms(&p, c.cfg.min_speech_level())),
         )
     });
     let mut o = json!({
@@ -1052,6 +1064,8 @@ fn info() -> Value {
         "agent": agent,
         "recorder": recorder,
         "stt_requests": requests,
+        "speech_ms": speech_ms,
+        "focus_inside": crate::voice_view::focus_inside(),
     });
     // The widget's own facts win: what is folded, tagged and shown.
     if let (Some(base), Value::Object(w)) = (o.as_object_mut(), crate::voice_view::debug_info()) {

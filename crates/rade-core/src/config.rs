@@ -249,6 +249,10 @@ pub struct VoiceConfig {
     pub stt_key_command: String,
     /// Raw s16le mono 16 kHz on stdout.
     pub record_command: String,
+    /// A take's speech bar (a 50 ms frame's `stt::level`, 0..1): takes with
+    /// less than 300 ms above it (or above twice the room's noise) are not
+    /// transcribed. config.toml only.
+    pub min_speech_level: f32,
 }
 
 impl Default for VoiceConfig {
@@ -268,11 +272,21 @@ impl Default for VoiceConfig {
             stt_language: "auto".into(),
             stt_key_command: String::new(),
             record_command: "pw-record --rate 16000 --channels 1 --format s16 -".into(),
+            min_speech_level: 0.1,
         }
     }
 }
 
 impl VoiceConfig {
+    /// [`Self::min_speech_level`] within 0..1.
+    pub fn min_speech_level(&self) -> f32 {
+        if self.min_speech_level.is_finite() {
+            self.min_speech_level.clamp(0.0, 1.0)
+        } else {
+            0.1
+        }
+    }
+
     /// The configured code when it is 2 or 3 lowercase ASCII letters
     /// (ISO 639), else `auto`.
     pub fn stt_language(&self) -> &str {

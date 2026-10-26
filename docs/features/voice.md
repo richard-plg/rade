@@ -144,7 +144,14 @@ stt_url = "http://127.0.0.1:8178/v1/audio/transcriptions"
 stt_model = "whisper-1"    # ignored by whisper.cpp
 stt_key_command = ""       # prints the API key; never stored by RADE
 record_command = "pw-record --rate 16000 --channels 1 --format s16 -"  # raw 16 kHz mono s16le on stdout
+min_speech_level = 0.1     # speech's bar (0..1); a take with less than 0.3 s above it is not transcribed
 ```
+
+Whisper invents sentences when it gets silence or plain noise (a YouTube outro like *"Hãy subscribe
+cho kênh…"*). So RADE sends nothing when a take has no speech in it and shows `Didn't catch that`,
+and it removes the best-known invented outros from what comes back. If takes you spoke into come
+back as `Didn't catch that`, your microphone is quiet: lower `min_speech_level` (try `0.05`) or
+raise the input volume.
 
 `[voice]` is read from your own `config.toml` only. A Workspace, Project or repository
 `.rade.toml` can't set it, because it decides which commands run and where your audio and code

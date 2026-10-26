@@ -431,6 +431,37 @@ close_composer
 rade close "$orphan" --force >/dev/null 2>&1 || true
 fi
 
+# Owner's live run, 2026-10-26: a silent take came back as Whisper's made-up
+# "Hãy subscribe cho kênh …", and a click on the card went to the Terminal.
+if want q; then
+echo "== R124-t silence never reaches speech-to-text; clicks and focus stay in the card"
+conf "FAKE_MIC_LEVEL=0 $HERE/fake-mic.sh"
+sleep 1
+rade focus "$planner" >/dev/null; sleep 0.5
+: >"$FAKE_STT_LOG"
+vkey press:F8; sleep 2; vkey release:F8
+eventually 15 is "vq .label" "Didn't catch that"
+check "R124-t a silent take: 'Didn't catch that', no speech-to-text request, no draft" \
+    bash -c "[[ \$(vq .state) == empty && \$(vq .speech_ms) == 0 && -z \$(vq .draft) ]] && [[ ! -s '$FAKE_STT_LOG' ]]"
+close_composer
+conf
+sleep 1
+rpc debug.ui '{"op":"click","widget":"voice-button"}' >/dev/null
+sleep 1
+rade focus "$planner" >/dev/null; sleep 0.8
+check "R124-t while talking, a model sync (focus the Pane again) leaves the keyboard in the card" \
+    test "$(vq .focus_inside)" = true
+rpc debug.ui '{"op":"click","widget":"voice-button"}' >/dev/null
+eventually 30 is "vq .state" ready
+check "R124-t a press on the draft box lands in the card (GTK pick), not on the Terminal" \
+    bash -c "vop pick | jq -e '.in_composer' >/dev/null"
+rade focus "$planner" >/dev/null; sleep 0.8
+vop type '"text":" ok"' >/dev/null
+check "R124-t …the keyboard stays there after a sync, and typing edits the draft" \
+    bash -c "[[ \$(vq .focus_inside) == true && \$(vq .draft_edited) == true ]] && vq .draft | grep -q ' ok\$'"
+close_composer
+fi
+
 # ======================================================================== r
 if want r; then
 echo "== R124-r spec I scenes, goldens, 1280 px and Text scale 200 %"

@@ -94,6 +94,13 @@ pub fn now_ms() -> u64 {
     (glib::monotonic_time() / 1000).max(0) as u64
 }
 
+/// `w` is the composer or inside it: the window's focus stays there when the
+/// model syncs (the Pane's Terminal must not take it back).
+pub fn holds(w: &gtk::Widget) -> bool {
+    card()
+        .is_some_and(|c| w == c.composer.upcast_ref::<gtk::Widget>() || w.is_ancestor(&c.composer))
+}
+
 /// Whether the composer is shown (Send is then the window's one primary
 /// button, D16).
 pub fn is_open() -> bool {
@@ -400,12 +407,13 @@ fn build(pane_id: &str) -> Rc<Card> {
     composer.append(&activity);
     composer.append(&footer);
 
-    // Up to 760 px wide and centred; only the card takes clicks.
+    // Up to 760 px wide and centred. Both wrappers stay targetable: GTK picks
+    // nothing inside an untargetable widget, so clicks went through the card
+    // to the Terminal underneath (which then took the keyboard).
     let clamp = adw::Clamp::new();
     clamp.set_maximum_size(760);
     clamp.set_tightening_threshold(760);
     clamp.set_child(Some(&composer));
-    clamp.set_can_target(false);
     let root = gtk::Box::new(gtk::Orientation::Vertical, 0);
     root.add_css_class("voice-slot");
     root.set_valign(gtk::Align::End);
@@ -414,7 +422,6 @@ fn build(pane_id: &str) -> Rc<Card> {
     root.set_margin_end(10);
     root.set_margin_bottom(10);
     root.set_margin_top(10);
-    root.set_can_target(false);
     root.append(&clamp);
 
     let c = Rc::new(Card {
@@ -1128,6 +1135,49 @@ pub fn type_text(text: &str) {
         let b = c.draft.buffer();
         b.insert(&mut b.end_iter(), text);
     }
+}
+
+/// `debug.voice pick`: what a pointer press at the middle of the draft box
+/// lands on — GTK's own pick, as a real click — and, as a click does, focus
+/// moves there. `{"in_composer", "widget"}`.
+pub fn debug_pick() -> rade_core::rpc::Result<serde_json::Value> {
+    let c = card().ok_or_else(|| rade_core::rpc::Error::usage("the Voice Composer is not open"))?;
+    let root = c
+        .draft
+        .root()
+        .ok_or_else(|| rade_core::rpc::Error::internal("not shown"))?;
+    let at = c
+        .draft
+        .compute_point(
+            &root,
+            &gtk::graphene::Point::new(c.draft.width() as f32 / 2.0, c.draft.height() as f32 / 2.0),
+        )
+        .ok_or_else(|| rade_core::rpc::Error::internal("the draft box has no place"))?;
+    let hit = root.pick(at.x() as f64, at.y() as f64, gtk::PickFlags::DEFAULT);
+    if let Some(w) = &hit {
+        // Focus-on-click of the picked widget or its first focusable parent.
+        let mut f = Some(w.clone());
+        while let Some(x) = f {
+            if x.is_focusable() && x.gets_focus_on_click() {
+                x.grab_focus();
+                break;
+            }
+            f = x.parent();
+        }
+    }
+    Ok(serde_json::json!({
+        "in_composer": hit.as_ref().is_some_and(holds),
+        "widget": hit.map(|w| w.type_().name().to_string()),
+    }))
+}
+
+/// The window's keyboard focus is in the composer.
+pub fn focus_inside() -> bool {
+    card()
+        .and_then(|c| c.composer.root())
+        .and_then(|r| r.downcast::<gtk::Window>().ok())
+        .and_then(|w| gtk::prelude::GtkWindowExt::focus(&w))
+        .is_some_and(|w| holds(&w))
 }
 
 /// `debug.voice heard_toggle`: the heard line's show / hide link.

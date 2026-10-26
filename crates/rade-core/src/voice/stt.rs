@@ -41,6 +41,69 @@ pub fn level(chunk: &[i16]) -> f32 {
     (rms.sqrt() as f32).clamp(0.0, 1.0)
 }
 
+/// Samples in one level frame (50 ms at [`SAMPLE_RATE`]).
+const FRAME: usize = 800;
+/// A take holds speech when at least this much of it is above the bar.
+pub const MIN_SPEECH_MS: u64 = 300;
+/// The highest bar the room's noise can set (≈ -20 dBFS).
+const NOISE_BAR_MAX: f32 = 0.3;
+
+/// How much of `pcm` is louder than speech's bar: `min_level` (a [`level`])
+/// or twice the room's noise floor (the quietest fifth of the frames, capped
+/// at [`NOISE_BAR_MAX`] so loud steady speech still counts), whichever is
+/// higher. Whisper turns silence and steady noise into made-up
+/// sentences, so a take without speech never goes to speech-to-text.
+pub fn speech_ms(pcm: &[i16], min_level: f32) -> u64 {
+    let levels: Vec<f32> = pcm.chunks(FRAME).map(level).collect();
+    if levels.is_empty() {
+        return 0;
+    }
+    let mut sorted = levels.clone();
+    sorted.sort_by(f32::total_cmp);
+    let bar = min_level.max((sorted[sorted.len() / 5] * 2.0).min(NOISE_BAR_MAX));
+    levels.iter().filter(|&&l| l >= bar).count() as u64 * 50
+}
+
+/// [`speech_ms`] reaches [`MIN_SPEECH_MS`].
+pub fn has_speech(pcm: &[i16], min_level: f32) -> bool {
+    speech_ms(pcm, min_level) >= MIN_SPEECH_MS
+}
+
+/// Sentences Whisper makes up on silence or noise (YouTube outros, subtitle
+/// credits), lower case; a sentence holding one is dropped.
+const HALLUCINATIONS: &[&str] = &[
+    "subscribe cho kênh",
+    "subscribe kênh",
+    "đăng ký kênh",
+    "ghiền mì gõ",
+    "like và subscribe",
+    "like, share và subscribe",
+    "cảm ơn các bạn đã theo dõi",
+    "cảm ơn các bạn đã xem",
+    "hẹn gặp lại các bạn",
+    "những video tiếp theo",
+    "video hấp dẫn",
+    "thanks for watching",
+    "thank you for watching",
+    "please subscribe",
+    "subtitles by",
+    "amara.org",
+    "la la school",
+];
+
+/// `text` without the sentences of [`HALLUCINATIONS`].
+pub fn drop_hallucinations(text: &str) -> String {
+    text.split_inclusive(['.', '!', '?', '\n'])
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .filter(|s| {
+            let l = s.to_lowercase();
+            !HALLUCINATIONS.iter().any(|h| l.contains(h))
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 /// The curl command; the WAV goes on stdin, the rest on fd 3 ([`curl_config`]).
 pub fn curl_argv() -> Vec<String> {
     [
