@@ -483,6 +483,30 @@ rade focus "$pp" >/dev/null
 check "R120-h a plain folder: mode none ('No Repository')" eventually 5 is "scm | jq -r .mode" none
 check "R120-h …and no count on the switcher" test "$(rpc debug.ui | jq -r '.chrome.right_panel.labels[0]')" = "Changes"
 
+echo "== R120-h a link whose Project checkout does not exist yet"
+GH=$T/code/ghost
+mkdir -p "$GH"
+( cd "$GH" && G init -q && echo one > a.txt && G add -A && G commit -qm "feat(R1): init" && G branch release )
+rade source add "$GH" --name ghost >/dev/null
+LV=$T/code/live
+mkdir -p "$LV"
+( cd "$LV" && G init -q && echo one > a.txt && G add -A && G commit -qm "feat(R1): init" )
+# Published, so the live link has no Publish button and is empty too.
+G init -q --bare -b main "$T/live.git"
+G -C "$LV" remote add origin "$T/live.git"
+G -C "$LV" push -q -u origin main
+rade source add "$LV" --name live >/dev/null
+rade project add Ghost --source ghost:release --source live:main >/dev/null
+gp=$(rade spawn --source live --cmd bash --json | jq -r .pane)
+rade focus "$gp" >/dev/null
+rade debug action show_changes >/dev/null
+ghost_card() { scm | jq -r '[.cards[] | select(.source=="ghost")][0]'"$1"; }
+check "R120-h the link's Project checkout is not on disk" bash -c "p=\$(rpc debug.scm | jq -r '[.cards[] | select(.source==\"ghost\")][0].path'); [[ -n \$p && \$p != null && ! -e \$p ]]"
+check "R120-h the card says 'No checkout yet', folded, clean" eventually 5 is "ghost_card '| [.note, .folded, .clean] | join(\"|\")'" "No checkout yet|true|true"
+check "R120-h …shows no error text (no 'fatal: cannot change to')" eventually 5 is "ghost_card '.error'" null
+check "R120-h …and the page counts it as empty" eventually 5 is "scm | jq -r .empty" true
+scene no-checkout
+
 echo
 echo "M45: $PASS passed, $FAIL failed (screenshots: ${OUT#$ROOT/})"
 stop_app
