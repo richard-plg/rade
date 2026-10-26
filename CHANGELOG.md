@@ -10,6 +10,24 @@ the 0.x sections were written by hand. Requirement IDs (R…) refer to [docs/int
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-10-26
+
+### Added
+
+- Voice prompts: hold F8 on an Agent Pane, speak, and a read-only voice agent turns it into a clear prompt you can revise by voice before sending.
+- Changes works like VS Code's Source Control: a card per repository with Merge / Staged / Changes groups, a row click opens its diff, Commit ▾ (Amend, Commit & Push, Commit All, Undo Last Commit), Publish / Sync / Fetch and opt-in auto-fetch
+- Diff Pane — a file's uncommitted changes beside the focused Pane
+- Side by side, full file, F7 / Shift+F7 in the Diff Pane
+- Stage, unstage and discard hunks or selected lines in the Diff Pane
+- Quick Diff marks and peek in the Viewer
+
+### Fixed
+
+- Claude Agents waiting on background tasks stay running, not done
+- An Agent started by another Agent no longer takes over its Pane
+- An Agent started by hand in a shell Pane reports and restores again
+- A link without its checkout yet shows "No checkout yet", not a git error
+
 ## [1.0.1] - 2026-10-25
 
 ### Fixed
@@ -1102,6 +1120,7 @@ Initial release: everything built in milestones M0–M12.
   releases with the `.deb` and `SHA256SUMS`, `rade-app --version`, this
   changelog (ADR-0012).
 
-[Unreleased]: https://github.com/richard-plg/rade/compare/v1.0.1...HEAD
+[Unreleased]: https://github.com/richard-plg/rade/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/richard-plg/rade/compare/v1.0.1...v1.1.0
 [1.0.1]: https://github.com/richard-plg/rade/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/richard-plg/rade/releases/tag/v1.0.0
