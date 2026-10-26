@@ -509,9 +509,9 @@ pub fn ago(secs: u64) -> String {
 
 /// Lowercase hex SHA-256 of a file.
 pub fn sha256_file(path: &Path) -> std::io::Result<String> {
-    use sha2::{Digest, Sha256};
+    use sha2::digest::{FixedOutput, Update};
     let mut f = std::fs::File::open(path)?;
-    let mut h = Sha256::new();
+    let mut h = sha2::Sha256::default();
     let mut buf = vec![0u8; 64 * 1024];
     loop {
         let n = f.read(&mut buf)?;
@@ -520,7 +520,10 @@ pub fn sha256_file(path: &Path) -> std::io::Result<String> {
         }
         h.update(&buf[..n]);
     }
-    Ok(h.finalize().iter().map(|b| format!("{b:02x}")).collect())
+    Ok(h.finalize_fixed()
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect())
 }
 
 /// The hash of `name` in a `SHA256SUMS` text (`<hex>  <name>` or

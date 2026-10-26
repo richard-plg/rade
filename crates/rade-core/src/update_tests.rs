@@ -936,7 +936,10 @@ fn spawn_restart_runs_the_helper_which_execs_exe() {
     let held = crate::store::lock(&state).unwrap();
     let mut child = restart_child(pid, Path::new("/bin/true"), &lock).unwrap();
     std::thread::sleep(std::time::Duration::from_millis(600));
-    assert!(child.try_wait().unwrap().is_none(), "exec'd while the lock was held");
+    assert!(
+        child.try_wait().unwrap().is_none(),
+        "exec'd while the lock was held"
+    );
     drop(held);
     let started = std::time::Instant::now();
     assert!(child.wait().unwrap().success());
