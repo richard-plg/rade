@@ -119,6 +119,20 @@ fn browser_dirs_of(env: Env, flavor: Flavor) -> (PathBuf, PathBuf) {
     (data_dir_of(env, flavor).join("browser"), cache)
 }
 
+/// `$XDG_CACHE_HOME/<flavor>/update` (`~/.cache/rade/update`): the Update
+/// check's cache and downloads (R127), per flavor.
+pub fn update_dir(env: Env) -> PathBuf {
+    update_dir_of(env, Flavor::current())
+}
+
+fn update_dir_of(env: Env, flavor: Flavor) -> PathBuf {
+    env("XDG_CACHE_HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| home(env).join(".cache"))
+        .join(flavor.name())
+        .join("update")
+}
+
 pub fn state_file(env: Env) -> PathBuf {
     state_file_of(env, Flavor::current())
 }
@@ -238,6 +252,24 @@ mod tests {
                 "/h/.local/share/rade/browser".into(),
                 "/k/rade/browser".into()
             )
+        );
+    }
+
+    #[test]
+    fn r127_update_cache_is_per_flavor() {
+        let e = env(&[("HOME", "/h"), ("XDG_CACHE_HOME", "/k")]);
+        assert_eq!(
+            update_dir_of(&e, Flavor::Installed),
+            PathBuf::from("/k/rade/update")
+        );
+        assert_eq!(
+            update_dir_of(&e, Flavor::Devel),
+            PathBuf::from("/k/rade-dev/update")
+        );
+        let h = env(&[("HOME", "/h")]);
+        assert_eq!(
+            update_dir_of(&h, Flavor::Installed),
+            PathBuf::from("/h/.cache/rade/update")
         );
     }
 

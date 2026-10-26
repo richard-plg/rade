@@ -600,7 +600,7 @@ impl Statusline {
                     None => continue,
                 },
                 // Its own persistent widget (R116), never in `cells`.
-                CellKind::Hint | CellKind::Monitor => continue,
+                CellKind::Hint | CellKind::Monitor | CellKind::Update => continue,
             };
             self.cells.append(&w);
         }

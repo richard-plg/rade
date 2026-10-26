@@ -163,6 +163,7 @@ fn kind_str(k: Kind) -> &'static str {
         Kind::PrOpened => "pr_opened",
         Kind::Commit => "commit",
         Kind::Limit => "limit",
+        Kind::Update => "update",
     }
 }
 
@@ -183,6 +184,7 @@ pub fn mark(k: Kind) -> gtk::Widget {
         Kind::PrOpened => icon("ph-git-pull-request-symbolic", "activity-pr"),
         Kind::Commit => icon("ph-git-branch-symbolic", "activity-commit"),
         Kind::Limit => icon("ph-gauge-symbolic", "activity-limit"),
+        Kind::Update => icon("ph-arrow-circle-up-symbolic", "activity-update"),
     }
 }
 

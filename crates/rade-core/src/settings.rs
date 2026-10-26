@@ -45,6 +45,7 @@ pub const CATEGORIES: &[&str] = &[
     "Source Control",
     "Voice",
     "Statusline",
+    "Updates",
 ];
 
 pub const SETTINGS: &[Setting] = &[
@@ -279,6 +280,20 @@ pub const SETTINGS: &[Setting] = &[
         description:
             "CPU, memory, GPU and network in the Statusline; a click lists the busiest Panes.",
         kind: Kind::Bool,
+    },
+    Setting {
+        key: "update.check",
+        category: "Updates",
+        label: "Check for updates",
+        description: "Once a day, ask GitHub whether a newer RADE is out. Off: only Check now asks.",
+        kind: Kind::Bool,
+    },
+    Setting {
+        key: "update.channel",
+        category: "Updates",
+        label: "Update channel",
+        description: "Stable releases, or release candidates too (rc).",
+        kind: Kind::Choice(&["stable", "rc"]),
     },
 ];
 
@@ -542,6 +557,8 @@ mod tests {
         assert_eq!(hits, ["terminal.font_size", "code_font.size"]);
         assert_eq!(categories("font"), ["Terminal", "Code"]);
         assert_eq!(categories(""), CATEGORIES);
+        assert_eq!(CATEGORIES.last(), Some(&"Updates"));
+        assert_eq!(categories("channel"), ["Updates"]);
         assert_eq!(categories("light"), ["Theme"]);
         assert!(categories("zzz").is_empty());
     }
