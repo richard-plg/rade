@@ -25,6 +25,7 @@
 | [Fan-out](features/fan-out.md) | One prompt to several Agents, Judge, Winner |
 | [Review](features/review.md) | The Review Pane: Viewed, inline comments, rounds, Approve |
 | [Settings and config](features/settings-and-config.md) | Settings page, `config.toml`, layered config, trust |
+| [Updates](features/updates.md) | A newer release in the Statusline, Install from the app, restart when it suits, `rade version` |
 
 ## Showcases
 
