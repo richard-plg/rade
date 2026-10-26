@@ -370,6 +370,7 @@ pub const ACTIONS: &[(&str, &str)] = &[
     ("toggle_status_bar", "Toggle Status Bar"),
     ("open_usage", "Agent Usage"),
     ("agent_overview", "Agent Overview"),
+    ("voice", "Voice Prompt"),
     ("open_settings", "Settings"),
     ("new_worktree", "New Worktree…"),
     ("open_review", "Review Changes"),

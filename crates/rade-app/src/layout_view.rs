@@ -28,6 +28,8 @@ struct Caption {
     status_icon: gtk::Image,
     status: gtk::Label,
     zoom: Option<gtk::Button>,
+    /// The mic button (R124), shown on Agent Panes.
+    voice: Option<gtk::Button>,
     /// Close Pane (R19.9), in a Tab with 2 or more Panes.
     close: Option<gtk::Button>,
 }
@@ -90,6 +92,9 @@ impl Captions {
                 c.root.add_css_class("focused");
             } else {
                 c.root.remove_css_class("focused");
+            }
+            if let Some(v) = &c.voice {
+                v.set_visible(p.agent_name().is_some() || p.mark().is_some());
             }
             if let Some(z) = &c.zoom {
                 let zoomed = tab.zoomed.as_deref() == Some(&p.id);
@@ -267,6 +272,7 @@ fn caption_box(pane: &Pane, tab: &str, buttons: bool, captions: &mut Captions) -
     root.append(&status_icon);
     root.append(&status);
     let mut zoom = None;
+    let mut voice = None;
     let mut close_button = None;
     if buttons {
         let z = gtk::Button::from_icon_name("view-fullscreen-symbolic");
@@ -296,6 +302,11 @@ fn caption_box(pane: &Pane, tab: &str, buttons: bool, captions: &mut Captions) -
         menu.set_focusable(false);
         menu.set_focus_on_click(false);
         z.set_focus_on_click(false);
+        // Voice prompt (R124, D3): before Zoom, Agent Panes only.
+        let mic = crate::voice_view::mic_button(&pane.id);
+        mic.set_visible(pane.agent_name().is_some() || pane.mark().is_some());
+        root.append(&mic);
+        voice = Some(mic);
         root.append(&z);
         root.append(&menu);
         if captions.panes >= 2 {
@@ -326,6 +337,7 @@ fn caption_box(pane: &Pane, tab: &str, buttons: bool, captions: &mut Captions) -
         status_icon,
         status,
         zoom,
+        voice,
         close: close_button,
     });
     root
@@ -357,6 +369,8 @@ fn pane_widget(
     let content = gtk::Overlay::new();
     content.set_child(Some(root));
     content.set_vexpand(true);
+    // The Voice Composer's slot over the body (R124, D15).
+    crate::voice_view::attach(&pane.id, &content);
     let layer = |o: &gtk::Overlay, class: &str| {
         let w = gtk::Box::new(gtk::Orientation::Vertical, 0);
         w.add_css_class(class);

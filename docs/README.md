@@ -14,6 +14,7 @@
 | [Projects and Worktrees](features/projects-and-worktrees.md) | Sources, Projects and their bases, checkouts, drift, the Navigator, Project home |
 | [Agent Overview](features/agent-overview.md) | Every Agent of every Workspace on one screen (`Ctrl+Shift+Space`), live Previews |
 | [Agents](features/agents.md) | Start agents, the Agent Grid of Subagents, status, Notifications, Inbox, Session Restore, Presets |
+| [Voice prompts](features/voice.md) | Hold `F8`, speak, a read-only voice agent drafts the prompt; revise by voice; speech-to-text setup |
 | [Viewer, files and search](features/viewer-files-search.md) | Files tree; code, Markdown + Mermaid, HTML, PDF; Search, command palette |
 | [Terminals and layout](features/terminals-and-layout.md) | Tabs, splits, zoom, Ctrl+click paths, image paste, pause, system monitor |
 | [The `rade` CLI](features/cli-for-agents.md) | How agents drive RADE and each other |

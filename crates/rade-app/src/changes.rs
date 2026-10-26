@@ -627,6 +627,7 @@ impl Changes {
         let Some(app) = try_app() else { return };
         let modal = crate::palette::is_open()
             || crate::project_dialogs::is_open()
+            || crate::voice_view::is_open()
             || adw::prelude::AdwApplicationWindowExt::visible_dialog(&app.window).is_some();
         let (fs, fw) = {
             let m = app.model.borrow();

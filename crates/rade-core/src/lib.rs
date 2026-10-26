@@ -55,6 +55,7 @@ pub mod sysmon;
 pub mod title;
 pub mod usage;
 pub mod viewer;
+pub mod voice;
 pub mod workspace;
 pub mod workspace_setup;
 pub mod worktree;

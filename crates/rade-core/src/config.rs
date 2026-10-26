@@ -72,6 +72,10 @@ pub const DEFAULT_KEYBINDINGS: &[(&str, &str)] = &[
     ("workspace_7", "<Ctrl><Alt>7"),
     ("workspace_8", "<Ctrl><Alt>8"),
     ("workspace_9", "<Ctrl><Alt>9"),
+    // Voice prompt (R124): hold to talk, tap to toggle. F8 is free in
+    // Ghostty, GNOME, IBus / fcitx Vietnamese input and the Claude Code /
+    // Codex TUIs.
+    ("voice", "F8"),
 ];
 
 /// Keys a Workspace, Project or Source file may set (R29.1, ADR-0017).
@@ -91,6 +95,8 @@ pub const APP_WIDE: &[&str] = &[
     "terminal",
     "appearance",
     "code_font",
+    // User config only (D19): it runs commands and sends audio and code out.
+    "voice",
 ];
 
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
@@ -265,6 +271,128 @@ pub struct Config {
     pub terminal: TerminalConfig,
     pub appearance: AppearanceConfig,
     pub code_font: CodeFontConfig,
+    pub voice: VoiceConfig,
+}
+
+/// `[voice]` (R124, ADR-0046): voice prompts. User config only.
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct VoiceConfig {
+    pub agent: VoiceAgent,
+    /// `""` = `haiku` (claude) / Codex's own default.
+    pub model: String,
+    /// Non-empty replaces the built command (`sh -c`); the protocol is still
+    /// `agent`'s.
+    pub agent_command: String,
+    pub tools: VoiceTools,
+    /// Claude Code turns per draft; read through [`VoiceConfig::max_turns`].
+    pub max_turns: u32,
+    /// Seconds per turn; read through [`VoiceConfig::timeout`].
+    pub timeout_secs: u32,
+    /// Seconds; read through [`VoiceConfig::max_recording`].
+    pub max_recording_secs: u32,
+    pub live_preview: bool,
+    pub draft_language: DraftLanguage,
+    /// OpenAI-compatible transcription endpoint.
+    pub stt_url: String,
+    /// Ignored by whisper.cpp, needed by OpenAI.
+    pub stt_model: String,
+    /// `auto` or a language code; read through [`VoiceConfig::stt_language`].
+    pub stt_language: String,
+    /// Prints the API key on stdout; empty = no key.
+    pub stt_key_command: String,
+    /// Raw s16le mono 16 kHz on stdout.
+    pub record_command: String,
+    /// A take's speech bar (a 50 ms frame's `stt::level`, 0..1): takes with
+    /// less than 300 ms above it (or above twice the room's noise) are not
+    /// transcribed. config.toml only.
+    pub min_speech_level: f32,
+}
+
+impl Default for VoiceConfig {
+    fn default() -> Self {
+        Self {
+            agent: VoiceAgent::default(),
+            model: String::new(),
+            agent_command: String::new(),
+            tools: VoiceTools::default(),
+            max_turns: 6,
+            timeout_secs: 60,
+            max_recording_secs: 120,
+            live_preview: true,
+            draft_language: DraftLanguage::default(),
+            stt_url: "http://127.0.0.1:8178/v1/audio/transcriptions".into(),
+            stt_model: "whisper-1".into(),
+            stt_language: "auto".into(),
+            stt_key_command: String::new(),
+            record_command: "pw-record --rate 16000 --channels 1 --format s16 -".into(),
+            min_speech_level: 0.1,
+        }
+    }
+}
+
+impl VoiceConfig {
+    /// [`Self::min_speech_level`] within 0..1.
+    pub fn min_speech_level(&self) -> f32 {
+        if self.min_speech_level.is_finite() {
+            self.min_speech_level.clamp(0.0, 1.0)
+        } else {
+            0.1
+        }
+    }
+
+    /// The configured code when it is 2 or 3 lowercase ASCII letters
+    /// (ISO 639), else `auto`.
+    pub fn stt_language(&self) -> &str {
+        let l = self.stt_language.trim();
+        if (2..=3).contains(&l.len()) && l.bytes().all(|b| b.is_ascii_lowercase()) {
+            l
+        } else {
+            "auto"
+        }
+    }
+
+    /// 1 to 20.
+    pub fn max_turns(&self) -> u32 {
+        self.max_turns.clamp(1, 20)
+    }
+
+    /// 10 to 300 seconds.
+    pub fn timeout(&self) -> std::time::Duration {
+        std::time::Duration::from_secs(u64::from(self.timeout_secs.clamp(10, 300)))
+    }
+
+    /// 10 to 600 seconds.
+    pub fn max_recording(&self) -> std::time::Duration {
+        std::time::Duration::from_secs(u64::from(self.max_recording_secs.clamp(10, 600)))
+    }
+}
+
+/// Who writes the Voice Draft.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum VoiceAgent {
+    #[default]
+    Claude,
+    Codex,
+}
+
+/// What the voice agent may use: `read` = Read, Grep, Glob.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum VoiceTools {
+    #[default]
+    Read,
+    None,
+}
+
+/// `same` = the language spoken, `en` = always English.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DraftLanguage {
+    #[default]
+    Same,
+    En,
 }
 
 /// `[code]` (R83, ADR-0029): code navigation through language servers.
@@ -453,6 +581,7 @@ impl Default for Config {
             terminal: TerminalConfig::default(),
             appearance: AppearanceConfig::default(),
             code_font: CodeFontConfig::default(),
+            voice: VoiceConfig::default(),
         }
     }
 }
@@ -701,7 +830,13 @@ mod tests {
             // plain-Ctrl default: a legacy terminal has no code for it, so no
             // program can receive it.
             let settings = *action == "open_settings" && *accel == "<Ctrl>comma";
-            assert!(ctrl_shift || alt_only || settings, "{action} = {accel}");
+            // R124: F8 (voice) is a bare function key: held to talk, so it
+            // must not need a chord.
+            let voice = *action == "voice" && *accel == "F8";
+            assert!(
+                ctrl_shift || alt_only || settings || voice,
+                "{action} = {accel}"
+            );
             assert_ne!(*accel, "<Shift>Return");
             // R5.3: Ctrl+V reaches the program (Agents paste images with it).
             assert!(!accel.eq_ignore_ascii_case("<Ctrl>v"), "{action} = {accel}");

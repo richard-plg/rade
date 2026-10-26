@@ -1030,3 +1030,68 @@ toast > button.circular image { -gtk-icon-size: 16px; }
 .overview-preview.pv-left { animation: pv-left 120ms ease-out; }
 .overview-preview.pv-below { animation: pv-below 120ms ease-out; }
 .overview-preview.pv-above { animation: pv-above 120ms ease-out; }
+
+/* ---- Voice Composer (R124, spec I) ------------------------------------------------------
+   Pango scales `line-height` by the font's own line (1.21 em for Inter), CSS by its size:
+   1.28 here = the mockup's 1.55 on 13.5 px, 1.24 = 1.5 on 12.5 px. */
+.voice-composer { background: @bg2; color: @fg; border: 1px solid @line2; border-radius: 8px;
+  box-shadow: 0 20px 60px @shadow; outline: none; }
+.voice-composer.listening { border-color: @acc-line; box-shadow: 0 20px 60px @shadow, 0 0 18px @glow; }
+.voice-header { min-height: 33px; padding: 0 6px 0 12px; border-bottom: 1px solid @line; }
+.voice-dot { min-width: 8px; min-height: 8px; border-radius: 4px; background: @fg3; }
+.voice-dot.rec { background: @err; box-shadow: 0 0 0 3px @rec-dim; }
+.voice-dot.run { background: @run; }
+.voice-dot.ready { background: @acc; }
+.voice-dot.err { background: @err; }
+.voice-dot.idle { background: @fg3; }
+.voice-state { font-family: "Inter", sans-serif; font-size: 12px; font-weight: 600; color: @fg; }
+.voice-time { font-family: "JetBrains Mono", monospace; font-feature-settings: "tnum"; font-size: 11px; color: @fg3; }
+.voice-meter { min-width: 110px; min-height: 16px; }
+.voice-target { font-family: "JetBrains Mono", monospace; font-feature-settings: "tnum"; font-size: 11px; color: @fg3; }
+.voice-target .pane-name { color: @fg2; font-weight: 500; }
+.voice-target .agent-glyph { -gtk-icon-size: 12px; min-width: 12px; min-height: 12px; }
+.voice-close { min-width: 22px; min-height: 22px; padding: 0; margin: 0; border-radius: 4px; color: @fg3;
+  background: none; box-shadow: none; }
+.voice-close image { -gtk-icon-size: 13px; }
+.voice-close:hover { background: @bg3; }
+.voice-heard { padding: 8px 12px; font-family: "Inter", sans-serif; font-style: italic; font-size: 12.5px;
+  line-height: 1.24; color: @fg2; }
+.voice-quote { -gtk-icon-size: 14px; color: @fg3; margin-top: 2px; }
+.voice-heard-toggle { min-height: 16px; min-width: 0; padding: 0 4px; margin-top: 1px; border-radius: 3px; background: none;
+  box-shadow: none; font-family: "JetBrains Mono", monospace; font-style: normal; font-size: 11px; color: @fg3; }
+.voice-heard-toggle:hover { color: @fg; }
+.voice-draft { margin: 0 12px; padding: 9px 11px; min-height: 52px; background: @bg0; border: 1px solid @line; border-radius: 6px;
+  font-family: "Inter", sans-serif; font-size: 13.5px; line-height: 1.28; color: @fg; }
+.voice-draft:focus-within { border-color: @acc-line; }
+.voice-draft.stale { opacity: 0.5; }
+.voice-draft text { background: none; color: @fg; }
+.voice-placeholder { margin: 10px 12px 0 24px; font-family: "Inter", sans-serif; font-size: 13.5px;
+  line-height: 1.28; color: @fg3; }
+.voice-caret { background: @acc; }
+.voice-activity { padding: 7px 12px 0 12px; min-height: 17px; font-family: "JetBrains Mono", monospace;
+  font-feature-settings: "tnum"; font-size: 11px; color: @fg3; }
+.voice-activity image { -gtk-icon-size: 13px; }
+.voice-activity.error, .voice-activity.error image { color: @err; }
+.voice-link { min-height: 0; min-width: 0; padding: 0; margin: 0; background: none; box-shadow: none;
+  font-family: "JetBrains Mono", monospace; font-size: 11px; color: @acc; }
+.voice-link:hover { text-decoration: underline; }
+.voice-footer { padding: 8px 8px 8px 12px; margin-top: 8px; border-top: 1px solid @line;
+  font-family: "Inter", sans-serif; font-size: 11.5px; color: @fg3; }
+.voice-footer .kbd { color: @fg3; border-radius: 3px; padding: 0 4px; border-bottom-width: 1px; font-weight: normal; }
+.voice-hint.warn, .voice-hint.warn label { color: @wait; }
+.voice-send, .voice-paste { min-height: 26px; padding: 0 10px; border-radius: 6px; font-family: "Inter", sans-serif;
+  font-size: 12px; font-weight: 600; box-shadow: none; }
+.voice-paste { min-height: 24px; background: @bg2; color: @fg; border: 1px solid @line2; background-image: none; }
+.voice-send, .voice-send.suggested-action { background: @acc; color: @acc-fg; border: none; background-image: none; }
+.voice-send image { -gtk-icon-size: 14px; }
+.voice-send .kbd { background: none; color: @acc-fg; border-color: alpha(@acc-fg, 0.3); }
+.voice-composer.compact .voice-draft { min-height: 0; }
+
+/* The mic button in an Agent Pane's header (R124, D3). */
+.pane-header button.voice-button { min-width: 22px; min-height: 22px; }
+.pane-header button.voice-button image { -gtk-icon-size: 13px; }
+.voice-button.recording { color: @err; background: @rec-dim; }
+.voice-button.open { color: @acc; background: @acc-dim; }
+/* The Statusline's REC cell (R124, D18). */
+.status-voice, .status-voice label, .status-voice image { color: @err; }
+.status-voice image { -gtk-icon-size: 13px; }

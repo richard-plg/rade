@@ -273,7 +273,9 @@ fn action_id(a: Action) -> &'static str {
 /// A dialog or the palette opened / closed: Open terminal keeps the
 /// primary class only while neither is open (one `.suggested-action`).
 pub fn sync_primary() {
-    let modal = crate::project_dialogs::is_open() || crate::palette::is_open();
+    let modal = crate::project_dialogs::is_open()
+        || crate::palette::is_open()
+        || crate::voice_view::is_open();
     PRIMARY.with(|p| {
         if let Some(b) = p.borrow().as_ref() {
             if modal {

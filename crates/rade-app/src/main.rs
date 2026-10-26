@@ -79,6 +79,8 @@ mod tokens_gen;
 mod tokens_tests;
 mod usage_view;
 mod viewer;
+mod voice;
+mod voice_view;
 mod worktrees;
 
 use adw::prelude::*;

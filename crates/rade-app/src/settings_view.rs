@@ -82,6 +82,16 @@ pub fn toggle() {
     }
 }
 
+/// The Settings page with its search filled in (R124: `Set up voice…`).
+pub(crate) fn open_filtered(query: &str) {
+    if !is_open() {
+        open();
+    }
+    if let Some(v) = OPEN.with(|o| o.borrow().clone()) {
+        v.search.set_text(query);
+    }
+}
+
 pub fn close() {
     let Some(_v) = OPEN.with(|o| o.borrow_mut().take()) else {
         return;

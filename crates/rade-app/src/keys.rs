@@ -60,7 +60,20 @@ pub fn install(window: &adw::ApplicationWindow, config_path: &Path) -> gio::File
     let keys = gtk::EventControllerKey::new();
     keys.set_propagation_phase(gtk::PropagationPhase::Capture);
     keys.connect_key_pressed(|_, keyval, _, state| on_key(keyval, state));
+    // R124 (D2): letting go of the `voice` key ends a take, whatever the
+    // modifiers are by then.
+    keys.connect_key_released(|_, keyval, _, _| on_key_released(keyval));
     window.add_controller(keys);
+    // A take also ends when the window loses focus; no process outlives it.
+    window.connect_is_active_notify(|w| {
+        if !w.is_active() {
+            crate::voice::focus_lost();
+        }
+    });
+    window.connect_close_request(|_| {
+        crate::voice::shutdown();
+        glib::Propagation::Proceed
+    });
     watch_config(config_path)
 }
 
@@ -84,6 +97,15 @@ fn on_key(keyval: Key, state: ModifierType) -> glib::Propagation {
         Some(a) if crate::palette::is_open() && a != "command_palette" => {
             glib::Propagation::Proceed
         }
+        // Hold / tap / repeat of the voice key (R124, D2): not a one-shot
+        // action. Ignored while Settings is open.
+        Some(a) if a == "voice" => {
+            if crate::voice::key_down() {
+                glib::Propagation::Stop
+            } else {
+                glib::Propagation::Proceed
+            }
+        }
         Some(a) => {
             run_action(&a);
             glib::Propagation::Stop
@@ -101,6 +123,18 @@ fn on_key(keyval: Key, state: ModifierType) -> glib::Propagation {
     }
 }
 
+/// The `voice` key was released (R124): matched by key alone.
+fn on_key_released(keyval: Key) {
+    let voice = KEYMAP.with(|k| {
+        k.borrow()
+            .iter()
+            .any(|(key, _, a)| a == "voice" && *key == keyval.to_lower())
+    });
+    if voice {
+        crate::voice::key_up();
+    }
+}
+
 /// `debug.ui {"op": "key", "keys": "ctrl+k" | "ctrl+shift+p" | "escape" | "x"}`
 /// (test mode): the key goes the way a real press does — the palette's own
 /// keys while it is open, RADE's bindings, else the focused Terminal.
@@ -111,6 +145,15 @@ pub fn debug_key(spec: &str) -> rade_core::rpc::Result<serde_json::Value> {
         crate::overview_view::release(Key::Control_L);
         return Ok(json!({"handled": "overview"}));
     }
+    // `press:F8` / `release:F8` (R124, D22): a key held without being let go;
+    // a second `press:` while held is an auto-repeat.
+    let (phase, spec) = if let Some(rest) = spec.strip_prefix("press:") {
+        (Some(true), rest)
+    } else if let Some(rest) = spec.strip_prefix("release:") {
+        (Some(false), rest)
+    } else {
+        (None, spec)
+    };
     let mut mods = ModifierType::empty();
     let mut name = "";
     for part in spec.split('+') {
@@ -124,13 +167,22 @@ pub fn debug_key(spec: &str) -> rade_core::rpc::Result<serde_json::Value> {
     let key = match name.to_ascii_lowercase().as_str() {
         "escape" | "esc" => Key::Escape,
         "enter" | "return" => Key::Return,
-        n => Key::from_name(n)
+        n => Key::from_name(name)
+            .or_else(|| Key::from_name(n))
             .ok_or_else(|| rade_core::rpc::Error::usage(format!("unknown key '{spec}'")))?,
     };
+    if phase == Some(false) {
+        on_key_released(key);
+        return Ok(json!({"handled": "release"}));
+    }
     // The Settings page takes Esc from its own field (its capture handler).
     if crate::settings_view::is_open() && key == Key::Escape {
         crate::settings_view::close();
         return Ok(json!({"handled": "settings"}));
+    }
+    // The Voice Composer takes Esc / Enter / Alt+Enter (R124, D12, D13).
+    if crate::voice_view::is_open() && crate::voice_view::handle_key(key, mods) {
+        return Ok(json!({"handled": "voice"}));
     }
     if crate::overview_view::is_open() {
         if lookup(key, mods).as_deref() == Some("agent_overview") {
@@ -327,6 +379,8 @@ pub fn run_action(action: &str) {
         "open_usage" => crate::usage_view::open(),
         "open_settings" => crate::settings_view::toggle(),
         "agent_overview" => crate::overview_view::shortcut(),
+        // The palette's Voice Prompt: a tap on the focused Pane (R124).
+        "voice" => crate::voice::tap_focused(),
         "rename_tab" => crate::tabs::rename_selected(),
         "new_worktree" => {
             let p = app.model.borrow().active_source.clone();

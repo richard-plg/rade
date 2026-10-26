@@ -142,6 +142,14 @@ _Avoid_: State, phase
 Recreating Sources, Worktrees, Tabs, Layouts, working directories, and resuming Agents after RADE restarts; processes themselves do not survive.
 _Avoid_: Persistence, reattach
 
+**Voice Composer**:
+The card at the bottom of an Agent Pane where the owner dictates: live words, then the Voice Draft, revised by speaking again, sent with Enter (R124).
+_Avoid_: Dictation box, voice modal
+
+**Voice Draft**:
+The prompt RADE's voice agent writes from what the owner said, the Pane's session and the checkout; it reaches the Agent only when sent.
+_Avoid_: Transcript (that is the raw words)
+
 ### Attention
 
 **Notification**:
