@@ -29,6 +29,8 @@ export RADE_DEBUG_SOCKET=1
 # The system monitor (R116) reads the real machine: off, so goldens and cell
 # orders stay fixed; tests/e2e/sysmon.sh turns it on over a fake proc root.
 export RADE_SYSTEM_MONITOR=${RADE_SYSTEM_MONITOR:-0}
+# The update check (R127) would reach github.com: off, tests/e2e/m48.sh turns it on over a fake GitHub.
+export RADE_UPDATE_CHECK=${RADE_UPDATE_CHECK:-0}
 printf 'PS1="$ "\n' > "$HOME/.bashrc"
 # Agent config dirs must come from the temp HOME, never the real one.
 unset RADE_SOCKET RADE_PANE_ID CLAUDE_CONFIG_DIR CODEX_HOME
