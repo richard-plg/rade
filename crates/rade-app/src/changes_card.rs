@@ -1316,15 +1316,28 @@ impl Card {
         }));
         // The counts give way to the actions while hovered, selected or
         // holding the focus; the cell keeps its width (no layout shift).
+        // Switching the page unmaps the hovered / focused child, which
+        // changes the row's flags again inside this handler: ignore those
+        // nested calls and settle in at most two switches (no recursion).
         let s = stack.clone();
+        let busy = Rc::new(Cell::new(false));
         row.connect_state_flags_changed(move |row, _| {
-            let f = row.state_flags();
-            let on = f.intersects(
-                gtk::StateFlags::PRELIGHT
-                    | gtk::StateFlags::SELECTED
-                    | gtk::StateFlags::FOCUS_WITHIN,
-            );
-            s.set_visible_child_name(if on { "actions" } else { "stat" });
+            if busy.replace(true) {
+                return;
+            }
+            for _ in 0..2 {
+                let on = row.state_flags().intersects(
+                    gtk::StateFlags::PRELIGHT
+                        | gtk::StateFlags::SELECTED
+                        | gtk::StateFlags::FOCUS_WITHIN,
+                );
+                let want = if on { "actions" } else { "stat" };
+                if s.visible_child_name().as_deref() == Some(want) {
+                    break;
+                }
+                s.set_visible_child_name(want);
+            }
+            busy.set(false);
         });
         RowW {
             row,
