@@ -102,6 +102,22 @@ fn r14_1_every_keybinding_action_is_offered() {
 }
 
 #[test]
+fn r127_update_actions_follow_settings() {
+    let at = |id: &str| ACTIONS.iter().position(|(i, _)| *i == id).unwrap();
+    assert_eq!(at("about"), at("open_settings") + 1);
+    assert_eq!(at("check_updates"), at("open_settings") + 2);
+    assert_eq!(at("restart_update"), at("open_settings") + 3);
+    let titles: Vec<&str> = ACTIONS.iter().map(|(_, t)| *t).collect();
+    for t in [
+        "About RADE",
+        "Check for Updates",
+        "Restart to Finish Update…",
+    ] {
+        assert!(titles.contains(&t), "{t}");
+    }
+}
+
+#[test]
 fn r14_1_panes_match_by_name_agent_and_status() {
     let items = items();
     assert_eq!(go(&items, "@rev").first().map(String::as_str), Some("rev"));

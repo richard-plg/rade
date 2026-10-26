@@ -8,15 +8,21 @@ constant of crates/rade-core/src/usage/detailed.rs) and every later one with
 an unexpected shape. Each request appends one line to <log-file>:
 `<n> <path> auth=<yes|no>` (the token itself is never written).
 """
+import datetime
 import http.server
 import sys
 
+# The weekly limits reset 3 days from now (a fixed date expired on
+# 2026-10-26 09:00 UTC and the stored limits were dropped as past).
+WEEK = (datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(days=3)).replace(
+    hour=9, minute=0, second=0, microsecond=0).isoformat()
+
 GOOD = (
     '{"five_hour":{"utilization":62.0,"resets_at":"2026-10-23T15:12:00+00:00"},'
-    '"seven_day":{"utilization":41.0,"resets_at":"2026-10-26T09:00:00+00:00"},'
-    '"seven_day_oauth_apps":{"utilization":3.0,"resets_at":"2026-10-26T09:00:00+00:00"},'
-    '"seven_day_opus":{"utilization":58.0,"resets_at":"2026-10-26T09:00:00+00:00"},'
-    '"seven_day_sonnet":{"utilization":22.0,"resets_at":"2026-10-26T09:00:00+00:00"},'
+    '"seven_day":{"utilization":41.0,"resets_at":"' + WEEK + '"},'
+    '"seven_day_oauth_apps":{"utilization":3.0,"resets_at":"' + WEEK + '"},'
+    '"seven_day_opus":{"utilization":58.0,"resets_at":"' + WEEK + '"},'
+    '"seven_day_sonnet":{"utilization":22.0,"resets_at":"' + WEEK + '"},'
     '"seven_day_cowork":null,"extra_usage":{"is_enabled":false},"new_field":1}'
 )
 BAD = '{"limits":[{"kind":"weekly","pct":"58"}],"version":2}'

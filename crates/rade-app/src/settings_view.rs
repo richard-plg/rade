@@ -92,6 +92,28 @@ pub(crate) fn open_filtered(query: &str) {
     }
 }
 
+/// Settings on `category` (the Update cell, `About RADE`, R127): open if
+/// closed, select it, then scroll to its head once the rows have their
+/// first allocation (before that the scroll would land at 0).
+pub(crate) fn open_at(category: &str) {
+    let Some(cat) = st::CATEGORIES.iter().copied().find(|c| *c == category) else {
+        return;
+    };
+    if !is_open() {
+        open();
+    }
+    let Some(v) = OPEN.with(|o| o.borrow().clone()) else {
+        return;
+    };
+    // A search that hides the category is cleared.
+    if !st::categories(&v.search.text()).contains(&cat) {
+        v.search.set_text("");
+    }
+    *v.category.borrow_mut() = Some(cat);
+    render();
+    glib::idle_add_local_once(move || scroll_to(&v, cat));
+}
+
 pub fn close() {
     let Some(_v) = OPEN.with(|o| o.borrow_mut().take()) else {
         return;
@@ -268,6 +290,11 @@ fn render() {
         let head = label(&c.to_uppercase(), &["section-label", "settings-section"]);
         head.set_widget_name(&format!("section:{c}"));
         v.rows.append(&head);
+        if *c == "Updates" {
+            // The one persistent About widget (R127, §5.1), kept current.
+            crate::update::render();
+            v.rows.append(&crate::update_view::about_block());
+        }
         for s in st::SETTINGS
             .iter()
             .filter(|s| s.category == *c && st::matches(s, &query))
@@ -684,6 +711,7 @@ fn state() -> Value {
         return json!({"open": false, "dark": crate::tokens::dark(), "terminals": terminals});
     };
     let query = v.search.text().to_string();
+    let shown = st::categories(&query);
     let rows: Vec<Value> = st::SETTINGS
         .iter()
         .filter(|s| st::matches(s, &query))
@@ -695,12 +723,13 @@ fn state() -> Value {
     json!({
         "open": true,
         "query": query,
-        "categories": st::categories(&query),
+        "categories": shown,
         "rows": rows,
         "modified": v.modified.text().to_string(),
         "error": v.error.is_visible().then(|| v.error.text().to_string()),
         "fonts": monospace_families(),
         "styles": styles_of(&config.terminal.font),
+        "category": v.category.borrow().filter(|c| shown.contains(c)).or(shown.first().copied()),
         "dark": crate::tokens::dark(),
         "terminals": terminals,
         "code_css": crate::fonts::code_css(&config.code_font()),

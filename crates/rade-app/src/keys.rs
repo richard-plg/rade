@@ -234,6 +234,9 @@ pub fn apply_config(config: Config) {
         if old.system_monitor != app.config.borrow().system_monitor {
             crate::sysmon_view::refresh_mode();
         }
+        if old.update != app.config.borrow().update {
+            crate::update::config_changed();
+        }
     }
 }
 
@@ -378,6 +381,9 @@ pub fn run_action(action: &str) {
         "toggle_status_bar" => app.chrome.toggle_status_bar(&app),
         "open_usage" => crate::usage_view::open(),
         "open_settings" => crate::settings_view::toggle(),
+        "about" => crate::settings_view::open_at("Updates"),
+        "check_updates" => crate::update::check_now(),
+        "restart_update" => crate::update::restart_dialog(),
         "agent_overview" => crate::overview_view::shortcut(),
         // The palette's Voice Prompt: a tap on the focused Pane (R124).
         "voice" => crate::voice::tap_focused(),

@@ -18,6 +18,8 @@ pub enum Kind {
     PrOpened,
     Commit,
     Limit,
+    /// An Update (R127): available, installed, failed.
+    Update,
 }
 
 /// One event. A row reads `<actor> <text>` (`tests asked which
@@ -96,6 +98,11 @@ impl Event {
     }
 
     /// An account limit event (R110): `acme-work five_hour passed 80 %`.
+    /// `RADE 1.2.0 is available` (R127).
+    pub fn update(text: &str, at: u64) -> Event {
+        Event::new(Kind::Update, at, "RADE", text.into())
+    }
+
     pub fn limit(account: &str, text: &str, at: u64) -> Event {
         Event::new(Kind::Limit, at, account, text.into())
     }
@@ -182,6 +189,14 @@ mod tests {
     }
 
     use super::*;
+
+    #[test]
+    fn r127_update_event_is_rade_s() {
+        let e = Event::update("1.2.0 is available", 9);
+        assert_eq!((e.kind, e.actor.as_str(), e.at), (Kind::Update, "RADE", 9));
+        assert_eq!(e.line(), "RADE 1.2.0 is available");
+        assert_eq!(serde_json::to_string(&e.kind).unwrap(), "\"update\"");
+    }
 
     #[test]
     fn r107_c_activity_keeps_newest_500_in_memory_only() {

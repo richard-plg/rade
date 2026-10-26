@@ -204,6 +204,8 @@ pub enum CellKind {
     Identity,
     /// The system monitor (R116): a widget of its own after the cells.
     Monitor,
+    /// The Update cell (R127): a widget of its own after the cells.
+    Update,
     Hint,
 }
 
@@ -218,6 +220,7 @@ impl CellKind {
             CellKind::Usage => "usage",
             CellKind::Identity => "identity",
             CellKind::Monitor => "monitor",
+            CellKind::Update => "update",
             CellKind::Hint => "hint",
         }
     }
@@ -558,8 +561,8 @@ pub fn crumb_ellipsizes(i: usize, n: usize, has_project: bool) -> bool {
 }
 
 /// Which Statusline cells show in `avail` px (spec A "1280 px"): cells drop
-/// in the order hints (rightmost first), the system monitor (R116.4),
-/// ports, identity until the rest fits; Workspace, Project, Worktree,
+/// in the order hints (rightmost first), the system monitor (R116.4), the
+/// Update cell (R127), ports, identity until the rest fits; Workspace, Project, Worktree,
 /// counts and usage never drop.
 /// `widths[i]` is cell `i`'s width with its share of the gaps.
 pub fn statusline_fit(cells: &[Cell], widths: &[i32], avail: i32) -> Vec<bool> {
@@ -569,6 +572,7 @@ pub fn statusline_fit(cells: &[Cell], widths: &[i32], avail: i32) -> Vec<bool> {
     for kind in [
         CellKind::Hint,
         CellKind::Monitor,
+        CellKind::Update,
         CellKind::Ports,
         CellKind::Identity,
     ] {
@@ -1077,6 +1081,58 @@ mod tests {
         );
         assert_eq!(
             shown(total - 471),
+            "ws,project,worktree,counts,usage,identity"
+        );
+    }
+
+    #[test]
+    fn r127_p_the_update_cell_drops_after_the_monitor_before_ports() {
+        let mut cells = cells_a();
+        let at = cells.len() - 2;
+        cells.insert(
+            at,
+            Cell {
+                kind: CellKind::Monitor,
+                text: "cpu  34% · mem  61% · ↓0B ↑0B".into(),
+            },
+        );
+        cells.insert(
+            at,
+            Cell {
+                kind: CellKind::Update,
+                text: "1.2.0".into(),
+            },
+        );
+        // ws project worktree counts ports usage identity update monitor hint hint
+        let widths = vec![60, 60, 120, 140, 70, 180, 140, 90, 200, 130, 140];
+        let total: i32 = widths.iter().sum();
+        let shown = |avail| {
+            statusline_fit(&cells, &widths, avail)
+                .iter()
+                .zip(&cells)
+                .filter(|(k, _)| **k)
+                .map(|(_, c)| c.kind.as_str())
+                .collect::<Vec<_>>()
+                .join(",")
+        };
+        let all = "ws,project,worktree,counts,ports,usage,identity,update,monitor,hint,hint";
+        assert_eq!(shown(total), all);
+        // Dropping 1, 3, 4 and 5 cells: the hints, then the monitor, the
+        // update cell, ports.
+        assert_eq!(
+            shown(total - 1),
+            "ws,project,worktree,counts,ports,usage,identity,update,monitor,hint"
+        );
+        assert_eq!(
+            shown(total - 271),
+            "ws,project,worktree,counts,ports,usage,identity,update"
+        );
+        assert_eq!(
+            shown(total - 471),
+            "ws,project,worktree,counts,ports,usage,identity"
+        );
+        assert_eq!(
+            shown(total - 561),
             "ws,project,worktree,counts,usage,identity"
         );
     }

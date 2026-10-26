@@ -259,6 +259,8 @@ struct Statusline {
     /// The REC cell (R124, D18) and its text.
     rec: gtk::Box,
     rec_text: gtk::Label,
+    /// The Update cell (R127, D16), between the cells and the monitor.
+    update: crate::update_view::UpdateCell,
     /// (window width, cells generation) of the last fit (R111.1).
     fitted: std::cell::Cell<(i32, u64)>,
     generation: std::cell::Cell<u64>,
@@ -401,6 +403,8 @@ impl Statusline {
         let root = gtk::Box::new(gtk::Orientation::Horizontal, 0);
         root.add_css_class("statusline");
         root.append(&left);
+        let update = crate::update_view::UpdateCell::new();
+        root.append(&update.button);
         // The system monitor (R116): one persistent widget, updated in place.
         let monitor = crate::sysmon_view::widget();
         root.append(&monitor);
@@ -416,6 +420,7 @@ impl Statusline {
             hints,
             rec,
             rec_text,
+            update,
             fitted: Default::default(),
             generation: Default::default(),
             dropped: Default::default(),
@@ -431,10 +436,18 @@ impl Statusline {
         }
         self.fitted.set(key);
         let monitor = crate::sysmon_view::enabled();
+        // The Update cell counts whenever it has something to say (D16),
+        // never judged by its visibility, which this fit sets itself.
+        let update = self.update.last.borrow().is_some();
         let mut widgets: Vec<gtk::Widget> = Vec::new();
         for parent in [&self.cells, &self.hints] {
-            if parent == &self.hints && monitor {
-                widgets.push(self.monitor.clone());
+            if parent == &self.hints {
+                if update {
+                    widgets.push(self.update.button.clone().upcast());
+                }
+                if monitor {
+                    widgets.push(self.monitor.clone());
+                }
             }
             let mut c = parent.first_child();
             while let Some(w) = c {
@@ -444,6 +457,12 @@ impl Statusline {
         }
         let mut cells: Vec<Cell> = self.shown.borrow().clone();
         cells.retain(|c| c.kind != CellKind::Usage || self.usage.borrow().is_some());
+        if update {
+            cells.push(Cell {
+                kind: CellKind::Update,
+                text: String::new(),
+            });
+        }
         if monitor {
             cells.push(Cell {
                 kind: CellKind::Monitor,
@@ -600,7 +619,7 @@ impl Statusline {
                     None => continue,
                 },
                 // Its own persistent widget (R116), never in `cells`.
-                CellKind::Hint | CellKind::Monitor => continue,
+                CellKind::Hint | CellKind::Monitor | CellKind::Update => continue,
             };
             self.cells.append(&w);
         }
@@ -634,6 +653,7 @@ impl Statusline {
             "dropped": *self.dropped.borrow(),
             "usage": *self.usage.borrow(),
             "voice_rec": self.rec.is_visible().then(|| self.rec_text.label().to_string()),
+            "update": self.update.shown_text(),
         })
     }
 
@@ -965,6 +985,19 @@ impl Chrome {
         self.fit();
     }
 
+    /// The Update cell (R127), for `update.rs`.
+    pub fn update_cell(&self) -> &crate::update_view::UpdateCell {
+        &self.statusline.update
+    }
+
+    /// The Update cell appeared, vanished or changed its text: fit again.
+    pub fn update_changed(&self) {
+        self.statusline
+            .generation
+            .set(self.statusline.generation.get() + 1);
+        self.fit();
+    }
+
     /// Fit the titlebar and the Statusline to the window's width (R111.1).
     pub fn fit(&self) {
         let w = crate::layout_mode::window_width();
@@ -1086,6 +1119,7 @@ impl Chrome {
             }
         }
         self.review_toasts(ws);
+        crate::update::maybe_toast_in(ws);
         // The first update only learns who already waits (Session Restore).
         let Some(before) = self.waiting.replace(Some(now)) else {
             return;

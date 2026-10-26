@@ -16,7 +16,8 @@ height, ligatures, look), **Code** (the font of the Viewer, Review and Markdown 
 (`system` / `dark` / `light`), **Notifications** (desktop notifications, idle time), **Agents**
 (spawn depth and children limits), **Source Control** (Changes view and sort, auto-fetch, Diff
 Pane layout, Quick Diff), **Voice** ([voice prompts](voice.md): voice agent, steps,
-timeout, recording, languages) and **Statusline** (show it, system monitor). Search finds a
+timeout, recording, languages), **Statusline** (show it, system monitor) and **Updates**
+(the About block, **Check for updates**, **Update channel**: [updates](updates.md)). Search finds a
 setting by name, description or key.
 
 Each change is one edit of `~/.config/rade/config.toml`, checked before it's written, keeping your
@@ -37,6 +38,10 @@ color_scheme = "system"      # system | dark | light
 [terminal]
 font = "Maple Mono"
 font_size = 14
+
+[update]
+check = true                 # ask GitHub once a day for a newer RADE
+channel = "stable"           # stable | rc
 
 [limits]
 max_depth = 3                # Subagents of Subagents of …

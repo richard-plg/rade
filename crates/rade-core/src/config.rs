@@ -97,6 +97,8 @@ pub const APP_WIDE: &[&str] = &[
     "code_font",
     // User config only (D19): it runs commands and sends audio and code out.
     "voice",
+    // User config only (D26): it decides what RADE sends to GitHub.
+    "update",
 ];
 
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
@@ -272,6 +274,34 @@ pub struct Config {
     pub appearance: AppearanceConfig,
     pub code_font: CodeFontConfig,
     pub voice: VoiceConfig,
+    pub update: UpdateConfig,
+}
+
+/// `[update]` (R127, ADR-0048): the daily Update check. User config only.
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct UpdateConfig {
+    /// Check automatically (Check now always works).
+    pub check: bool,
+    pub channel: UpdateChannel,
+}
+
+impl Default for UpdateConfig {
+    fn default() -> Self {
+        Self {
+            check: true,
+            channel: UpdateChannel::Stable,
+        }
+    }
+}
+
+/// Which releases an Update may offer: stable only, or release candidates too.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UpdateChannel {
+    #[default]
+    Stable,
+    Rc,
 }
 
 /// `[voice]` (R124, ADR-0046): voice prompts. User config only.
@@ -582,6 +612,7 @@ impl Default for Config {
             appearance: AppearanceConfig::default(),
             code_font: CodeFontConfig::default(),
             voice: VoiceConfig::default(),
+            update: UpdateConfig::default(),
         }
     }
 }
@@ -907,6 +938,19 @@ mod tests {
         for k in REMOVED {
             assert!(!LAYERED.contains(k) && !APP_WIDE.contains(k), "{k}");
         }
+    }
+
+    #[test]
+    fn r127_update_config_defaults_and_scope() {
+        let c = Config::default();
+        assert!(c.update.check);
+        assert_eq!(c.update.channel, UpdateChannel::Stable);
+        let c = Config::parse("[update]\ncheck = false\nchannel = \"rc\"\n").unwrap();
+        assert!(!c.update.check);
+        assert_eq!(c.update.channel, UpdateChannel::Rc);
+        assert!(Config::parse("[update]\nchannel = \"beta\"\n").is_err());
+        assert!(Config::parse("[update]\nnope = 1\n").is_err());
+        assert!(APP_WIDE.contains(&"update") && !LAYERED.contains(&"update"));
     }
 
     #[test]

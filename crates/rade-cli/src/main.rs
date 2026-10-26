@@ -8,6 +8,7 @@ mod code;
 mod fanout;
 mod local;
 mod project;
+mod version;
 mod workspace;
 
 use clap::{Parser, Subcommand, ValueEnum};
@@ -220,6 +221,12 @@ enum Cmd {
         /// Show the diff, write nothing.
         #[arg(long)]
         dry_run: bool,
+    },
+    /// Show the CLI's, the running app's and the update's versions (local).
+    Version {
+        /// Ask GitHub once now (not with RADE_UPDATE_CHECK=0 or a Devel build).
+        #[arg(long)]
+        check: bool,
     },
     #[command(subcommand, hide = true)]
     Debug(DebugCmd),
@@ -826,7 +833,10 @@ fn request(cmd: &Cmd) -> Result<(&'static str, Value), Error> {
                 "paths": paths.iter().cloned().map(abs).collect::<Result<Vec<_>, _>>()?,
             }),
         ),
-        Cmd::Setup { .. } | Cmd::Workspace(WorkspaceCmd::Local(_)) | Cmd::Chromium { .. } => {
+        Cmd::Setup { .. }
+        | Cmd::Version { .. }
+        | Cmd::Workspace(WorkspaceCmd::Local(_))
+        | Cmd::Chromium { .. } => {
             unreachable!("local command")
         }
     })
@@ -1131,6 +1141,7 @@ fn main() {
             ..
         } => local::hook(state, session_id, agent, payload),
         Cmd::Setup { agent, dry_run } => local::setup(agent, *dry_run),
+        Cmd::Version { check } => version::run(*check, cli.json),
         Cmd::Workspace(WorkspaceCmd::Local(c)) => workspace::run(c, cli.json),
         Cmd::Source(SourceCmd::Add {
             spec,
@@ -1151,6 +1162,7 @@ fn main() {
             if matches!(
                 cli.cmd,
                 Cmd::Setup { .. }
+                    | Cmd::Version { .. }
                     | Cmd::Status { hook: true, .. }
                     | Cmd::Status {
                         statusline: true,
@@ -1172,6 +1184,11 @@ fn main() {
         }
         Err(e) => {
             eprintln!("rade: {e}");
+            if e.message.contains("unknown method '") {
+                if let Some(line) = version::app_hint() {
+                    eprintln!("{line}");
+                }
+            }
             std::process::exit(e.kind.exit_code());
         }
     }

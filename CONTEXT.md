@@ -214,6 +214,10 @@ _Avoid_: Overview (alone), Mission Control, dashboard, switcher (that is the Wor
 The `Ctrl+Shift+P` (and, outside a Terminal, `Ctrl+K`) overlay (also the titlebar's command field) that finds Panes, Tabs, Worktrees, Source links, Projects, files and actions by fuzzy search and runs one; an action needing input shows an inline form there.
 _Avoid_: Quick open, launcher, command bar
 
+**Update**:
+A newer RADE release on GitHub Releases that RADE found and can install from the app; it takes effect when RADE restarts (R127).
+_Avoid_: Upgrade (apt's word for the package step), patch
+
 ### Usage
 
 **Limit**:

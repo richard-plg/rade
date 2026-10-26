@@ -14,7 +14,8 @@ gh release download -R richard-plg/rade -p 'rade_*_amd64.deb' -p SHA256SUMS -D /
 
 (or download both files from the release page in a browser). This installs `/usr/bin/rade`,
 `/usr/bin/rade-app` and the **RADE** launcher. To build it yourself, see
-[CONTRIBUTING.md](../CONTRIBUTING.md).
+[CONTRIBUTING.md](../CONTRIBUTING.md). Later releases install from inside RADE: see
+[Updates](features/updates.md).
 
 You also need at least one coding-agent CLI on your `PATH` —
 [Claude Code](https://docs.anthropic.com/en/docs/claude-code), [Codex](https://github.com/openai/codex),

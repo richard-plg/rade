@@ -77,6 +77,8 @@ mod tokens;
 mod tokens_gen;
 #[cfg(test)]
 mod tokens_tests;
+mod update;
+mod update_view;
 mod usage_view;
 mod viewer;
 mod voice;
@@ -424,6 +426,7 @@ fn build(gtk_app: &adw::Application) {
     // Worktrees made outside RADE show up in the sidebar (R12).
     worktrees::import_all();
     fanout::watch_verdicts();
+    update::start();
     log_renders();
 }
 
@@ -458,6 +461,7 @@ fn scrub_inherited_agent_session_env() {
                 || k.starts_with("CLAUDE_CODE_")
                 || k == "RADE_PROJECT"
                 || k == rade_core::rpc::DEBUG_ENV
+                || update::ENV_VARS.contains(&k.as_str())
         })
         .collect();
     for k in stale {
@@ -513,6 +517,10 @@ fn main() {
     let _ =
         handlers::DEBUG_SOCKET.set(std::env::var(rade_core::rpc::DEBUG_ENV).as_deref() == Ok("1"));
     import_login_shell_env();
+    // The Update overrides (R127, D27) are read once the login shell's
+    // environment is in, before anything else uses them, then removed with
+    // the rest.
+    update::read_env();
     scrub_inherited_agent_session_env();
     hand_off_to_running_instance();
     // One app per state.json, even on another socket (ADR-0021); held until exit.
@@ -544,6 +552,7 @@ fn main() {
             let _ = std::fs::remove_file(&app.paths.socket);
             code::stop_all();
         }
+        update::shutdown();
     });
     gtk_app.run_with_args::<&str>(&[]);
     // State is saved in `connect_shutdown`. Skip thread-local destructors:

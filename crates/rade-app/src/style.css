@@ -1095,3 +1095,18 @@ toast > button.circular image { -gtk-icon-size: 16px; }
 /* The Statusline's REC cell (R124, D18). */
 .status-voice, .status-voice label, .status-voice image { color: @err; }
 .status-voice image { -gtk-icon-size: 13px; }
+
+/* ---- Updates (R127): Statusline cell, Settings About block --------------------- */
+.status-cell-update { padding: 0 8px; min-height: 0; }
+.status-cell-update.wait label, .status-cell-update.wait image { color: @wait; }
+.status-cell-update.err label, .status-cell-update.err image { color: @err; }
+.status-cell-update.acc label, .status-cell-update.acc image { color: @acc; }
+.status-cell-update image { -gtk-icon-size: 13px; }
+.settings-about { padding: 12px 16px; border-radius: 8px; background: @bg2; }
+.settings-about-title { font-size: 15px; font-weight: 600; color: @fg; }
+.settings-about-status.ok { color: @ok; }
+.settings-about-status.wait { color: @wait; }
+.settings-about-status.err { color: @err; }
+.settings-about-status.acc { color: @acc; }
+.settings-about-sub { font-size: 12px; color: @fg3; }
+.settings-about-privacy { font-size: 11px; color: @fg3; }

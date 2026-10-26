@@ -1,0 +1,317 @@
+[
+  {
+    "url": "https://api.github.com/repos/richard-plg/rade/releases/147199",
+    "html_url": "https://github.com/richard-plg/rade/releases/tag/v2.0.0",
+    "id": 147199,
+    "tag_name": "v2.0.0",
+    "target_commitish": "main",
+    "name": "RADE v2.0.0",
+    "draft": false,
+    "prerelease": false,
+    "created_at": "2026-10-26T09:00:00Z",
+    "published_at": "2026-10-26T10:00:00Z",
+    "assets": [
+      {
+        "url": "https://api.github.com/repos/richard-plg/rade/releases/assets/533147199",
+        "id": 533147199,
+        "name": "rade_2.0.0_amd64.deb",
+        "content_type": "application/vnd.debian.binary-package",
+        "state": "uploaded",
+        "size": 2000005,
+        "digest": "sha256:92d266a2705536fe8888c1ea3ee89a33366b5a66118153048e4fe1146dc24302",
+        "download_count": 3,
+        "created_at": "2026-10-26T10:00:00Z",
+        "updated_at": "2026-10-26T10:00:00Z",
+        "browser_download_url": "https://github.com/richard-plg/rade/releases/download/v2.0.0/rade_2.0.0_amd64.deb"
+      },
+      {
+        "url": "https://api.github.com/repos/richard-plg/rade/releases/assets/1",
+        "id": 1,
+        "name": "SHA256SUMS",
+        "content_type": "text/plain",
+        "state": "uploaded",
+        "size": 100,
+        "digest": "sha256:67137f20b8eef7014454d9a39f5ccc59819b8ba16ff04d62e4847d9a36c13cda",
+        "download_count": 3,
+        "created_at": "2026-10-26T10:00:00Z",
+        "updated_at": "2026-10-26T10:00:00Z",
+        "browser_download_url": "https://github.com/richard-plg/rade/releases/download/v2.0.0/SHA256SUMS"
+      }
+    ],
+    "body": "### Changed\n\n- **Breaking:** The rade CLI renames a command\n\nInstall: `sudo apt install ./rade_2.0.0_amd64.deb` · verify: `sha256sum -c SHA256SUMS`"
+  },
+  {
+    "url": "https://api.github.com/repos/richard-plg/rade/releases/927001",
+    "html_url": "https://github.com/richard-plg/rade/releases/tag/v1.3.0",
+    "id": 927001,
+    "tag_name": "v1.3.0",
+    "target_commitish": "main",
+    "name": "RADE v1.3.0",
+    "draft": true,
+    "prerelease": false,
+    "created_at": "2026-10-26T09:00:00Z",
+    "published_at": "2026-10-26T10:00:00Z",
+    "assets": [
+      {
+        "url": "https://api.github.com/repos/richard-plg/rade/releases/assets/122927001",
+        "id": 122927001,
+        "name": "rade_1.3.0_amd64.deb",
+        "content_type": "application/vnd.debian.binary-package",
+        "state": "uploaded",
+        "size": 2000005,
+        "digest": "sha256:e9689554ab24f01f98fab7a448c9d62f62f3101e73afcaa0880fe04ebdf1f13e",
+        "download_count": 3,
+        "created_at": "2026-10-26T10:00:00Z",
+        "updated_at": "2026-10-26T10:00:00Z",
+        "browser_download_url": "https://github.com/richard-plg/rade/releases/download/v1.3.0/rade_1.3.0_amd64.deb"
+      },
+      {
+        "url": "https://api.github.com/repos/richard-plg/rade/releases/assets/1",
+        "id": 1,
+        "name": "SHA256SUMS",
+        "content_type": "text/plain",
+        "state": "uploaded",
+        "size": 100,
+        "digest": "sha256:db8c45a097800f3248504ba4c059c38cca8ce58165525831b49ed3ff6e855a5e",
+        "download_count": 3,
+        "created_at": "2026-10-26T10:00:00Z",
+        "updated_at": "2026-10-26T10:00:00Z",
+        "browser_download_url": "https://github.com/richard-plg/rade/releases/download/v1.3.0/SHA256SUMS"
+      }
+    ],
+    "body": "### Added\n\n- Not out yet\n\nInstall: `sudo apt install ./rade_1.3.0_amd64.deb` · verify: `sha256sum -c SHA256SUMS`"
+  },
+  {
+    "url": "https://api.github.com/repos/richard-plg/rade/releases/406908",
+    "html_url": "https://github.com/richard-plg/rade/releases/tag/v1.2.2",
+    "id": 406908,
+    "tag_name": "v1.2.2",
+    "target_commitish": "main",
+    "name": "RADE v1.2.2",
+    "draft": false,
+    "prerelease": false,
+    "created_at": "2026-10-26T09:00:00Z",
+    "published_at": "2026-10-26T10:00:00Z",
+    "assets": [
+      {
+        "url": "https://api.github.com/repos/richard-plg/rade/releases/assets/669406908",
+        "id": 669406908,
+        "name": "rade_1.2.2_amd64.deb",
+        "content_type": "application/vnd.debian.binary-package",
+        "state": "uploaded",
+        "size": 2000005,
+        "digest": "sha256:8891ca1dae06a923774b121a596bc59907e380916af8e3668417409d10caf9ad",
+        "download_count": 3,
+        "created_at": "2026-10-26T10:00:00Z",
+        "updated_at": "2026-10-26T10:00:00Z",
+        "browser_download_url": "https://evil.example.com/rade/releases/download/v1.2.2/rade_1.2.2_amd64.deb"
+      },
+      {
+        "url": "https://api.github.com/repos/richard-plg/rade/releases/assets/1",
+        "id": 1,
+        "name": "SHA256SUMS",
+        "content_type": "text/plain",
+        "state": "uploaded",
+        "size": 100,
+        "digest": "sha256:573540f77ae8ec7bccd8e2b977107054ad350e8668d9f5e5afa8ac00c59db42f",
+        "download_count": 3,
+        "created_at": "2026-10-26T10:00:00Z",
+        "updated_at": "2026-10-26T10:00:00Z",
+        "browser_download_url": "https://evil.example.com/rade/releases/download/v1.2.2/SHA256SUMS"
+      }
+    ],
+    "body": "### Fixed\n\n- A fix with a .deb on another host\n\nInstall: `sudo apt install ./rade_1.2.2_amd64.deb` · verify: `sha256sum -c SHA256SUMS`"
+  },
+  {
+    "url": "https://api.github.com/repos/richard-plg/rade/releases/548109",
+    "html_url": "https://github.com/richard-plg/rade/releases/tag/v1.2.1",
+    "id": 548109,
+    "tag_name": "v1.2.1",
+    "target_commitish": "main",
+    "name": "RADE v1.2.1",
+    "draft": false,
+    "prerelease": false,
+    "created_at": "2026-10-26T09:00:00Z",
+    "published_at": "2026-10-26T10:00:00Z",
+    "assets": [
+      {
+        "url": "https://api.github.com/repos/richard-plg/rade/releases/assets/1",
+        "id": 1,
+        "name": "SHA256SUMS",
+        "content_type": "text/plain",
+        "state": "uploaded",
+        "size": 100,
+        "digest": "sha256:ec8481290eb0d8092593a3f8925cddd7194a8c1e5a9e2baf70efd3e6f44dfc4d",
+        "download_count": 3,
+        "created_at": "2026-10-26T10:00:00Z",
+        "updated_at": "2026-10-26T10:00:00Z",
+        "browser_download_url": "https://github.com/richard-plg/rade/releases/download/v1.2.1/SHA256SUMS"
+      }
+    ],
+    "body": "### Fixed\n\n- A fix whose .deb is still building\n\nInstall: `sudo apt install ./rade_1.2.1_amd64.deb` · verify: `sha256sum -c SHA256SUMS`"
+  },
+  {
+    "url": "https://api.github.com/repos/richard-plg/rade/releases/693461",
+    "html_url": "https://github.com/richard-plg/rade/releases/tag/v1.2.0-rc.1",
+    "id": 693461,
+    "tag_name": "v1.2.0-rc.1",
+    "target_commitish": "main",
+    "name": "RADE v1.2.0-rc.1",
+    "draft": false,
+    "prerelease": true,
+    "created_at": "2026-10-26T09:00:00Z",
+    "published_at": "2026-10-26T10:00:00Z",
+    "assets": [
+      {
+        "url": "https://api.github.com/repos/richard-plg/rade/releases/assets/687693461",
+        "id": 687693461,
+        "name": "rade_1.2.0~rc.1_amd64.deb",
+        "content_type": "application/vnd.debian.binary-package",
+        "state": "uploaded",
+        "size": 2000010,
+        "digest": "sha256:69161f4fd26219a737581b8912dc3e7a420134267603609e2e4a1fd54cd781e4",
+        "download_count": 3,
+        "created_at": "2026-10-26T10:00:00Z",
+        "updated_at": "2026-10-26T10:00:00Z",
+        "browser_download_url": "https://github.com/richard-plg/rade/releases/download/v1.2.0-rc.1/rade_1.2.0~rc.1_amd64.deb"
+      },
+      {
+        "url": "https://api.github.com/repos/richard-plg/rade/releases/assets/1",
+        "id": 1,
+        "name": "SHA256SUMS",
+        "content_type": "text/plain",
+        "state": "uploaded",
+        "size": 100,
+        "digest": "sha256:84d4b098a88351fdbf931195777784473ae0f20cc304ec5ce3de7fbbd1f28590",
+        "download_count": 3,
+        "created_at": "2026-10-26T10:00:00Z",
+        "updated_at": "2026-10-26T10:00:00Z",
+        "browser_download_url": "https://github.com/richard-plg/rade/releases/download/v1.2.0-rc.1/SHA256SUMS"
+      }
+    ],
+    "body": "### Added\n\n- Updates (release candidate)\n\nInstall: `sudo apt install ./rade_1.2.0~rc.1_amd64.deb` · verify: `sha256sum -c SHA256SUMS`"
+  },
+  {
+    "url": "https://api.github.com/repos/richard-plg/rade/releases/973520",
+    "html_url": "https://github.com/richard-plg/rade/releases/tag/v1.1.0",
+    "id": 973520,
+    "tag_name": "v1.1.0",
+    "target_commitish": "main",
+    "name": "RADE v1.1.0",
+    "draft": false,
+    "prerelease": false,
+    "created_at": "2026-10-26T09:00:00Z",
+    "published_at": "2026-10-26T10:00:00Z",
+    "assets": [
+      {
+        "url": "https://api.github.com/repos/richard-plg/rade/releases/assets/107973520",
+        "id": 107973520,
+        "name": "rade_1.1.0_amd64.deb",
+        "content_type": "application/vnd.debian.binary-package",
+        "state": "uploaded",
+        "size": 2000005,
+        "digest": "sha256:f104a410220fe0327ae4828374607034fe787f60a502059dda54c98ae933c3d1",
+        "download_count": 3,
+        "created_at": "2026-10-26T10:00:00Z",
+        "updated_at": "2026-10-26T10:00:00Z",
+        "browser_download_url": "https://github.com/richard-plg/rade/releases/download/v1.1.0/rade_1.1.0_amd64.deb"
+      },
+      {
+        "url": "https://api.github.com/repos/richard-plg/rade/releases/assets/1",
+        "id": 1,
+        "name": "SHA256SUMS",
+        "content_type": "text/plain",
+        "state": "uploaded",
+        "size": 100,
+        "digest": "sha256:5ed94b4f8d40d61e0287f1c5e72786d6110f5baae9d9ffe63a26225afab7ac01",
+        "download_count": 3,
+        "created_at": "2026-10-26T10:00:00Z",
+        "updated_at": "2026-10-26T10:00:00Z",
+        "browser_download_url": "https://github.com/richard-plg/rade/releases/download/v1.1.0/SHA256SUMS"
+      }
+    ],
+    "body": "### Added\n\n- Voice prompts\n- Changes page\n\nInstall: `sudo apt install ./rade_1.1.0_amd64.deb` · verify: `sha256sum -c SHA256SUMS`"
+  },
+  {
+    "url": "https://api.github.com/repos/richard-plg/rade/releases/262347",
+    "html_url": "https://github.com/richard-plg/rade/releases/tag/v1.0.1",
+    "id": 262347,
+    "tag_name": "v1.0.1",
+    "target_commitish": "main",
+    "name": "RADE v1.0.1",
+    "draft": false,
+    "prerelease": false,
+    "created_at": "2026-10-25T09:00:00Z",
+    "published_at": "2026-10-25T10:00:00Z",
+    "assets": [
+      {
+        "url": "https://api.github.com/repos/richard-plg/rade/releases/assets/959262347",
+        "id": 959262347,
+        "name": "rade_1.0.1_amd64.deb",
+        "content_type": "application/vnd.debian.binary-package",
+        "state": "uploaded",
+        "size": 2000005,
+        "digest": "sha256:7a51c22f4d9d90dc2feb5b507804290ac9876fac518094a3f19529c496ab60d7",
+        "download_count": 3,
+        "created_at": "2026-10-25T10:00:00Z",
+        "updated_at": "2026-10-25T10:00:00Z",
+        "browser_download_url": "https://github.com/richard-plg/rade/releases/download/v1.0.1/rade_1.0.1_amd64.deb"
+      },
+      {
+        "url": "https://api.github.com/repos/richard-plg/rade/releases/assets/1",
+        "id": 1,
+        "name": "SHA256SUMS",
+        "content_type": "text/plain",
+        "state": "uploaded",
+        "size": 100,
+        "digest": "sha256:edc4a4e74153f49099b4237bcec934caebb9313afb513cbcc4982b2795c7222b",
+        "download_count": 3,
+        "created_at": "2026-10-25T10:00:00Z",
+        "updated_at": "2026-10-25T10:00:00Z",
+        "browser_download_url": "https://github.com/richard-plg/rade/releases/download/v1.0.1/SHA256SUMS"
+      }
+    ],
+    "body": "### Security\n\n- Fix a path traversal in rade-file: links\n\n### Fixed\n\n- Fix the Review Pane scroll\n\nInstall: `sudo apt install ./rade_1.0.1_amd64.deb` · verify: `sha256sum -c SHA256SUMS`"
+  },
+  {
+    "url": "https://api.github.com/repos/richard-plg/rade/releases/532032",
+    "html_url": "https://github.com/richard-plg/rade/releases/tag/v1.0.0",
+    "id": 532032,
+    "tag_name": "v1.0.0",
+    "target_commitish": "main",
+    "name": "RADE v1.0.0",
+    "draft": false,
+    "prerelease": false,
+    "created_at": "2026-10-20T09:00:00Z",
+    "published_at": "2026-10-20T10:00:00Z",
+    "assets": [
+      {
+        "url": "https://api.github.com/repos/richard-plg/rade/releases/assets/717532032",
+        "id": 717532032,
+        "name": "rade_1.0.0_amd64.deb",
+        "content_type": "application/vnd.debian.binary-package",
+        "state": "uploaded",
+        "size": 2000005,
+        "digest": "sha256:0628f006ddda288341a464734c030b33272060a300af4324440446983f6a0de0",
+        "download_count": 3,
+        "created_at": "2026-10-20T10:00:00Z",
+        "updated_at": "2026-10-20T10:00:00Z",
+        "browser_download_url": "https://github.com/richard-plg/rade/releases/download/v1.0.0/rade_1.0.0_amd64.deb"
+      },
+      {
+        "url": "https://api.github.com/repos/richard-plg/rade/releases/assets/1",
+        "id": 1,
+        "name": "SHA256SUMS",
+        "content_type": "text/plain",
+        "state": "uploaded",
+        "size": 100,
+        "digest": "sha256:a178fa7b90c855d9482790854c88769b52e86276fba5f8db9a87ceea6e1bd7fa",
+        "download_count": 3,
+        "created_at": "2026-10-20T10:00:00Z",
+        "updated_at": "2026-10-20T10:00:00Z",
+        "browser_download_url": "https://github.com/richard-plg/rade/releases/download/v1.0.0/SHA256SUMS"
+      }
+    ],
+    "body": "### Added\n\n- First stable release\n\nInstall: `sudo apt install ./rade_1.0.0_amd64.deb` · verify: `sha256sum -c SHA256SUMS`"
+  }
+]

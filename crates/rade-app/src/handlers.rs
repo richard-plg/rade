@@ -327,6 +327,7 @@ fn handle(method: &str, p: Value) -> Result<Value> {
             app.window.present();
             Ok(json!({}))
         }
+        "app.info" => Ok(crate::update::info()),
         "source.add" => source_add(&app, params(p)?),
         "source.list" => source_list(&app, params(p)?),
         "workspace.add" => {
@@ -643,6 +644,7 @@ fn handle(method: &str, p: Value) -> Result<Value> {
         "debug.tabs" => crate::titles::debug(&p),
         "debug.ui" => crate::debug::ui(&app, &p),
         "debug.voice" => crate::voice::debug(&p),
+        "debug.update" => crate::update::debug(&p),
         "debug.scm" => crate::changes::debug(&p),
         "debug.diff" => crate::diff_pane::debug(&p),
         "debug.find" => crate::search_view::debug(&p),

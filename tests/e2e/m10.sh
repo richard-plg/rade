@@ -32,6 +32,7 @@ check "rade-app RUNPATH is \$ORIGIN" bash -c "readelf -d '$R/usr/lib/rade/rade-a
 check "libghostty resolves next to rade-app (via the symlink too)" \
     bash -c "ldd '$R/usr/bin/rade-app' | grep -q 'libghostty-internal.so => $R/usr/lib/rade/libghostty-internal.so'"
 check "no 'not found' libraries" bash -c "! ldd '$R/usr/lib/rade/rade-app' | grep -q 'not found'"
+check "rade-install is in the package and executable" test -x "$R/usr/lib/rade/rade-install"
 check "desktop file valid" desktop-file-validate "$R/usr/share/applications/dev.rade.App.desktop"
 
 mkdir -p "$XDG_CONFIG_HOME/rade"
