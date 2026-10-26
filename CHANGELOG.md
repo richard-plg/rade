@@ -10,6 +10,13 @@ the 0.x sections were written by hand. Requirement IDs (R…) refer to [docs/int
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-10-26
+
+### Added
+
+- RADE tells you when a new version is out (Statusline, Settings › Updates), installs the .deb for you while it keeps running, and restarts with your session when you say so.
+- `rade version` prints the CLI's and the running app's versions and whether an update is out (--check, --json).
+
 ## [1.1.0] - 2026-10-26
 
 ### Added
@@ -1120,7 +1127,8 @@ Initial release: everything built in milestones M0–M12.
   releases with the `.deb` and `SHA256SUMS`, `rade-app --version`, this
   changelog (ADR-0012).
 
-[Unreleased]: https://github.com/richard-plg/rade/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/richard-plg/rade/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/richard-plg/rade/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/richard-plg/rade/compare/v1.0.1...v1.1.0
 [1.0.1]: https://github.com/richard-plg/rade/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/richard-plg/rade/releases/tag/v1.0.0
