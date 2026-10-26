@@ -8,7 +8,7 @@ RADE ships as a `.deb` on GitHub Releases (ADR-0012) with no apt repository, so 
 ## Decision
 - The app asks the public GitHub Releases API once a day (no token, no identifier beyond `User-Agent: rade/<version>`), on by default with a line in Settings saying what is sent; `RADE_UPDATE_CHECK=0` and `[update] check = false` turn it off.
 - It tells quietly: a Statusline cell and an Activity row; a Toast only for a release marked security (`### Security`, from a `Security: yes` commit footer), never while an Agent waits. No modal.
-- Install is one click on a `.deb` install: download, SHA-256 against `SHA256SUMS` and the API's asset digest, then `pkexec apt-get install -y --no-remove` — the system's own authorization; RADE never stores or asks for a password.
+- Install is one click on a `.deb` install: download, SHA-256 against `SHA256SUMS` and the API's asset digest, then `pkexec /usr/lib/rade/rade-install <deb> <sha256>` — a root-owned helper shipped in the .deb that copies the file into a root-only directory, checks the SHA-256 there (the download folder is user-writable) and runs `apt-get install -y --no-remove` on the copy — the system's own authorization; RADE never stores or asks for a password.
 - Restart is the owner's: the app keeps running the old version until they click Restart, which asks first (running Agents come back interrupted through Session Restore), quits normally, and a detached helper starts the new binary after the old process is gone (one instance per `state.json`, ADR-0021).
 - Other installs are told and sent to the release page; Devel builds never check.
 

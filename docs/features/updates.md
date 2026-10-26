@@ -45,7 +45,10 @@ The palette has **About RADE**, **Check for Updates** and **Restart to Finish Up
 1. The `.deb` is downloaded into `~/.cache/rade/update/`, with progress and **Cancel**.
 2. Its SHA-256 must equal the line in the release's `SHA256SUMS` and the digest GitHub gives for
    the asset. If not, it is deleted: `Download didn't match SHA256SUMS. Nothing was installed.`
-3. `pkexec /usr/bin/apt-get install -y --no-remove <the .deb>` runs. **The system shows its own
+3. `pkexec /usr/lib/rade/rade-install <the .deb> <its SHA-256>` runs. As root it copies the file
+   into a private folder, checks the SHA-256 again on the copy (the download folder is yours to
+   write, so the check that counts is the one on the copy) and installs the copy with
+   `apt-get install -y --no-remove`. **The system shows its own
    password dialog**; RADE never sees the password. Closing that dialog goes back to Install with
    no error. A failure says why (`Another package manager is running. Try again in a minute.`, or
    apt's last line).

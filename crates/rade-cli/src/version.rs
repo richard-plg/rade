@@ -121,7 +121,7 @@ fn check(dir: &std::path::Path) {
         Err(e) => Err(e),
     };
     let at = now();
-    let _ = Cache::update(dir, |c| {
+    let _ = Cache::update(dir, url.as_deref(), |c| {
         c.checked_at = Some(at);
         match res {
             Ok(r) => {
@@ -141,7 +141,12 @@ pub fn run(check_now: bool, json: bool) -> Result<Value, Error> {
             None => check(&dir),
         }
     }
-    let (lines, value) = report(&app_now(), &Cache::load(&dir), channel(), now());
+    let (lines, value) = report(
+        &app_now(),
+        &Cache::load(&dir, override_url().as_deref()),
+        channel(),
+        now(),
+    );
     if json {
         println!("{value}");
     } else {

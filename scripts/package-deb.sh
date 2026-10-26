@@ -3,7 +3,7 @@
 # dpkg-deb: no cargo-deb needed. Layout:
 #   /usr/bin/rade                      CLI
 #   /usr/bin/rade-app -> ../lib/rade/rade-app
-#   /usr/lib/rade/{rade-app, libghostty-internal.so, rade -> ../../bin/rade}
+#   /usr/lib/rade/{rade-app, rade-install, libghostty-internal.so, rade -> ../../bin/rade}
 #                                      (RUNPATH $ORIGIN; `rade` next to the app
 #                                      because Panes get the app's dir on PATH)
 #   /usr/share/rade/{ghostty/{shell-integration,themes}, terminfo}
@@ -41,6 +41,7 @@ install -d "$PKG"/DEBIAN "$PKG"/usr/bin "$PKG"/usr/lib/rade "$PKG"/usr/share/rad
 
 install -m755 -s "$BIN/rade" "$PKG/usr/bin/rade"
 install -m755 -s "$BIN/rade-app" "$PKG/usr/lib/rade/rade-app"
+install -m755 packaging/rade-install "$PKG/usr/lib/rade/rade-install"
 install -m644 "$GLIB" "$PKG/usr/lib/rade/libghostty-internal.so"
 # Zig links it with RUNPATH /usr/lib/<triplet>, a default search path anyway
 # (lintian custom-library-search-path). The CI image has patchelf, so

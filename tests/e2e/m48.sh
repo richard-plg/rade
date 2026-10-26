@@ -267,8 +267,8 @@ b = first(lambda x: x == v + ' installing')
 c = first(lambda x: x == 'restart for ' + v)
 sys.exit(0 if None not in (a, b, c) and a < b < c else 1)
 PY"
-check "R127-k the installer got the .deb path, its SHA-256 matches the served file, one call" \
-    "[[ \$(wc -l <'$T/install.log') == 1 ]] && [[ \$(cut -d' ' -f2 '$T/install.log') == '$SUM' ]] && [[ \$(cut -d' ' -f1 '$T/install.log') == */rade_${NEXT}_amd64.deb ]]"
+check "R127-k the installer got the .deb path and the verified SHA-256 (the served file's), one call" \
+    "[[ \$(wc -l <'$T/install.log') == 1 ]] && [[ \$(cut -d' ' -f2 '$T/install.log') == '$SUM' ]] && [[ \$(cut -d' ' -f3 '$T/install.log') == '$SUM' ]] && [[ \$(cut -d' ' -f1 '$T/install.log') == */rade_${NEXT}_amd64.deb ]]"
 check "R127-k the .deb is deleted afterwards" "[[ -z \$(ls '$UPD'/*.deb 2>/dev/null) ]]"
 check "R127-k the .deb came through the 302 redirect (a /download/ then an /assets/ request)" \
     "grep -q ' GET /download/rade_${NEXT}_amd64.deb ' '$GHLOG' && grep -q ' GET /assets/rade_${NEXT}_amd64.deb ' '$GHLOG'"

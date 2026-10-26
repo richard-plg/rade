@@ -1,0 +1,18 @@
+#!/bin/sh
+# rade-install <deb> <sha256> (PRD R127, ADR-0048): run by RADE through
+# pkexec. The .deb RADE downloaded sits in a user-writable cache, so it is
+# copied into a root-only directory and its SHA-256 checked there before
+# apt-get installs the copy. pkexec clears the environment.
+set -eu
+[ "$#" -eq 2 ] || { echo "usage: rade-install <deb> <sha256>" >&2; exit 2; }
+case "$2" in *[!0-9a-f]*) echo "rade-install: bad sha256" >&2; exit 2 ;; esac
+[ "${#2}" -eq 64 ] || { echo "rade-install: bad sha256" >&2; exit 2; }
+apt=${RADE_INSTALL_APT:-/usr/bin/apt-get}
+dir=$(mktemp -d)
+trap 'rm -rf "$dir"' EXIT
+cp -- "$1" "$dir/rade.deb"
+echo "$2  $dir/rade.deb" | sha256sum -c --status - || {
+    echo "Download didn't match SHA256SUMS. Nothing was installed." >&2
+    exit 3
+}
+"$apt" install -y --no-remove "$dir/rade.deb"

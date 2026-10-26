@@ -216,6 +216,23 @@ pub struct Release {
     pub sums: Asset,
 }
 
+impl Release {
+    /// The rules `parse_releases` applies, again, for a release read back
+    /// from the cache (a user-writable file): the tag gives the version, both
+    /// assets are the expected names on allowed URLs, and the `.deb` name
+    /// is a plain file name.
+    pub fn valid(&self, base: Option<&str>) -> bool {
+        let deb = &self.deb.name;
+        Version::from_tag(&self.tag).as_ref() == Some(&self.version)
+            && *deb == self.version.deb_name()
+            && !deb.contains('/')
+            && deb != ".."
+            && self.sums.name == "SHA256SUMS"
+            && asset_allowed(&self.deb.url, &self.tag, &self.deb.name, base)
+            && asset_allowed(&self.sums.url, &self.tag, &self.sums.name, base)
+    }
+}
+
 /// `scheme://host[:port]/` of the override URL.
 fn origin_of(url: &str) -> Option<String> {
     let (scheme, rest) = url.split_once("://")?;
@@ -380,22 +397,46 @@ pub struct Cache {
 }
 
 impl Cache {
-    /// A missing or unparsable file is an empty cache.
-    pub fn load(dir: &Path) -> Cache {
-        std::fs::read_to_string(dir.join("update.json"))
+    /// A missing or unparsable file is an empty cache. Releases that
+    /// `parse_releases` would not accept for `base` (the override URL, Devel
+    /// only) are dropped: the file is user-writable, so nothing in it is
+    /// trusted. The one place both the app and `rade version` read through.
+    pub fn load(dir: &Path, base: Option<&str>) -> Cache {
+        let mut c: Cache = std::fs::read_to_string(dir.join("update.json"))
             .ok()
             .and_then(|t| serde_json::from_str(&t).ok())
-            .unwrap_or_default()
+            .unwrap_or_default();
+        c.releases.retain(|r| r.valid(base));
+        c
     }
 
     /// Load, let `f` change its own fields, save atomically
     /// (`update.json.<pid>.tmp` + rename), so two writers never undo each
-    /// other. The only write path.
-    pub fn update(dir: &Path, f: impl FnOnce(&mut Cache)) -> std::io::Result<Cache> {
+    /// other: the whole load → write → rename runs under an exclusive
+    /// `flock` on `update.json.lock`. The only write path.
+    pub fn update(
+        dir: &Path,
+        base: Option<&str>,
+        f: impl FnOnce(&mut Cache),
+    ) -> std::io::Result<Cache> {
+        use std::os::fd::AsRawFd;
         std::fs::create_dir_all(dir)?;
-        let mut c = Cache::load(dir);
+        let lock = std::fs::OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .write(true)
+            .open(dir.join("update.json.lock"))?;
+        // SAFETY: a plain syscall on an fd we own; released when `lock` drops.
+        if unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX) } != 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        let mut c = Cache::load(dir, base);
         f(&mut c);
-        let tmp = dir.join(format!("update.json.{}.tmp", std::process::id()));
+        let tmp = dir.join(format!(
+            "update.json.{}.{:?}.tmp",
+            std::process::id(),
+            std::thread::current().id()
+        ));
         let text = serde_json::to_string_pretty(&c).map_err(std::io::Error::other)?;
         let mut file = std::fs::File::create(&tmp)?;
         file.write_all(text.as_bytes())?;
@@ -455,7 +496,7 @@ pub fn curl_get(
         ]);
     }
     cmd.args(["-H", &format!("User-Agent: {user_agent}")]);
-    cmd.args(["-w", "\n%{http_code}", url]);
+    cmd.args(["-w", "\n%{http_code}", "--", url]);
     cmd.stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
@@ -606,24 +647,27 @@ pub fn restart_exe(current_exe: &Path) -> PathBuf {
     PathBuf::from(s.strip_suffix(" (deleted)").unwrap_or(&s).to_string())
 }
 
-/// D12: the install command.
-pub fn install_argv(deb: &Path, override_cmd: Option<&str>) -> Vec<String> {
+/// Where the .deb puts the root-side installer (D12).
+pub const INSTALLER: &str = "/usr/lib/rade/rade-install";
+
+/// D12: the install command. `sha256` is the verified hex digest; the
+/// root-owned helper copies the .deb, checks it again and runs apt-get.
+pub fn install_argv(deb: &Path, sha256: &str, override_cmd: Option<&str>) -> Vec<String> {
     let deb = deb.to_string_lossy().into_owned();
     match override_cmd {
         Some(cmd) => vec![
             "sh".into(),
             "-c".into(),
-            format!("{cmd} \"$1\""),
+            format!("{cmd} \"$1\" \"$2\""),
             "rade-install".into(),
             deb,
+            sha256.into(),
         ],
         None => vec![
-            "pkexec".into(),
-            "/usr/bin/apt-get".into(),
-            "install".into(),
-            "-y".into(),
-            "--no-remove".into(),
+            "/usr/bin/pkexec".into(),
+            INSTALLER.into(),
             deb,
+            sha256.into(),
         ],
     }
 }
@@ -642,6 +686,11 @@ pub fn install_outcome(code: i32, stderr: &str) -> InstallOutcome {
         0 => return InstallOutcome::Done,
         126 => return InstallOutcome::Cancelled,
         127 => return InstallOutcome::Failed("Not authorized to install software.".into()),
+        3 => {
+            return InstallOutcome::Failed(
+                "Download didn't match SHA256SUMS. Nothing was installed.".into(),
+            )
+        }
         _ => {}
     }
     if stderr.contains("Could not get lock") {
@@ -744,8 +793,14 @@ pub fn phase_after(
         channel,
         cache.skipped.as_deref(),
     );
-    if offer.is_some() {
-        return (Phase::Available, offer);
+    if let Some(o) = offer {
+        // A skipped offer does not hide an update that is already installed.
+        if o.skipped {
+            if let Some(i) = installed.filter(|i| *i > current) {
+                return (Phase::RestartPending(i.clone()), Some(o));
+            }
+        }
+        return (Phase::Available, Some(o));
     }
     match installed {
         Some(i) if i > current => (Phase::RestartPending(i.clone()), None),

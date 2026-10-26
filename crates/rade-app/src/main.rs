@@ -516,10 +516,11 @@ fn main() {
     // or other child process inherits it.
     let _ =
         handlers::DEBUG_SOCKET.set(std::env::var(rade_core::rpc::DEBUG_ENV).as_deref() == Ok("1"));
-    // The Update overrides (R127, D27) are read from the launching
-    // environment, then removed with the rest.
-    update::read_env();
     import_login_shell_env();
+    // The Update overrides (R127, D27) are read once the login shell's
+    // environment is in, before anything else uses them, then removed with
+    // the rest.
+    update::read_env();
     scrub_inherited_agent_session_env();
     hand_off_to_running_instance();
     // One app per state.json, even on another socket (ADR-0021); held until exit.
@@ -551,6 +552,7 @@ fn main() {
             let _ = std::fs::remove_file(&app.paths.socket);
             code::stop_all();
         }
+        update::shutdown();
     });
     gtk_app.run_with_args::<&str>(&[]);
     // State is saved in `connect_shutdown`. Skip thread-local destructors:

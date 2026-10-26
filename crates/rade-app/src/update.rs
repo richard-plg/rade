@@ -217,6 +217,14 @@ impl Ctl {
         )
     }
 
+    /// A download, its check or the installer is running.
+    fn busy_installing(&self) -> bool {
+        matches!(
+            self.phase,
+            Phase::Downloading { .. } | Phase::Verifying | Phase::Installing
+        )
+    }
+
     /// The version a restart would start (D14, D15).
     fn pending_version(&self) -> Option<Version> {
         match &self.phase {
@@ -264,16 +272,26 @@ fn dir() -> PathBuf {
     paths::update_dir(&paths::process_env)
 }
 
-/// D9: load → change the writer's own fields → save; the result replaces
-/// the views' copy.
-fn write_cache(f: impl Fn(&mut Cache)) {
-    match Cache::update(&dir(), &f) {
-        Ok(c) => with(|x| x.cache = c),
-        Err(e) => {
-            eprintln!("rade: update cache: {e}");
-            with(|x| f(&mut x.cache));
-        }
-    }
+/// D9: load → change the writer's own fields → save, off the UI thread
+/// (writes are serialized by the cache's flock). The views' copy gets the
+/// same change at once, so the result of the write is not applied again.
+fn write_cache(f: impl Fn(&mut Cache) + Send + 'static) {
+    with(|x| f(&mut x.cache));
+    let base = env().url.clone();
+    let dir = dir();
+    crate::worktrees::in_background(
+        move || Cache::update(&dir, base.as_deref(), f),
+        |r| {
+            if let Err(e) = r {
+                eprintln!("rade: update cache: {e}");
+            }
+        },
+    );
+}
+
+/// The cache file, read through the validation of `Cache::load`.
+fn load_cache() -> Cache {
+    Cache::load(&dir(), env().url.as_deref())
 }
 
 /// Activity rows queued by phase changes, then the widgets.
@@ -336,12 +354,36 @@ fn query_installed() -> Option<Version> {
 
 // -------------------------------------------------------------------- start
 
+/// F7: leftovers of an earlier run (`rade_*.deb`, `*.part`) go; nothing is
+/// ready at start, so none is kept.
+fn clean_dir() {
+    let Ok(rd) = std::fs::read_dir(dir()) else {
+        return;
+    };
+    for e in rd.flatten() {
+        let name = e.file_name().to_string_lossy().into_owned();
+        if (name.starts_with("rade_") && name.ends_with(".deb")) || name.ends_with(".part") {
+            let _ = std::fs::remove_file(e.path());
+        }
+    }
+}
+
+/// On shutdown: a running download is killed and its `.part` removed.
+pub fn shutdown() {
+    if let Some(mut d) = with(|c| c.download.take()) {
+        let _ = d.child.kill();
+        let _ = d.child.wait();
+        let _ = std::fs::remove_file(&d.part);
+    }
+}
+
 /// Called at the end of `build`: read the cache, settle the phase, tell
 /// about a finished update, schedule the first check and the hourly tick.
 pub fn start() {
     let (channel, _) = cfg();
+    clean_dir();
     let exe = core::restart_exe(&std::env::current_exe().unwrap_or_default());
-    let cache = Cache::load(&dir());
+    let cache = load_cache();
     let just_installed = cache.just_installed.clone();
     with(|c| {
         c.cache = cache;
@@ -351,7 +393,7 @@ pub fn start() {
     });
     if let Some(v) = just_installed {
         // Cleared at every start, whatever its value (D17).
-        write_cache(|c| c.just_installed = None);
+        write_cache(move |c| c.just_installed = None);
         let current = with(|c| c.current.clone());
         if Version::parse(&v).as_ref() == Some(&current) {
             toast(
@@ -396,7 +438,7 @@ pub fn tick() {
     if with(|c| c.kind) == InstallKind::Devel || env().check_off {
         return;
     }
-    let cache = Cache::load(&dir());
+    let cache = load_cache();
     with(|c| c.cache = cache);
     crate::worktrees::in_background(query_installed, |installed| {
         let (channel, auto) = cfg();
@@ -473,7 +515,7 @@ fn check(manual: bool) {
         },
         |(res, installed)| {
             let now = crate::panes::now();
-            write_cache(|c| {
+            write_cache(move |c| {
                 c.checked_at = Some(now);
                 match &res {
                     Ok(r) => {
@@ -552,6 +594,7 @@ pub fn install() {
         format!("User-Agent: rade/{}", with(|c| c.current.clone())),
         "-o".into(),
         part.to_string_lossy().into_owned(),
+        "--".into(),
         offer.release.deb.url.clone(),
     ]);
     let child = command("curl", &args)
@@ -658,7 +701,7 @@ fn verify(offer: Offer, from: PathBuf, to: PathBuf) {
     let ua = format!("rade/{}", with(|c| c.current.clone()));
     let over = env().url.is_some();
     crate::worktrees::in_background(
-        move || -> std::result::Result<PathBuf, String> {
+        move || -> std::result::Result<(PathBuf, String), String> {
             let sums = match core::curl_get(&offer.release.sums.url, &ua, true, over) {
                 Ok((200, body)) => body,
                 Ok((status, body)) => {
@@ -677,10 +720,12 @@ fn verify(offer: Offer, from: PathBuf, to: PathBuf) {
                 std::fs::rename(&from, &to)
                     .map_err(|e| format!("Couldn't keep the download: {e}"))?;
             }
-            Ok(to)
+            // `verify` found this entry equal to the file's hash.
+            let sha = core::sums_entry(&sums, &offer.release.deb.name).unwrap_or_default();
+            Ok((to, sha))
         },
         |r| match r {
-            Ok(deb) => run_installer(deb),
+            Ok((deb, sha)) => run_installer(deb, &sha),
             Err(e) => {
                 with(|c| c.deb_ready = None);
                 fail(e)
@@ -690,8 +735,8 @@ fn verify(offer: Offer, from: PathBuf, to: PathBuf) {
 }
 
 /// D11 (4)–(5), D12: the installer, off the UI thread.
-fn run_installer(deb: PathBuf) {
-    let argv = core::install_argv(&deb, env().install.as_deref());
+fn run_installer(deb: PathBuf, sha256: &str) {
+    let argv = core::install_argv(&deb, sha256, env().install.as_deref());
     with(|c| {
         c.installer = Some((argv.clone(), None));
         c.set_phase(Phase::Installing);
@@ -732,7 +777,7 @@ fn installed_with(outcome: core::InstallOutcome, deb: PathBuf) {
                 c.deb_ready = None;
                 c.offer.as_ref().map(|o| o.release.version.to_string())
             });
-            write_cache(|c| c.just_installed = version.clone());
+            write_cache(move |c| c.just_installed = version.clone());
             // The installed version decides the next phase (D14, D15).
             crate::worktrees::in_background(query_installed, |installed| {
                 let (channel, _) = cfg();
@@ -781,7 +826,7 @@ pub fn skip() {
             .flatten()
     });
     let Some(v) = version else { return };
-    write_cache(|c| c.skipped = Some(v.clone()));
+    write_cache(move |c| c.skipped = Some(v.clone()));
     let (channel, _) = cfg();
     with(|c| c.settle(channel));
     finish();
@@ -835,7 +880,7 @@ pub fn maybe_toast_in(ws: &State) {
     if !ws.waiting_panes().is_empty() {
         return;
     }
-    write_cache(|c| c.toasted = Some(version.clone()));
+    write_cache(move |c| c.toasted = Some(version.clone()));
     toast(
         &text,
         Some((
@@ -859,6 +904,13 @@ pub fn maybe_toast() {
 
 /// The Restart dialog (D20); a Toast when nothing waits for a restart.
 pub fn restart_dialog() {
+    if with(|c| c.busy_installing()) {
+        toast(
+            "An update is being installed: restart when it is done",
+            None,
+        );
+        return;
+    }
     let Some(version) = with(|c| c.pending_version()) else {
         toast("No update is waiting for a restart", None);
         return;
@@ -1037,7 +1089,7 @@ pub fn debug(p: &Value) -> Result<Value> {
             let secs = arg
                 .and_then(|a| a.as_u64().or_else(|| a.as_str()?.parse().ok()))
                 .ok_or_else(|| Error::usage("want arg = seconds"))?;
-            write_cache(|c| c.checked_at = c.checked_at.map(|at| at.saturating_sub(secs)));
+            write_cache(move |c| c.checked_at = c.checked_at.map(|at| at.saturating_sub(secs)));
             let (channel, _) = cfg();
             with(|c| c.refresh(channel));
             finish();

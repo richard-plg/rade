@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
-# Stand-in for `pkexec apt-get install -y --no-remove <deb>` in the M48 suite (R127):
+# Stand-in for `pkexec /usr/lib/rade/rade-install <deb> <sha256>` in the M48 suite (R127):
 # RADE_UPDATE_INSTALL points at this script (Devel builds only). Files in $RADE_E2E_T:
-#   install.log      gets "<path> <sha256 of the file>"
+#   install.log      gets "<path> <sha256 of the file> <sha256 argument>"
 #   install-sleep    seconds to wait (default 0)
 #   install-stderr   copied to stderr when it exists
 #   install-exit     the exit code (default 0)
 #   install-version  copied to dpkg-version on exit 0 (what fake-dpkg-query.sh reports)
 deb=$1
-echo "$deb $(sha256sum "$deb" | cut -d' ' -f1)" >>"$RADE_E2E_T/install.log"
+sha=${2:-}
+echo "$deb $(sha256sum "$deb" | cut -d' ' -f1) $sha" >>"$RADE_E2E_T/install.log"
 sleep "$(cat "$RADE_E2E_T/install-sleep" 2>/dev/null || echo 0)"
 [[ -f $RADE_E2E_T/install-stderr ]] && cat "$RADE_E2E_T/install-stderr" >&2
 code=$(cat "$RADE_E2E_T/install-exit" 2>/dev/null || echo 0)

@@ -161,20 +161,25 @@ fn r127_d_when_a_check_is_due() {
     // A broken file reads as empty; a written cache reads back equal.
     let d = tmp("d");
     std::fs::write(d.join("update.json"), "{ not json").unwrap();
-    assert_eq!(Cache::load(&d), Cache::default());
-    assert!(due(&Cache::load(&d), now));
-    let written = Cache::update(&d, |c| {
+    assert_eq!(Cache::load(&d, None), Cache::default());
+    assert!(due(&Cache::load(&d, None), now));
+    let written = Cache::update(&d, None, |c| {
         c.checked_at = Some(now);
         c.releases = releases();
         c.skipped = Some("1.1.0".into());
     })
     .unwrap();
-    assert_eq!(Cache::load(&d), written);
-    let names: Vec<String> = std::fs::read_dir(&d)
+    assert_eq!(Cache::load(&d, None), written);
+    let mut names: Vec<String> = std::fs::read_dir(&d)
         .unwrap()
         .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
         .collect();
-    assert_eq!(names, ["update.json"], "the temp file was renamed away");
+    names.sort();
+    assert_eq!(
+        names,
+        ["update.json", "update.json.lock"],
+        "the temp file was renamed away"
+    );
     let _ = std::fs::remove_dir_all(&d);
 }
 
@@ -182,18 +187,18 @@ fn r127_d_when_a_check_is_due() {
 fn cache_writers_keep_each_others_fields() {
     let d = tmp("writers");
     // The CLI's check and the app's Skip, in either order.
-    Cache::update(&d, |c| {
+    Cache::update(&d, None, |c| {
         c.checked_at = Some(5);
         c.releases = releases();
     })
     .unwrap();
-    Cache::update(&d, |c| c.skipped = Some("1.1.0".into())).unwrap();
-    let c = Cache::update(&d, |c| c.error = Some("boom".into())).unwrap();
+    Cache::update(&d, None, |c| c.skipped = Some("1.1.0".into())).unwrap();
+    let c = Cache::update(&d, None, |c| c.error = Some("boom".into())).unwrap();
     assert_eq!(c.checked_at, Some(5));
     assert_eq!(c.releases.len(), 4);
     assert_eq!(c.skipped.as_deref(), Some("1.1.0"));
     assert_eq!(c.error.as_deref(), Some("boom"));
-    assert_eq!(Cache::load(&d), c);
+    assert_eq!(Cache::load(&d, None), c);
     let _ = std::fs::remove_dir_all(&d);
 }
 
@@ -342,27 +347,87 @@ fn r127_f_install_kind_outcome_and_restart_path() {
     );
     assert_eq!(restart_exe(cargo), cargo);
     let deb = Path::new("/c/rade/update/rade_1.2.0_amd64.deb");
+    let sha = "ab".repeat(32);
     assert_eq!(
-        install_argv(deb, None),
+        install_argv(deb, &sha, None),
         [
-            "pkexec",
-            "/usr/bin/apt-get",
-            "install",
-            "-y",
-            "--no-remove",
-            "/c/rade/update/rade_1.2.0_amd64.deb"
+            "/usr/bin/pkexec",
+            "/usr/lib/rade/rade-install",
+            "/c/rade/update/rade_1.2.0_amd64.deb",
+            sha.as_str()
         ]
     );
     assert_eq!(
-        install_argv(deb, Some("/t/fake-install.sh")),
+        install_argv(deb, &sha, Some("/t/fake-install.sh")),
         [
             "sh",
             "-c",
-            "/t/fake-install.sh \"$1\"",
+            "/t/fake-install.sh \"$1\" \"$2\"",
             "rade-install",
-            "/c/rade/update/rade_1.2.0_amd64.deb"
+            "/c/rade/update/rade_1.2.0_amd64.deb",
+            sha.as_str()
         ]
     );
+    assert_eq!(
+        install_outcome(3, "whatever"),
+        Failed("Download didn't match SHA256SUMS. Nothing was installed.".into())
+    );
+}
+
+#[test]
+fn r127_f_rade_install_script_checks_the_copy_as_root_would() {
+    use std::os::unix::fs::PermissionsExt;
+    use std::process::Command;
+    let d = tmp("script");
+    let deb = d.join("in.deb");
+    std::fs::write(&deb, b"the deb").unwrap();
+    let sha = sha256_file(&deb).unwrap();
+    let log = d.join("apt.log");
+    let fake = d.join("fake-apt");
+    // Records its args and the content of the file it was given.
+    std::fs::write(
+        &fake,
+        format!(
+            "#!/bin/sh\necho \"$*\" >> '{0}'\ncat \"$4\" >> '{0}'\n",
+            log.display()
+        ),
+    )
+    .unwrap();
+    std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let script = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../packaging/rade-install");
+    let run = |sha: &str| {
+        Command::new("sh")
+            .arg(&script)
+            .arg(&deb)
+            .arg(sha)
+            .env("RADE_INSTALL_APT", &fake)
+            .output()
+            .unwrap()
+    };
+    let out = run(&sha);
+    assert_eq!(out.status.code(), Some(0), "{out:?}");
+    let seen = std::fs::read_to_string(&log).unwrap();
+    let mut lines = seen.lines();
+    let args = lines.next().unwrap();
+    assert!(args.starts_with("install -y --no-remove /"), "{args}");
+    let copy = args.rsplit(' ').next().unwrap();
+    assert!(copy.ends_with(".deb"));
+    assert!(
+        !Path::new(copy).starts_with(&d),
+        "{copy} is the original dir"
+    );
+    assert_eq!(lines.next(), Some("the deb"));
+    assert!(!Path::new(copy).exists(), "the copy is removed");
+    // A wrong digest: exit 3, apt never called.
+    std::fs::remove_file(&log).unwrap();
+    let out = run(&"0".repeat(64));
+    assert_eq!(out.status.code(), Some(3), "{out:?}");
+    assert!(!log.exists());
+    // Not a digest: exit 2.
+    let out = run("xyz");
+    assert_eq!(out.status.code(), Some(2), "{out:?}");
+    assert!(!log.exists());
+    let _ = std::fs::remove_dir_all(&d);
 }
 
 fn status(phase: Phase, offer: Option<Offer>, install: InstallKind) -> Status {
@@ -945,4 +1010,119 @@ fn spawn_restart_runs_the_helper_which_execs_exe() {
     assert!(child.wait().unwrap().success());
     assert!(started.elapsed() < std::time::Duration::from_secs(5));
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn r127_i_a_cache_is_never_trusted() {
+    let d = tmp("untrusted");
+    let good = releases();
+    let mut other_host = good.clone();
+    for r in &mut other_host {
+        r.deb.url = r.deb.url.replace("github.com", "evil.example");
+    }
+    let mut traversal = good.clone();
+    for r in &mut traversal {
+        r.deb.name = "../x.deb".into();
+    }
+    let mut sums_name = good.clone();
+    for r in &mut sums_name {
+        r.sums.name = "other".into();
+    }
+    for (what, bad) in [
+        ("host", other_host),
+        ("name", traversal),
+        ("sums name", sums_name),
+    ] {
+        std::fs::write(
+            d.join("update.json"),
+            serde_json::to_string(&Cache {
+                checked_at: Some(1),
+                releases: bad,
+                ..Cache::default()
+            })
+            .unwrap(),
+        )
+        .unwrap();
+        let c = Cache::load(&d, None);
+        assert!(c.releases.is_empty(), "{what}");
+        let (p, o) = phase_after(&c, &v("1.0.0"), None, InstallKind::Deb, Channel::Stable);
+        assert_eq!((p, o), (Phase::Idle, None), "{what}");
+    }
+    // Valid ones stay; the override base counts for its own origin only.
+    let ok = Cache {
+        releases: good.clone(),
+        ..Cache::default()
+    };
+    std::fs::write(d.join("update.json"), serde_json::to_string(&ok).unwrap()).unwrap();
+    assert_eq!(Cache::load(&d, None).releases, good);
+    assert!(Cache::load(&d, Some("http://127.0.0.1:9/"))
+        .releases
+        .is_empty());
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+#[test]
+fn r127_j_concurrent_cache_writers_lose_nothing() {
+    let d = tmp("flock");
+    let spawn = |field: u8| {
+        let d = d.clone();
+        std::thread::spawn(move || {
+            for i in 0..50u64 {
+                Cache::update(&d, None, |c| match field {
+                    0 => c.checked_at = Some(i + 1),
+                    1 => c.skipped = Some(format!("1.{i}.0")),
+                    2 => c.toasted = Some(format!("2.{i}.0")),
+                    _ => c.error = Some(format!("e{i}")),
+                })
+                .unwrap();
+            }
+        })
+    };
+    let hs: Vec<_> = (0..4).map(spawn).collect();
+    for h in hs {
+        h.join().unwrap();
+    }
+    let c = Cache::load(&d, None);
+    assert_eq!(c.checked_at, Some(50));
+    assert_eq!(c.skipped.as_deref(), Some("1.49.0"));
+    assert_eq!(c.toasted.as_deref(), Some("2.49.0"));
+    assert_eq!(c.error.as_deref(), Some("e49"));
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+#[test]
+fn r127_k_a_skipped_offer_does_not_hide_an_installed_update() {
+    let cache = Cache {
+        checked_at: Some(1),
+        releases: releases(),
+        skipped: Some("1.1.0".into()),
+        ..Cache::default()
+    };
+    let inst = v("1.1.0");
+    let (p, o) = phase_after(
+        &cache,
+        &v("1.0.0"),
+        Some(&inst),
+        InstallKind::Deb,
+        Channel::Rc,
+    );
+    // Channel rc offers 1.2.0-rc.1 (not skipped): available. Stable below.
+    assert_eq!(p, Phase::Available);
+    assert!(o.is_some());
+    let cache = Cache {
+        skipped: Some("1.2.0-rc.1".into()),
+        ..cache
+    };
+    let (p, o) = phase_after(
+        &cache,
+        &v("1.0.0"),
+        Some(&inst),
+        InstallKind::Deb,
+        Channel::Rc,
+    );
+    assert_eq!(p, Phase::RestartPending(v("1.1.0")));
+    assert!(o.unwrap().skipped, "the offer is still there for About");
+    // Not installed: the skipped offer stays available.
+    let (p, _) = phase_after(&cache, &v("1.0.0"), None, InstallKind::Deb, Channel::Rc);
+    assert_eq!(p, Phase::Available);
 }
