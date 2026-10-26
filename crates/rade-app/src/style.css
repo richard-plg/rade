@@ -746,6 +746,7 @@ toast > button.circular image { -gtk-icon-size: 16px; }
 .scm-sync:hover, .scm-publish:hover { background: @bg3; }
 .scm-sync image, .scm-publish image { -gtk-icon-size: 14px; color: @fg2; }
 .scm-card-error { margin: 6px 10px; font-size: 12px; color: @err; }
+.scm-card-note { margin: 4px 10px 6px; font-size: 12px; color: @fg2; }
 .diff-pane { background: @bg0; }
 .diff-header { padding: 6px 10px; border-bottom: 1px solid @line; background: @bg1; font-family: "Inter", sans-serif; font-size: 12px; }
 .diff-section-chip { padding: 0 6px; border-radius: 8px; background: @bg3; font-family: "JetBrains Mono", monospace; font-size: 10.5px; color: @fg2; }

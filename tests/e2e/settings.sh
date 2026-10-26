@@ -23,7 +23,7 @@ C0=$(cols)
 # R112-e: Ctrl+, opens the page; search narrows rows and categories.
 ui '{"op":"key","keys":"ctrl+comma"}' >/dev/null
 check "R112-e Ctrl+, opens Settings with every category" \
-    is "st | jq -c '[.open, .categories]'" '[true,["Terminal","Code","Theme","Notifications","Agents","Statusline"]]'
+    is "st | jq -c '[.open, .categories]'" '[true,["Terminal","Code","Theme","Notifications","Agents","Source Control","Statusline"]]'
 check "R112-e defaults: Maple Mono, Medium, 14, nothing modified" \
     is "st | jq -c '[(.rows[] | select(.key==\"terminal.font\") | .value), (.rows[] | select(.key==\"terminal.font_style\") | .value), (.rows[] | select(.key==\"terminal.font_size\") | .value), .modified]'" \
     '["Maple Mono","Medium","14",""]'

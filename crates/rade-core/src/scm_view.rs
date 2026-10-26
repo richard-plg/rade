@@ -381,6 +381,33 @@ pub fn discard_dialog(
     )
 }
 
+/// The calm line of a card whose checkout directory is not there yet
+/// (a Project checkout nobody created).
+pub const NO_CHECKOUT: &str = "No checkout yet";
+
+/// What a card shows after reading its checkout.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CardRead {
+    /// The directory does not exist: the VCS is not run for it, the card
+    /// is folded, counts as clean and shows [`NO_CHECKOUT`].
+    NoCheckout,
+    /// The VCS failed on an existing directory: the error line.
+    Failed,
+    Ready,
+}
+
+/// Decide before running anything: a missing directory is `NoCheckout`;
+/// only an existing one can fail.
+pub fn card_read(path_exists: bool, failed: bool) -> CardRead {
+    if !path_exists {
+        CardRead::NoCheckout
+    } else if failed {
+        CardRead::Failed
+    } else {
+        CardRead::Ready
+    }
+}
+
 #[cfg(test)]
 #[path = "scm_view_tests.rs"]
 mod tests;

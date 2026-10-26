@@ -38,6 +38,8 @@ pub(crate) struct Read {
     pub snap: Result<Snapshot, String>,
     /// This checkout's identity warning (R107.5).
     pub identity: Option<String>,
+    /// The checkout directory does not exist (nothing was run for it).
+    pub missing: bool,
 }
 
 /// What a ListBox row stands for.
@@ -109,6 +111,7 @@ pub struct Card {
     action_label: gtk::Label,
     action_icon: gtk::Image,
     error: gtk::Label,
+    note: gtk::Label,
     drift_slot: gtk::Box,
     pub(crate) actions: gio::SimpleActionGroup,
     pub(crate) st: RefCell<CardState>,
@@ -319,6 +322,9 @@ impl Card {
         // Outside the body: a folded card still shows a failed operation.
         root.append(&body);
         root.append(&error);
+        let note = label(scm_view::NO_CHECKOUT, &["scm-card-note"]);
+        note.set_visible(false);
+        root.append(&note);
 
         let outer = gtk::Box::new(gtk::Orientation::Vertical, 0);
         outer.append(&root);
@@ -355,6 +361,7 @@ impl Card {
             action_label,
             action_icon,
             error,
+            note,
             drift_slot,
             actions: gio::SimpleActionGroup::new(),
             st: RefCell::default(),
@@ -556,9 +563,18 @@ impl Card {
 
     pub(crate) fn read_error(&self) -> Option<String> {
         match &self.st.borrow().read {
-            Some(Read { snap: Err(e), .. }) => Some(e.clone()),
+            Some(Read {
+                snap: Err(e),
+                missing: false,
+                ..
+            }) => Some(e.clone()),
             _ => None,
         }
+    }
+
+    /// The checkout directory is not there (yet): a calm, clean card.
+    pub(crate) fn no_checkout(&self) -> bool {
+        self.st.borrow().read.as_ref().is_some_and(|r| r.missing)
     }
 
     pub(crate) fn has_read(&self) -> bool {
@@ -688,6 +704,9 @@ impl Card {
     }
 
     fn folded_default(&self) -> bool {
+        if self.no_checkout() {
+            return true;
+        }
         let Some(snap) = self.snap() else {
             return false;
         };
@@ -769,10 +788,12 @@ impl Card {
             self.action.set_visible(false);
             self.identity.set_visible(false);
             self.root.add_css_class("clean");
+            self.note.set_visible(read.missing);
             self.update_error();
             self.apply_fold();
             return;
         };
+        self.note.set_visible(false);
         let files = snap.status.files.len();
         let has = files > 0;
         let action = scm_view::action_button(&snap.status, has, snap.head.is_some());
@@ -1903,9 +1924,12 @@ impl Card {
             .then(|| self.action_label.label().to_string());
         let meta = self.meta.label().to_string();
         let clean = snap.as_ref().is_none_or(|s| s.status.files.is_empty());
+        let no_checkout = st.read.as_ref().is_some_and(|r| r.missing);
         json!({
             "source": self.source, "name": self.name, "label": self.label.label().as_str(),
             "path": self.path, "meta": meta, "folded": st.folded, "clean": clean,
+            "no_checkout": no_checkout,
+            "note": self.note.is_visible().then(|| self.note.label().to_string()),
             "sync": sync, "action": action,
             "message": text_of(&self.message),
             "warning": self.warning.is_visible().then(|| self.warning.label().to_string()),
