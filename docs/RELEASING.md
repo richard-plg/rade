@@ -20,6 +20,7 @@ Why it works this way: [ADR-0012](internals/adr/0012-releases-semver-keep-a-chan
   Types: `feat fix perf refactor docs test build ci chore style revert`; `!` after the scope marks a breaking change. CI checks new commits (`scripts/lint-commits.sh origin/main..HEAD` locally).
 - The changelog is generated at release time from the commits since the last tag ([git-cliff](https://git-cliff.org) 2.14.2, [cliff.toml](../cliff.toml)): `feat` → **Added**, `perf` / `revert` → **Changed**, `fix` → **Fixed**, any breaking commit (`!` or a `BREAKING CHANGE:` footer) → **Changed** marked **Breaking:**; `docs`, `test`, `ci`, `chore`, `refactor`, `build` and `style` are left out. The line is the commit's description without the scope, so **write `feat` / `fix` / `perf` subjects for a user**.
 - A footer `Changelog: <text>` replaces that line (when the subject has to stay technical); `Changelog: skip` leaves the commit out.
+- A footer `Security: yes` lists the commit under **Security**: RADE raises a Toast for a release with a `### Security` group (R127).
 - `## [Unreleased]` in [CHANGELOG.md](../CHANGELOG.md) is optional hand-written text (an intro, a migration note, extra `### …` items): `scripts/release.sh` keeps it at the top of the new section and adds the generated items to the same groups.
 - Preview the next section any time: `git cliff --unreleased --strip all`.
 - Install git-cliff (the release script checks the version):

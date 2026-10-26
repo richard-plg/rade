@@ -31,6 +31,7 @@ split_commits = false
 protect_breaking_commits = true
 commit_parsers = [
     { footer = "^[Cc]hangelog: *skip$", skip = true },
+    { footer = "^[Ss]ecurity: *yes$", group = "<!-- 3 -->Security" },
     { field = "breaking", pattern = "true", group = "<!-- 1 -->Changed" },
     { message = "^feat", group = "<!-- 0 -->Added" },
     { message = "^(perf|revert)", group = "<!-- 1 -->Changed" },
