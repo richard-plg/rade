@@ -96,7 +96,7 @@ details in `docs/internals/research/voice.md`):
 | D17 | Errors (state `error`, activity line `.voice-activity.error`, icon `ph-warning-diamond-symbolic`): record command missing or exits → `Can't record: <first stderr line>`; STT connect error → `No speech-to-text server at <host:port> · Set up voice…` (`Set up voice…` = link → Settings page filtered `voice`); STT HTTP ≥ 400 → `Speech-to-text failed: <status> <first line of body>`; agent can't start → `Can't start <claude|codex>: <error>`; agent exits non-zero → `Voice agent failed: <first stderr line>`; turn longer than `timeout_secs` → `Took longer than <n> s` (process killed, streamed text kept). Header label: `Can't record`, `Can't transcribe`, `Voice agent failed`, `Timed out`. Hold F8 again retries; nothing typed is lost. |
 | D18 | Statusline: while a take records, a cell `.status-voice` (`ph-microphone-fill-symbolic` 13 px `err`, text `REC m:ss` JetBrains Mono 11 px `err`) after the location cells. Gone when not recording. |
 | D19 | Config: `[voice]` is **user-only** (not in `config::LAYERED`): it runs commands and sends audio and code context to endpoints; a Workspace / Project / `.rade.toml` `[voice]` is reported by `rade config explain` as `ignored (user config only)`. |
-| D20 | Settings page: new category `"Voice"` after `"Agents"` (before `"Statusline"`) with the rows of §T2; text keys (`stt_url`, `stt_model`, `stt_key_command`, `record_command`, `agent_command`, `model`) are `config.toml`-only (the page has no text kind) and listed in `docs/features/voice.md`. |
+| D20 | Settings page: new category `"Voice"` after `"Source Control"` (M45; before `"Statusline"`) with the rows of §T2; text keys (`stt_url`, `stt_model`, `stt_key_command`, `record_command`, `agent_command`, `model`) are `config.toml`-only (the page has no text kind) and listed in `docs/features/voice.md`. |
 | D21 | Reduce Animation: none needed — the only motion is the level meter (bars follow the level, no easing) and the caret. Under Reduce Animation the meter still updates (it is information, not decoration). |
 | D22 | Debug: new hidden `debug.voice` (§6); `debug.ui key` gains `press:<key>` / `release:<key>` so tests hold F8. |
 
@@ -392,7 +392,7 @@ pub struct VoiceConfig {
 }
 ```
 Enums `#[serde(rename_all = "snake_case")]`, `Copy`, `Default`. `Config.voice: VoiceConfig`. `DEFAULT_KEYBINDINGS` += `("voice", "F8")` with a comment like the others (why F8 is free). Not added to `LAYERED`; `layers.rs` `explain` reports a `[voice]` key in a non-user layer as `ignored (user config only)`.
-`settings.rs`: category `"Voice"` after `"Agents"` (before `"Statusline"`); rows:
+`settings.rs`: category `"Voice"` after `"Source Control"` (M45; before `"Statusline"`); rows:
 | key | label | description | kind |
 |---|---|---|---|
 | `voice.agent` | `Voice agent` | `Who turns your words into a prompt. Claude Code is faster (one process per draft).` | `Choice(&["claude", "codex"])` |

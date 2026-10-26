@@ -532,7 +532,7 @@ fn weight_rank(w: gtk::pango::Weight) -> i32 {
 /// Write one setting (`None` = reset) and apply it now; the file watcher
 /// sees the same file later and finds nothing new.
 fn apply(key: &'static str, value: Option<toml::Value>) {
-    match write(key, value) {
+    match write_setting(key, value) {
         Ok(config) => {
             crate::keys::apply_config(config);
             if let Some(v) = OPEN.with(|o| o.borrow().clone()) {
@@ -550,7 +550,10 @@ fn apply(key: &'static str, value: Option<toml::Value>) {
     }
 }
 
-fn write(key: &str, value: Option<toml::Value>) -> std::result::Result<Config, String> {
+pub(crate) fn write_setting(
+    key: &str,
+    value: Option<toml::Value>,
+) -> std::result::Result<Config, String> {
     let path = app().paths.config.clone();
     let old = match std::fs::read_to_string(&path) {
         Ok(t) => t,

@@ -62,6 +62,27 @@ These come from Ghostty and follow your Ghostty config.
 | `Ctrl++` / `Ctrl+−` / `Ctrl+0` | Zoom in / out / reset |
 | `Esc` | Un-zoom, then close |
 
+## Changes (the Inspector's list)
+
+| Keys | Action |
+|---|---|
+| `Up` / `Down` | Move between rows |
+| `Enter` | Open the file's diff (the keyboard stays in the list) |
+| `Space` | Stage / unstage the selected files |
+| `Delete` | Discard the selected files (asks) |
+| `Ctrl+A` | Select every file of the card |
+| `Ctrl+click` / `Shift+click` | Add to / extend the selection |
+| `Ctrl+Enter` (in the message box) | Commit |
+| `Up` on the first line / `Down` on the last | Earlier / later commit messages |
+
+## Diff Pane
+
+| Keys | Action |
+|---|---|
+| `F7` / `Shift+F7` | Next / previous change |
+| `Ctrl+C` | Copy the selected lines |
+| `Esc` | Close |
+
 ## Review Pane
 
 | Keys | Action |

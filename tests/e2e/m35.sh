@@ -245,7 +245,7 @@ rade focus "$tests" >/dev/null
 ui '{"op":"right_page","arg":"changes"}' >/dev/null
 check "scene A window 1440 × 900" eventually 10 is "rade debug window --json | jq -r '\"\(.width)x\(.height)\"'" 1440x900
 # 1.0.0 (R107.1, M35 decision): the tab counts the Project's changed files.
-ptotal() { rpc debug.ui '{"op":"changes"}' | jq -r '[.changes.groups[].rows] | add'; }
+ptotal() { rpc debug.scm | jq -r '[.cards[].groups[].count] | add // 0'; }
 labels_total() { [[ "$(chrome | jq -r '.inspector.labels | join(",")')" == "Changes $(ptotal),Files,Search" ]]; }
 check "scene A: Inspector shows Changes n = the Project's changed files" eventually 10 labels_total
 eventually 10 is "geo commit-button | jq -r .visible" true
@@ -296,8 +296,8 @@ rv=$(rade review open --source shop-web --worktree checkout-v2 2>"$OUT/review-op
 echo "review pane: $rv"
 sleep 1
 geo button '"all":true' | jq -c '[.[] | .label]' > "$OUT/buttons.json"
-review_buttons() { geo button '"all":true' | jq '[.[] | select(.label == "Comment" or ((.label // "") | startswith("Send to Agent")))] | length'; }
-check "R103-g the Review Pane's Comment / Send to Agent are on screen" eventually 5 is review_buttons 2
+review_buttons() { geo button '"all":true' | jq '[.[] | select(.label == "Comment" or ((.label // "") | startswith("Approve")))] | length'; }
+check "R103-g the Review Pane's Comment / Approve are on screen" eventually 5 is review_buttons 2
 rade status running --pane "$ui_spin" >/dev/null
 sleep 0.5
 rade status waiting --pane "$ui_spin" >/dev/null
@@ -327,19 +327,21 @@ noempty() { # one mono line, key caps, no StatusPage, no warning icon in the Ins
 }
 line() { geo 'inspector empty-line' | jq -r .label; }
 clean=$(rade worktree add shop-web clean-wt --project shop --base develop --json | jq -r .path)
+# Published: a branch without an upstream offers Publish Branch, and a card with
+# an action to offer is not an empty page (M45 fix).
+git init -q --bare "$T/shop-web.git"
+git -C "$WEB" remote add origin "$T/shop-web.git"
+git -C "$clean" -c user.email=t@t -c user.name=t push -q -u origin clean-wt
 cshell=$(rade spawn --source shop-web --worktree clean-wt --tab new --json | jq -r .pane)
 rade focus "$cshell" >/dev/null
 ui '{"op":"right_page","arg":"changes"}' >/dev/null
-# 1.0.0 (R107.1): clean-wt is Shop's, so Changes shows the Project; its
-# single-checkout page (Details) is the one this empty state belongs to.
-clean_group() { rpc debug.ui '{"op":"changes"}' | jq -e '.changes.groups[] | select(.label=="clean-wt") | .clean' >/dev/null; }
-check "R107.1 the clean Worktree's group is folded to 'clean'" eventually 10 clean_group
-rpc debug.ui '{"op":"changes_details","arg":"on"}' >/dev/null
-check "R103-h Changes of a clean Worktree: '$(line)'" eventually 10 is line "No changes against the base"
+# 1.0.0 (R107.1, M45): clean-wt is Shop's, so Changes shows the Project's cards.
+clean_group() { rpc debug.scm | jq -e '.cards[] | select(.label=="clean-wt") | .clean' >/dev/null; }
+check "R107.1 the clean Worktree's card is folded to 'clean'" eventually 10 clean_group
+check "R103-h Changes of a clean Worktree (a Project's link, M45: one page): '$(line)'" eventually 10 is line "No changes against each link's base"
 check "R103-h …one mono line + key hints, no StatusPage / dialog-warning" eventually 3 noempty
 check "R103-f a clean Worktree: 0 primary buttons" eventually 5 is primaries ""
 shot empty-changes
-rpc debug.ui '{"op":"changes_details","arg":"off"}' >/dev/null
 rade source add "$EMPTY" --name empty-folder >/dev/null
 eshell=$(rade spawn --source empty-folder --tab new --json | jq -r .pane)
 rade focus "$eshell" >/dev/null

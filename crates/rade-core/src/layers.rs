@@ -588,10 +588,11 @@ mod tests {
         ] {
             assert_eq!(lang(set), read, "{set}");
         }
-        // Settings rows: the Voice category sits between Agents and Statusline.
+        // Settings rows: the Voice category sits between Source Control
+        // (M45) and Statusline.
         let cats = settings::CATEGORIES;
         let at = |n: &str| cats.iter().position(|c| *c == n).unwrap();
-        assert_eq!(at("Voice"), at("Agents") + 1);
+        assert_eq!(at("Voice"), at("Source Control") + 1);
         assert_eq!(at("Statusline"), at("Voice") + 1);
         let rows: Vec<_> = settings::SETTINGS
             .iter()

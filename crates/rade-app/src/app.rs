@@ -101,6 +101,13 @@ pub fn pane_of_widget(app: &App, w: &gtk::Widget) -> Option<String> {
                 .map(|(id, _)| id.clone())
         })
         .or_else(|| {
+            app.diffs
+                .borrow()
+                .iter()
+                .find(|(_, v)| inside(v.root.upcast_ref()))
+                .map(|(id, _)| id.clone())
+        })
+        .or_else(|| {
             app.browsers
                 .borrow()
                 .iter()
@@ -135,6 +142,8 @@ pub struct App {
     pub viewers: RefCell<HashMap<String, Rc<Viewer>>>,
     /// Review Panes (R13).
     pub reviews: RefCell<HashMap<String, Rc<crate::review_view::ReviewView>>>,
+    /// Diff Panes (R122).
+    pub diffs: RefCell<HashMap<String, Rc<crate::diff_pane::DiffPane>>>,
     /// Browser Panes (R18).
     pub browsers: RefCell<HashMap<String, Rc<crate::browser_view::BrowserView>>>,
     /// "Paused — Resume" placeholders of a paused Source's Panes (R19.3).
@@ -179,6 +188,7 @@ impl App {
             terminals: RefCell::default(),
             viewers: RefCell::default(),
             reviews: RefCell::default(),
+            diffs: RefCell::default(),
             browsers: RefCell::default(),
             placeholders: RefCell::default(),
             files,
@@ -314,6 +324,7 @@ impl App {
             let mut terms = self.terminals.borrow_mut();
             let mut viewers = self.viewers.borrow_mut();
             let mut reviews = self.reviews.borrow_mut();
+            let mut diffs = self.diffs.borrow_mut();
             let mut browsers = self.browsers.borrow_mut();
             let mut placeholders = self.placeholders.borrow_mut();
             for (p, w) in model.worktrees() {
@@ -352,6 +363,14 @@ impl App {
                                 .entry(pane.id.clone())
                                 .or_insert_with(|| crate::review_view::ReviewView::new(&pane.id))
                                 .sync(),
+                            PaneKind::Diff {
+                                root,
+                                path,
+                                section,
+                            } => diffs
+                                .entry(pane.id.clone())
+                                .or_insert_with(|| crate::diff_pane::DiffPane::new(&pane.id))
+                                .show(root, path, *section),
                             // Navigation is the view's own (links, history);
                             // the model only records where it is.
                             PaneKind::Browser { url, annotations } => {
@@ -444,6 +463,13 @@ impl App {
             keep
         });
         self.reviews.borrow_mut().retain(|id, v| {
+            let keep = live.contains(id);
+            if !keep {
+                crate::layout_view::detach(v.root.upcast_ref());
+            }
+            keep
+        });
+        self.diffs.borrow_mut().retain(|id, v| {
             let keep = live.contains(id);
             if !keep {
                 crate::layout_view::detach(v.root.upcast_ref());
@@ -544,6 +570,11 @@ impl App {
                     v.focus();
                 }
             }
+            (FocusAction::Diff, Some((id, _))) => {
+                if let Some(v) = self.diffs.borrow().get(id) {
+                    v.focus();
+                }
+            }
             (FocusAction::Browser, Some((id, _))) => {
                 if let Some(v) = self.browsers.borrow().get(id) {
                     v.focus();
@@ -565,6 +596,9 @@ impl App {
             roots.insert(id.clone(), v.root.clone().upcast());
         }
         for (id, v) in self.reviews.borrow().iter() {
+            roots.insert(id.clone(), v.root.clone().upcast());
+        }
+        for (id, v) in self.diffs.borrow().iter() {
             roots.insert(id.clone(), v.root.clone().upcast());
         }
         for (id, v) in self.browsers.borrow().iter() {

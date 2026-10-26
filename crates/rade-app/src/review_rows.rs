@@ -12,11 +12,6 @@ use sourceview5::prelude::*;
 use std::rc::{Rc, Weak};
 use std::time::Instant;
 
-/// Files with more diff lines than this are shown without highlighting.
-/// ponytail: highlighting runs on the UI thread on first show; move it off
-/// thread if someone reviews 20k-line files often.
-const HIGHLIGHT_MAX: usize = 20_000;
-
 const ROW_CLASSES: [&str; 5] = [
     "rade-diff-file",
     "rade-diff-hunk",
@@ -266,7 +261,11 @@ impl ReviewView {
                     .folded_hunks
                     .contains(&(f.path.clone(), f.hunks[hi].header.clone()));
                 cells.sign.set_label(if folded { "▸" } else { "▾" });
-                cells.code.set_label(&f.hunks[hi].header);
+                cells
+                    .code
+                    .set_markup(&crate::diff_highlight::hunk_header_markup(
+                        &f.hunks[hi].header,
+                    ));
             }
             Row::Binary(_) => {
                 classes.push(ROW_CLASSES[4]);
@@ -331,40 +330,18 @@ impl ReviewView {
         let mut texts: Vec<std::borrow::Cow<str>> = Vec::new();
         for h in &f.hunks {
             hunk_starts.push(texts.len());
-            texts.extend(h.lines.iter().map(|l| shorten(&l.text)));
+            texts.extend(
+                h.lines
+                    .iter()
+                    .map(|l| crate::diff_highlight::shorten(&l.text)),
+            );
         }
-        let lang = sourceview5::LanguageManager::default().guess_language(Some(&f.path), None);
-        let lines = match lang {
-            Some(lang) if texts.len() <= HIGHLIGHT_MAX => {
-                let b = &self.highlighter;
-                b.set_language(Some(&lang));
-                b.set_text(&texts.join("\n"));
-                b.ensure_highlight(&b.start_iter(), &b.end_iter());
-                let out = (0..texts.len() as i32).map(|i| line_markup(b, i)).collect();
-                b.set_text("");
-                out
-            }
-            _ => texts
-                .iter()
-                .map(|t| glib::markup_escape_text(t).to_string())
-                .collect(),
-        };
+        let lines = crate::diff_highlight::highlight(&f.path, &texts, &self.highlighter);
         let m = Rc::new(Markup { lines, hunk_starts });
         self.markup.borrow_mut().insert(f.path.clone(), m.clone());
         let ms = t0.elapsed().as_secs_f64() * 1000.0;
         self.highlight_ms.set(self.highlight_ms.get().max(ms));
         m
-    }
-}
-
-/// A line shown at most this long (a minified file's one line would make
-/// a screen-tall row and a slow layout).
-const MAX_LINE_CHARS: usize = 2000;
-
-fn shorten(t: &str) -> std::borrow::Cow<'_, str> {
-    match t.char_indices().nth(MAX_LINE_CHARS) {
-        Some((i, _)) => format!("{}…", &t[..i]).into(),
-        None => t.into(),
     }
 }
 
@@ -388,60 +365,4 @@ pub(super) fn marked(st: &State, path: &str, l: &rade_core::diff::DiffLine) -> b
                     .iter()
                     .any(|e| e.get(1..) == Some(l.text.as_str())))
     })
-}
-
-/// One line of the highlighter buffer as Pango markup: each run of text
-/// with the colour, weight and style of its highest-priority tags.
-fn line_markup(b: &sourceview5::Buffer, line: i32) -> String {
-    let Some(mut it) = b.iter_at_line(line) else {
-        return String::new();
-    };
-    let mut end = it;
-    if !end.ends_line() {
-        end.forward_to_line_end();
-    }
-    let mut out = String::new();
-    while it < end {
-        let mut next = it;
-        next.forward_to_tag_toggle(None::<&gtk::TextTag>);
-        if next > end || next <= it {
-            next = end;
-        }
-        let text = glib::markup_escape_text(&b.text(&it, &next, true));
-        let (mut fg, mut bold, mut italic) = (None, false, false);
-        for t in it.tags() {
-            if t.is_foreground_set() {
-                fg = t.foreground_rgba();
-            }
-            if t.is_weight_set() {
-                bold = t.weight() >= 600;
-            }
-            if t.is_style_set() {
-                italic = t.style() == gtk::pango::Style::Italic;
-            }
-        }
-        let mut attrs = String::new();
-        if let Some(c) = fg {
-            let h = |x: f32| (x.clamp(0.0, 1.0) * 255.0).round() as u8;
-            attrs += &format!(
-                " foreground=\"#{:02x}{:02x}{:02x}\"",
-                h(c.red()),
-                h(c.green()),
-                h(c.blue())
-            );
-        }
-        if bold {
-            attrs += " weight=\"bold\"";
-        }
-        if italic {
-            attrs += " style=\"italic\"";
-        }
-        if attrs.is_empty() {
-            out += &text;
-        } else {
-            out += &format!("<span{attrs}>{text}</span>");
-        }
-        it = next;
-    }
-    out
 }

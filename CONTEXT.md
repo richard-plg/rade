@@ -96,6 +96,12 @@ _Avoid_: Editor, preview, file pane
 A Pane showing a Worktree's changes against its recorded base (its Source link's base unless it was cut from another ref) (every changed file in one scrolling diff, with a jump list of the files) where the user reads it file by file (Viewed), writes Review Comments in Rounds and ends with Request changes or Approve (a hand-off to Changes, Create PR, Choose Winner or the Agent, ADR-0040).
 _Avoid_: Diff view, PR view, code review
 
+**Diff Pane**:
+A Pane showing one file's uncommitted changes (working tree vs index, or index vs `HEAD`), opened from the Changes page; hunks and lines can be staged there.
+
+**Quick Diff**:
+The Viewer's gutter marks of lines changed against the index.
+
 **Browser Pane**:
 A Pane showing a web page (usually a local dev server) that the user browses and an Agent drives through `rade browser` (snapshot with element refs, click, fill, eval) to check its own web changes.
 _Avoid_: Web view, preview, embedded browser

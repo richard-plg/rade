@@ -91,6 +91,8 @@ impl Tab {
             None => lead.unwrap_or_else(|| {
                 if !panes.is_empty() && panes.iter().all(|p| p.is_review()) {
                     "Review".into()
+                } else if !panes.is_empty() && panes.iter().all(|p| p.is_diff()) {
+                    "Diff".into()
                 } else {
                     self.name.clone()
                 }

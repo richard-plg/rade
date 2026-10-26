@@ -472,6 +472,8 @@ impl Sidebar {
         let pill_glyph = Glyph::new(AgentMark::Other, Some(AgentStatus::Waiting));
         inner.append(&pill_glyph.root);
         let pill_name = label("", &["inbox-pill-name"]);
+        // A long Agent name must not widen the fixed-width Navigator.
+        pill_name.set_ellipsize(gtk::pango::EllipsizeMode::End);
         inner.append(&pill_name);
         let words = label("needs input", &["inbox-pill-words"]);
         words.set_hexpand(true);

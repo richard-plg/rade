@@ -130,6 +130,12 @@ pub enum PaneKind {
     },
     /// A Worktree's diff and Review Comments (R13); `root` = the Worktree.
     Review { root: PathBuf },
+    /// One file's uncommitted changes (R122); `path` relative to `root`.
+    Diff {
+        root: PathBuf,
+        path: String,
+        section: crate::scm::Section,
+    },
     /// A web page (R18); `url` = the page it shows, reloaded on restore;
     /// the owner's Browser Annotations not sent yet (R71).
     Browser {
@@ -211,6 +217,7 @@ impl Pane {
             PaneKind::Terminal { cwd, .. } => cwd,
             PaneKind::Viewer { path, .. } => path,
             PaneKind::Review { root } => root,
+            PaneKind::Diff { root, .. } => root,
             PaneKind::Browser { .. } => &NONE,
         }
     }
@@ -228,6 +235,20 @@ impl Pane {
 
     pub fn is_review(&self) -> bool {
         matches!(self.kind, PaneKind::Review { .. })
+    }
+
+    pub fn is_diff(&self) -> bool {
+        matches!(self.kind, PaneKind::Diff { .. })
+    }
+
+    pub fn diff(id: String, root: PathBuf, path: String, section: crate::scm::Section) -> Self {
+        let mut p = Pane::new(id, PathBuf::new(), None, None);
+        p.kind = PaneKind::Diff {
+            root,
+            path,
+            section,
+        };
+        p
     }
 }
 
@@ -581,6 +602,8 @@ pub enum FocusAction {
     Viewer,
     /// Hand it to the focused Pane's Review.
     Review,
+    /// Hand it to the focused Pane's Diff.
+    Diff,
     /// Hand it to the focused Pane's Browser.
     Browser,
     /// Leave it where it is.
@@ -598,6 +621,7 @@ impl FocusAction {
             _ if text_entry_has_focus => FocusAction::Keep,
             Some(p) if p.is_viewer() => FocusAction::Viewer,
             Some(p) if p.is_review() => FocusAction::Review,
+            Some(p) if p.is_diff() => FocusAction::Diff,
             Some(p) if p.is_browser() => FocusAction::Browser,
             Some(_) => FocusAction::Terminal,
             None => FocusAction::Keep,

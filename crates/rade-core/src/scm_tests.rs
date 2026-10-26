@@ -437,3 +437,362 @@ fn r21_7_run_draft_pipes_the_prompt_and_stops_on_timeout_or_cancel() {
     let e = run_draft("cat >/dev/null", &d, "x", Duration::from_secs(5), &no, &[]).unwrap_err();
     assert!(e.message.contains("printed nothing"));
 }
+
+fn bare_remote(d: &Path) -> PathBuf {
+    let bare = d.with_extension("bare");
+    let _ = std::fs::remove_dir_all(&bare);
+    sh(
+        d,
+        &["init", "-q", "--bare", "-b", "main", bare.to_str().unwrap()],
+    );
+    sh(d, &["remote", "add", "origin", bare.to_str().unwrap()]);
+    bare
+}
+
+fn head_subject(d: &Path) -> String {
+    crate::git::run(d, &["log", "-1", "--format=%s"])
+        .unwrap()
+        .trim()
+        .to_string()
+}
+
+#[test]
+fn r121_a_amend_keeps_subject_commit_all_takes_untracked_undo_restores_staged() {
+    let d = repo_with_id("scm-kinds");
+    std::fs::write(d.join("a.txt"), "changed\n").unwrap();
+    stage(&d, &["a.txt".into()]).unwrap();
+    commit(&d, "second\n\nbody").unwrap();
+    // Amend with an empty message keeps the subject and takes the staged file.
+    std::fs::write(d.join("b.txt"), "b\n").unwrap();
+    stage(&d, &["b.txt".into()]).unwrap();
+    let done = commit_kind(&d, "  ", CommitKind::Amend).unwrap();
+    assert!(done.ends_with(" second"), "{done}");
+    assert!(
+        crate::git::run(&d, &["show", "--stat", "--format=", "HEAD"])
+            .unwrap()
+            .contains("b.txt")
+    );
+    // Amend with a message replaces it.
+    commit_kind(&d, "renamed", CommitKind::Amend).unwrap();
+    assert_eq!(head_subject(&d), "renamed");
+    // Commit All stages the untracked file too.
+    std::fs::write(d.join("a.txt"), "again\n").unwrap();
+    std::fs::write(d.join("new.txt"), "new\n").unwrap();
+    commit_kind(&d, "all", CommitKind::All).unwrap();
+    let shown = crate::git::run(&d, &["show", "--stat", "--format=", "HEAD"]).unwrap();
+    assert!(
+        shown.contains("new.txt") && shown.contains("a.txt"),
+        "{shown}"
+    );
+    assert!(status_of(&d).files.is_empty());
+    assert!(commit_kind(&d, "", CommitKind::All).is_err());
+    // Undo: HEAD back at "renamed", the files staged, the message returned.
+    let msg = undo_last_commit(&d).unwrap();
+    assert_eq!(msg, "all");
+    assert_eq!(head_subject(&d), "renamed");
+    let st = status_of(&d);
+    assert_eq!(letters(&st, Section::Staged), "Ma.txt Anew.txt");
+}
+
+#[test]
+fn r121_a_undo_root_commit_empties_head() {
+    let d = repo_with_id("scm-root");
+    let msg = undo_last_commit(&d).unwrap();
+    assert_eq!(msg, "init");
+    let st = status_of(&d);
+    assert!(st.initial);
+    assert_eq!(letters(&st, Section::Staged), "Aa.txt");
+    assert!(undo_last_commit(&d).is_err(), "nothing left to undo");
+}
+
+#[test]
+fn r121_a_amend_and_undo_refused_when_pushed() {
+    let d = repo_with_id("scm-pushed");
+    let _bare = bare_remote(&d);
+    assert!(!head_pushed(&d));
+    sh(&d, &["push", "-q", "-u", "origin", "main"]);
+    assert!(head_pushed(&d));
+    let e = commit_kind(&d, "x", CommitKind::Amend).unwrap_err();
+    assert!(e.message.contains("already pushed"), "{}", e.message);
+    assert!(undo_last_commit(&d).is_err());
+    assert_eq!(head_subject(&d), "init");
+}
+
+#[test]
+fn r121_f_sync_pulls_then_pushes_and_stops_on_a_failed_pull() {
+    let d = repo_with_id("scm-sync");
+    let bare = bare_remote(&d);
+    sh(&d, &["push", "-q", "-u", "origin", "main"]);
+    let other = d.with_extension("other");
+    let _ = std::fs::remove_dir_all(&other);
+    sh(
+        &d,
+        &[
+            "clone",
+            "-q",
+            bare.to_str().unwrap(),
+            other.to_str().unwrap(),
+        ],
+    );
+    // The remote gains c.txt; we gain a local commit.
+    std::fs::write(other.join("c.txt"), "c\n").unwrap();
+    sh(&other, &["add", "c.txt"]);
+    sh(&other, &["commit", "-qm", "c"]);
+    sh(&other, &["push", "-q"]);
+    std::fs::write(d.join("a.txt"), "local\n").unwrap();
+    sh(&d, &["commit", "-qam", "local"]);
+    let st = status_of(&d);
+    assert_eq!(fetch_remote(&d, &st).unwrap(), "origin");
+    fetch(&d, "origin", &[]).unwrap();
+    let st = status_of(&d);
+    assert_eq!((st.ahead, st.behind), (1, 1));
+    // Diverged: the pull fails, nothing is pushed.
+    let before = crate::git::run(&bare, &["rev-parse", "main"]).unwrap();
+    let e = sync(&d, &[]).unwrap_err();
+    assert!(e.message.starts_with("git pull"), "{}", e.message);
+    assert_eq!(
+        crate::git::run(&bare, &["rev-parse", "main"]).unwrap(),
+        before
+    );
+
+    // Behind only: sync fast-forwards and pushes nothing.
+    sh(&d, &["reset", "-q", "--hard", "origin/main"]);
+    std::fs::write(other.join("c.txt"), "c2\n").unwrap();
+    sh(&other, &["commit", "-qam", "c2"]);
+    sh(&other, &["push", "-q"]);
+    fetch(&d, "origin", &[]).unwrap();
+    assert_eq!((status_of(&d).ahead, status_of(&d).behind), (0, 1));
+    let plan = sync(&d, &[]).unwrap();
+    assert_eq!(plan.commits, 0);
+    assert_eq!(std::fs::read_to_string(d.join("c.txt")).unwrap(), "c2\n");
+    // Behind and ahead through a clean fast-forward: push after the pull.
+    std::fs::write(d.join("a.txt"), "ahead\n").unwrap();
+    sh(&d, &["commit", "-qam", "ahead"]);
+    let plan = sync(&d, &[]).unwrap();
+    assert_eq!(plan.commits, 1);
+    assert_eq!(
+        crate::git::run(&bare, &["log", "-1", "--format=%s", "main"])
+            .unwrap()
+            .trim(),
+        "ahead"
+    );
+}
+
+#[test]
+fn r120_d_discard_many_trashes_untracked_and_reports_failures() {
+    let d = repo_with_id("scm-discard");
+    std::fs::write(d.join("a.txt"), "changed\n").unwrap();
+    std::fs::write(d.join("u1.txt"), "1\n").unwrap();
+    std::fs::write(d.join("u2.txt"), "2\n").unwrap();
+    let st = status_of(&d);
+    let tracked: Vec<Change> = st
+        .files
+        .iter()
+        .filter(|c| !c.untracked())
+        .cloned()
+        .collect();
+    let trash_dir = d.with_extension("trash");
+    let _ = std::fs::remove_dir_all(&trash_dir);
+    std::fs::create_dir_all(&trash_dir).unwrap();
+    let td = trash_dir.clone();
+    let trash = move |p: &Path| -> std::io::Result<()> {
+        if p.ends_with("u2.txt") {
+            return Err(std::io::Error::other("no trash here"));
+        }
+        std::fs::rename(p, td.join(p.file_name().unwrap()))
+    };
+    let failed = discard_many(
+        &d,
+        &tracked,
+        &["u1.txt".to_string(), "u2.txt".to_string()],
+        &trash,
+    )
+    .unwrap();
+    assert_eq!(
+        std::fs::read_to_string(d.join("a.txt")).unwrap(),
+        "one\ntwo\nthree\n"
+    );
+    assert!(trash_dir.join("u1.txt").exists() && !d.join("u1.txt").exists());
+    assert_eq!(
+        failed,
+        vec![("u2.txt".to_string(), "no trash here".to_string())]
+    );
+    assert!(discard_many(&d, &[], &["../x".to_string()], &trash).is_err());
+    delete_untracked(&d, &["u2.txt".to_string()]).unwrap();
+    assert!(!d.join("u2.txt").exists());
+    assert!(delete_untracked(&d, &["../x".to_string()]).is_err());
+}
+
+#[test]
+fn r120_e_gitignore_add_appends_rooted_path() {
+    let d = repo_with_id("scm-ignore");
+    gitignore_add(&d, "app.log").unwrap();
+    assert_eq!(
+        std::fs::read_to_string(d.join(".gitignore")).unwrap(),
+        "/app.log\n"
+    );
+    std::fs::write(d.join(".gitignore"), "target").unwrap();
+    gitignore_add(&d, "src/x.log").unwrap();
+    assert_eq!(
+        std::fs::read_to_string(d.join(".gitignore")).unwrap(),
+        "target\n/src/x.log\n"
+    );
+    assert!(gitignore_add(&d, "../x").is_err());
+}
+
+/// ten numbered lines
+fn ten(changed: &[(usize, &str)]) -> String {
+    (1..=10)
+        .map(|i| {
+            changed
+                .iter()
+                .find(|(n, _)| *n == i)
+                .map_or(format!("l{i}"), |(_, t)| t.to_string())
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+        + "\n"
+}
+
+#[test]
+fn r122_b_lines_patch_stage_unstage_discard() {
+    let d = repo_with_id("scm-lines");
+    std::fs::write(d.join("t.txt"), ten(&[])).unwrap();
+    sh(&d, &["add", "t.txt"]);
+    sh(&d, &["commit", "-qm", "ten"]);
+    // Hunk 1: l1, l2 → A1, A2; hunk 2: l10 → Z.
+    let edited = ten(&[(1, "A1"), (2, "A2"), (10, "Z")]);
+    std::fs::write(d.join("t.txt"), &edited).unwrap();
+    let change = status_of(&d)
+        .files
+        .iter()
+        .find(|c| c.path == "t.txt")
+        .unwrap()
+        .clone();
+    let raw = file_diff(&d, &change, Section::Unstaged).unwrap();
+    let f = split_patch(&raw).remove(0);
+    assert_eq!(f.hunks.len(), 2);
+    let parsed = crate::diff::parse(&raw, &[]);
+    // The second added line of hunk 1.
+    let idx = parsed[0].hunks[0]
+        .lines
+        .iter()
+        .enumerate()
+        .filter(|(_, l)| l.kind == crate::diff::LineKind::Added)
+        .nth(1)
+        .unwrap()
+        .0;
+    assert_eq!(parsed[0].hunks[0].lines[idx].text, "A2");
+    assert!(lines_patch(&f, &[], false).is_none());
+
+    // Stage: the index holds only A2 (the removals stay unstaged).
+    let patch = lines_patch(&f, &[(0, idx)], false).unwrap();
+    apply_hunk(&d, &patch, HunkOp::Stage).unwrap();
+    let cached = crate::git::run(&d, &["diff", "--cached", "-U0"]).unwrap();
+    let added: Vec<&str> = cached
+        .lines()
+        .filter(|l| l.starts_with('+') && !l.starts_with("+++"))
+        .collect();
+    let removed: Vec<&str> = cached
+        .lines()
+        .filter(|l| l.starts_with('-') && !l.starts_with("---"))
+        .collect();
+    assert_eq!(added, vec!["+A2"], "{cached}");
+    assert!(removed.is_empty(), "{cached}");
+
+    // Unstage the same line from the staged diff.
+    let change = status_of(&d)
+        .files
+        .iter()
+        .find(|c| c.path == "t.txt")
+        .unwrap()
+        .clone();
+    let raw = file_diff(&d, &change, Section::Staged).unwrap();
+    let f = split_patch(&raw).remove(0);
+    let parsed = crate::diff::parse(&raw, &[]);
+    let idx = parsed[0].hunks[0]
+        .lines
+        .iter()
+        .position(|l| l.kind == crate::diff::LineKind::Added)
+        .unwrap();
+    let patch = lines_patch(&f, &[(0, idx)], true).unwrap();
+    apply_hunk(&d, &patch, HunkOp::Unstage).unwrap();
+    assert_eq!(crate::git::run(&d, &["diff", "--cached"]).unwrap(), "");
+
+    // Discard a selected removed line: only l1 comes back.
+    let change = status_of(&d)
+        .files
+        .iter()
+        .find(|c| c.path == "t.txt")
+        .unwrap()
+        .clone();
+    let raw = file_diff(&d, &change, Section::Unstaged).unwrap();
+    let f = split_patch(&raw).remove(0);
+    let parsed = crate::diff::parse(&raw, &[]);
+    let idx = parsed[0].hunks[0]
+        .lines
+        .iter()
+        .position(|l| l.kind == crate::diff::LineKind::Removed)
+        .unwrap();
+    assert_eq!(parsed[0].hunks[0].lines[idx].text, "l1");
+    let patch = lines_patch(&f, &[(0, idx)], true).unwrap();
+    apply_hunk(&d, &patch, HunkOp::Discard).unwrap();
+    assert_eq!(
+        std::fs::read_to_string(d.join("t.txt")).unwrap(),
+        "l1\nA1\nA2\nl3\nl4\nl5\nl6\nl7\nl8\nl9\nZ\n"
+    );
+}
+
+#[test]
+fn r123_b_quick_diff_none_for_untracked_and_outside_a_repo() {
+    let d = repo_with_id("scm-quick");
+    std::fs::write(d.join("new.txt"), "x\n").unwrap();
+    assert_eq!(quick_diff(&d.join("new.txt")).unwrap(), None);
+    assert_eq!(quick_diff(&d.join("a.txt")).unwrap().as_deref(), Some(""));
+    std::fs::write(d.join("a.txt"), "one\nTWO\nthree\n").unwrap();
+    let u0 = quick_diff(&d.join("a.txt")).unwrap().unwrap();
+    assert!(u0.contains("@@ -2 +2 @@"), "{u0}");
+    let (f, i) = hunk_at_line(&d.join("a.txt"), 2).unwrap().unwrap();
+    assert_eq!(i, 0);
+    assert!(f.hunks[0].contains("+TWO"));
+    assert!(hunk_at_line(&d.join("a.txt"), 40).unwrap().is_none());
+    let out = std::env::temp_dir().join(format!("rade-scm-outside-{}", std::process::id()));
+    std::fs::create_dir_all(&out).unwrap();
+    std::fs::write(out.join("f.txt"), "x\n").unwrap();
+    assert_eq!(quick_diff(&out.join("f.txt")).unwrap(), None);
+    assert_eq!(quick_diff(&out.join("missing/f.txt")).unwrap(), None);
+}
+
+#[test]
+fn snapshot_counts_per_side_and_head_pushed() {
+    let d = repo_with_id("scm-snap");
+    std::fs::write(d.join("a.txt"), "one\ntwo\nthree\nfour\n").unwrap();
+    std::fs::write(d.join("b.txt"), "b1\nb2\n").unwrap();
+    sh(&d, &["add", "b.txt"]);
+    std::fs::write(d.join("b.txt"), "b1\nb2\nb3\n").unwrap();
+    std::fs::write(d.join("u.txt"), "u1\nu2\nu3").unwrap();
+    let s = snapshot(&d, "main").unwrap();
+    assert_eq!(s.staged.get("b.txt"), Some(&(2, 0)));
+    assert_eq!(s.unstaged.get("a.txt"), Some(&(1, 0)));
+    assert_eq!(s.unstaged.get("b.txt"), Some(&(1, 0)));
+    assert_eq!(s.untracked_lines.get("u.txt"), Some(&3));
+    assert_eq!(s.head.as_ref().map(|h| h.1.as_str()), Some("init"));
+    assert!(!s.head_pushed);
+    assert_eq!(s.ahead_base, 0);
+    let _bare = bare_remote(&d);
+    sh(&d, &["push", "-q", "-u", "origin", "main"]);
+    assert!(snapshot(&d, "main").unwrap().head_pushed);
+}
+
+#[test]
+fn recent_messages_newest_first() {
+    let d = repo_with_id("scm-recent");
+    std::fs::write(d.join("a.txt"), "2\n").unwrap();
+    sh(&d, &["commit", "-qam", "second\n\nwith body"]);
+    let m = recent_messages(&d, 20);
+    assert_eq!(
+        m,
+        vec!["second\n\nwith body".to_string(), "init".to_string()]
+    );
+    assert_eq!(recent_messages(&d, 1).len(), 1);
+}

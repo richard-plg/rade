@@ -65,18 +65,18 @@ Window 1440 × 900 px. Columns: Navigator 268 px · center 832 px · Inspector 3
 | A.55 | Inspector tab font, padding, icon | JetBrains Mono 500 11 px, uppercase, letter-spacing 0.06em, `fg3`; 0 12 px; icon 14 px | ±0.5 px; exact | `geometry inspector-tab → font, color, padding` |
 | A.56 | Active Inspector tab | text `fg`; bar 2 px `acc` inset 10 px left and right, at the bottom edge | ±1 px; exact | `class inspector-tab has active`; `geometry inspector-tab-bar → height, x, width` |
 | A.57 | Inspector tab count | JetBrains Mono 10 px `acc` | ±0.5 px; exact | `geometry inspector-tab-count → font, color` |
-| A.58 | Changes header `PROJECT · SHOP` and totals | label style A.18; padding 0 12 px 8 px; `+212` `add`, `−58` `del`, JetBrains Mono 11 px | ±1 px; exact | `geometry changes-header → padding`; `geometry changes-total-add → color, label` |
-| A.59 | Link group card | margin 0 8 px 10 px, 1 px `line`, radius 6 px, `bg2` | ±1 px; exact | `geometry changes-group → margin, border, radius, background` |
-| A.60 | Group header | padding 7 10 px, bottom border 1 px `line`, Inter 12 px, title 600, meta JetBrains Mono 11 px `fg3` | ±1 px; exact | `geometry changes-group-header → padding, border.bottom, font` |
-| A.61 | File row | height 24 px, padding 0 10 px, gap 8 px, JetBrains Mono 12 px; dir `fg3`, name `fg` | ±1 px; exact | `geometry file-row → height, padding, font`; `geometry file-row-dir → color` |
-| A.62 | File status letter | 12 px column, 600; `M` `wait`, `A` `add`, `D` `del` | ±1 px; exact | `geometry file-status → width, color` per letter |
-| A.63 | File `+/−` counts | JetBrains Mono 11 px, `add` / `del`, right-aligned at row right − 10 px | ±1 px; exact | `geometry file-stat → font, x + width` |
-| A.64 | Commit row | padding 8 10 px, top border 1 px `line`, gap 6 px; input 26 px high, radius 5 px, 1 px `line2`, `bg0`, placeholder `Message (Ctrl Enter)` 12 px `fg3` | ±1 px; exact | `geometry commit-row → padding, border.top`; `geometry commit-entry → height, radius, border, background` |
-| A.65 | Primary button (`Commit`) | `acc` fill, `acc-fg` text 600, no border, height 26 px, radius 6 px; exactly one `.suggested-action` visible on screen A | exact; count exact | `geometry commit-button → background, color, font.weight`; `count .suggested-action = 1` |
+| A.58 | Changes header `PROJECT · SHOP`, totals, tools | label style A.18; padding 0 12 px 8 px; `+212` `add`, `−58` `del`, JetBrains Mono 11 px; 3 tools 22 × 22 px | ±1 px; exact | `geometry changes-header → padding`; `geometry changes-total-add → color, label`; `geometry changes-tool all → width, height` |
+| A.59 | Link card | margin 0 8 px 10 px, 1 px `line`, radius 6 px, `bg2` | ±1 px; exact | `geometry changes-group → margin, border, radius, background` |
+| A.60 | Card header | padding 7 10 px, bottom border 1 px `line`, Inter 12 px, title 600, meta JetBrains Mono 11 px `fg3`; chevron 12 px `fg3` | ±1 px; exact | `geometry changes-group-header → padding, border.bottom, font` |
+| A.61 | File row | height 24 px, padding 0 10 px, gap 6 px, JetBrains Mono 12 px; icon 14 px; dir `fg3`, name `fg` | ±1 px; exact | `geometry file-row → height, padding, font`; `geometry file-row-dir → color` |
+| A.62 | Status letter | right-most, 12 px column, 600; `M` `wait`, `A` `add`, `U` `add`, `D` `del`, `R` `run`, `!` `err` | ±1 px; exact | `geometry file-status → width, color` per letter; right edge = row right − 10 px |
+| A.63 | `+/−` counts | JetBrains Mono 11 px, `add` / `del`, right edge 8 px left of the status letter | ±1 px; exact | `geometry file-stat → font, x + width` |
+| A.64 | Commit area | padding 8 10 px, bottom border 1 px `line`, gap 6 px; message box min 26 px high, radius 5 px, 1 px `line2`, `bg0`, placeholder `Message (Ctrl+Enter to commit on ‘<branch>’)` 12 px `fg3` | ±1 px; exact | `geometry commit-row → padding, border.bottom`; `geometry commit-entry → height, radius, border, background` |
+| A.65 | `Commit` split button | main: `acc` fill, `acc-fg` text 600, no border, 26 px high, radius 6 0 0 6; arrow part `.commit-more` 22 px wide, same fill, radius 0 6 6 0, 1 px left border `acc-fg` at 25 %; exactly one `.suggested-action` visible on screen A | exact; count exact | `geometry commit-button → background, color, font.weight`; `geometry commit-more → width, background`; `count .suggested-action = 1` |
 | A.66 | Draft button (`sparkle`) | 26 px high, secondary (A.15 style), icon 14 px `fg2`, tooltip `Draft with agent` | ±1 px; exact | `geometry draft-button → height, background` |
 | A.67 | Drift card | margin 0 8 px 10 px, padding 8 10 px, 1 px `wait-line`, `wait-dim`, radius 6 px, Inter 12 px `fg`, gap 8 px; icon `warning-diamond` Fill 15 px `wait` | ±1 px; exact | `geometry drift-card → margin, padding, border, background, radius, font` |
 | A.68 | Drift card sub-line and actions | sub-line Inter 11.5 px `fg2`, 2 px below; actions 6 px below, gap 6 px, buttons 22 px high Inter 11.5 px: `Keep, show in Shop`, `Move to a Worktree…` (no `Back to base`: the checkout is dirty) | ±1 px; exact text | `geometry drift-sub → font, color`; `geometry drift-card btn → height, label` |
-| A.69 | Clean group (`shared-ui develop clean`) | header only, no file rows, opacity 0.75 | exact | `geometry changes-group nth=2 → opacity`; `debug.ui changes` → rows 0 |
+| A.69 | Clean card | header only, no rows, opacity 0.75 (1.0 when it shows an action button) | exact | `geometry changes-group nth=2 → opacity`; `debug.scm` → rows 0 |
 | A.70 | Statusline height, background, top border, font | 26 px, `bg1`, 1 px `line`, JetBrains Mono 11 px `fg2` | ±1 px; exact | `geometry statusline → height, background, border.top, font, color` |
 | A.71 | Statusline cell padding, gap, divider, icon | 0 10 px, 6 px, right border 1 px `line`, icon 12 px | ±1 px; exact | `geometry status-cell → padding, border.right` |
 | A.72 | Workspace cell | `acc` fill, `acc-fg` text 600, `circles-four`, text `ACME` (uppercase), radius 0 | exact | `geometry status-cell-ws → background, color, font.weight, radius, label` |
@@ -88,6 +88,12 @@ Window 1440 × 900 px. Columns: Navigator 268 px · center 832 px · Inspector 3
 | A.78 | Contrast of every text token used on this screen | ≥ 4.5 : 1 (`fg`, `fg2`, `fg3`, `acc`, `wait`, `run`, `ok`, `add`, `del` on `bg0`–`bg3`, `acc-dim`, `wait-dim`; `acc-fg` on `acc`) | ≥ threshold | `contrast.py` (both themes) |
 | A.79 | Contrast of meaning-carrying icons / glyphs / LEDs | ≥ 3 : 1 (`wt`, `proj-1..3`, glyph and LED colors on `bg1`, `bg0`) | ≥ threshold | `contrast.py` (both themes) |
 | A.80 | Whole scene | matches the approved golden, dark and light | pixel threshold, terminal + "ago" masked | `screenshot` |
+| A.81 | Section row | height 22 px, padding 0 10 px; label JetBrains Mono 10.5 px 600 `fg2` uppercase; count pill `.scm-count` JetBrains Mono 10 px, `bg3`, radius 8 px, padding 0 5 px | ±1 px; exact | `geometry scm-section → height, padding, font`; `geometry scm-count → background, radius` |
+| A.82 | Row actions | `.scm-act` 20 × 20 px, flat, icon 14 px `fg2`, gap 2 px; shown in place of the counts on hover / selection / focus | ±1 px; exact | `geometry scm-act → width, height` (with a row selected) |
+| A.83 | Selected row | background `acc-dim`; text colors unchanged | exact | `geometry file-row (selected) → background` |
+| A.84 | Action button | margin 8 10 px, 26 px high, secondary (A.15 style), Inter 12 px 600, icon 14 px | ±1 px; exact | `geometry scm-action-button → height, margin, font` |
+| A.85 | Subject warning | Inter 11 px `wait`, 2 px below the message box | ±1 px; exact | `geometry commit-warning → font, color` |
+| A.86 | Sync / Publish button | flat, 22 px high, icon 14 px `fg2`, label JetBrains Mono 11 px `fg2` | ±1 px; exact | `geometry scm-sync → height, font` |
 
 ## States
 

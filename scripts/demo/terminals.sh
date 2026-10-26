@@ -140,24 +140,23 @@ mkdir -p "$CW/src/checkout"
 { printf 'import { shipping } from "../cart/pricing";\nimport type { CartLine } from "../cart/pricing";\n\nexport const shippingLabel = (lines: CartLine[]) =>\n  shipping(lines) === 0 ? "Free shipping" : "Shipping $4.99";\n' >"$CW/src/checkout/shipping.ts"; }
 printf 'import { describe, it, expect } from "vitest";\nimport { shipping } from "./pricing";\n\ndescribe("shipping", () => {\n  it("is free from $75", () => expect(shipping([{ sku: "a", name: "A", qty: 1, price: 7500 }])).toBe(0));\n  it("is $4.99 below", () => expect(shipping([{ sku: "a", name: "A", qty: 1, price: 1800 }])).toBe(499));\n});\n' >"$CW/src/cart/pricing.test.ts"
 scm() { rpc debug.scm "${1:-{\}}"; }
-changes() { rpc debug.ui '{"op":"changes"}' | jq -c .changes; }
-gmsg() { changes | jq -r '.groups[] | select(.source == "shop-web") | .commit.message'; }
+gmsg() { rpc debug.scm | jq -r '.cards[] | select(.source == "shop-web") | .message'; }
 rade focus "$au" >/dev/null
 rade debug action show_changes >/dev/null
-eventually 15 bash -c "[[ \$(rpc debug.ui '{\"op\":\"changes\"}' | jq '[.changes.groups[] | select(.source == \"shop-web\") | .rows] | add') -ge 3 ]]" || true
+eventually 15 bash -c "[[ \$(rpc debug.scm | jq '[.cards[] | select(.source == \"shop-web\") | .groups[].count] | add // 0') -ge 3 ]]" || true
 sleep 1
 for f in src/cart/pricing.ts src/cart/pricing.test.ts src/checkout/shipping.ts; do
-    rpc debug.ui "{\"op\":\"changes_stage\",\"source\":\"shop-web\",\"path\":\"$f\"}" >/dev/null
+    scm "{\"op\":\"row_action\",\"source\":\"shop-web\",\"group\":\"changes\",\"path\":\"$f\",\"arg\":\"Stage Changes\"}" >/dev/null
     sleep 0.6
 done
 rpc debug.ui '{"op":"click","widget":"draft-button"}' >/dev/null
-eventually 20 bash -c "[[ -n \$(rpc debug.ui '{\"op\":\"changes\"}' | jq -r '.changes.groups[] | select(.source == \"shop-web\") | .commit.message') ]]" || true
+eventually 20 bash -c "[[ -n \$(rpc debug.scm | jq -r '.cards[] | select(.source == \"shop-web\") | .message') ]]" || true
 sleep 1.5
 notoasts
 still changes-commit
-rpc debug.ui '{"op":"changes_commit","source":"shop-web"}' >/dev/null
+scm '{"op":"commit","source":"shop-web","variant":"commit"}' >/dev/null
 sleep 2.5
-scm '{"op":"pr"}' >/dev/null
+scm '{"op":"card_menu_activate","source":"shop-web","item":"Create Pull Request…"}' >/dev/null
 sleep 1
 scm '{"op":"pr_generate"}' >/dev/null
 eventually 15 bash -c "[[ -n \$(rpc debug.scm | jq -r .pr.title) ]]" || true
