@@ -88,14 +88,14 @@ eventually 5 is 'nrows' 4 || true
 
 echo "== R129-b: header and menus"
 H=$(files)
-check "header lists ignored, refresh, collapse (right to left)" test "$(jq -c '[.buttons[].name]' <<<"$H")" = '["ignored","refresh","collapse"]'
+check "R129-b header lists ignored, refresh, collapse (right to left)" test "$(jq -c '[.buttons[].name]' <<<"$H")" = '["ignored","refresh","collapse"]'
 check "Refresh tooltip" test "$(jq -r '.buttons[1].tooltip' <<<"$H")" = "Refresh"
 check "Collapse All tooltip" test "$(jq -r '.buttons[2].tooltip' <<<"$H")" = "Collapse All"
 check "Refresh icon" test "$(jq -r '.buttons[1].icon' <<<"$H")" = "view-refresh-symbolic"
 check "title keeps the folder name, tooltip = full path (R129.2)" test "$(jq -c '[.title, .title_tooltip]' <<<"$H")" = "[\"repo\",\"$X\"]"
 FILE_ITEMS="Open|Open to the Side|Copy Path|Copy Relative Path|Insert Path in Agent|Reveal in Files|Open Terminal Here"
-check "file menu: 7 items in order" test "$(labels "$X/src/main.rs")" = "$FILE_ITEMS"
-check "folder menu: 5 items in order" test "$(labels "$X/src")" = "Copy Path|Copy Relative Path|Insert Path in Agent|Reveal in Files|Open Terminal Here"
+check "R129-b file menu: 7 items in order" test "$(labels "$X/src/main.rs")" = "$FILE_ITEMS"
+check "R129-b folder menu: 5 items in order" test "$(labels "$X/src")" = "Copy Path|Copy Relative Path|Insert Path in Agent|Reveal in Files|Open Terminal Here"
 check "Insert Path in Agent is disabled without an Agent Pane" test "$(menu "$X/src/main.rs" items | jq '[.items[] | select(.label=="Insert Path in Agent") | .enabled][0]')" = false
 check "the others are enabled" test "$(menu "$X/src/main.rs" items | jq '[.items[] | select(.label!="Insert Path in Agent") | .enabled] | all')" = true
 check "Copy Path shows its key" test "$(menu "$X/src/main.rs" items | jq -r '.items[] | select(.label=="Copy Path") | .accel')" = "<Control><Alt>c"
@@ -114,14 +114,14 @@ rade debug action color_scheme_light >/dev/null; sleep 0.5
 
 echo "== R129-c: Copy Path, Copy Relative Path, title click"
 menu "$X/src/a b.rs" activate "Copy Path" >/dev/null
-check "Copy Path → the absolute path" eventually 5 is 'paste_clip' "$X/src/a b.rs"
+check "R129-c Copy Path → the absolute path" eventually 5 is 'paste_clip' "$X/src/a b.rs"
 menu "$X/src/a b.rs" activate "Copy Relative Path" >/dev/null
-check "Copy Relative Path → relative to the root" eventually 5 is 'paste_clip' "src/a b.rs"
+check "R129-c Copy Relative Path → relative to the root" eventually 5 is 'paste_clip' "src/a b.rs"
 menu "$X/src" activate "Copy Relative Path" >/dev/null
 check "a folder copies its relative path too" eventually 5 is 'paste_clip' "src"
 files title >/dev/null
-check "title click copies the root path" eventually 5 is 'paste_clip' "$X"
-check "title click Toast" eventually 5 bash -c "rpc debug.ui '{\"op\":\"chrome\"}' | grep -qF 'Copied $X'"
+check "R129-c title click copies the root path" eventually 5 is 'paste_clip' "$X"
+check "R129-c title click Toast" eventually 5 bash -c "rpc debug.ui '{\"op\":\"chrome\"}' | grep -qF 'Copied $X'"
 
 echo "== R129.5: keys on the focused row"
 tree focus "$X/src/main.rs" >/dev/null
@@ -140,14 +140,14 @@ rade focus "$ag" >/dev/null
 check "Insert Path in Agent is enabled now" test "$(menu "$X/src/a b.rs" items | jq '[.items[] | select(.label=="Insert Path in Agent") | .enabled][0]')" = true
 before=$(rade read "$ag" --scrollback | wc -l)
 menu "$X/src/a b.rs" activate "Insert Path in Agent" >/dev/null
-check "the quoted relative path is typed, no Enter (the screen read trims the trailing space)" eventually 5 screen_has "$ag" "'src/a b.rs'"
+check "R129-d the quoted relative path is typed, no Enter (the screen read trims the trailing space)" eventually 5 screen_has "$ag" "'src/a b.rs'"
 sleep 0.5
-check "nothing was submitted (no REPLY line)" bash -c "! rade read $ag --scrollback | grep -q REPLY"
+check "R129-d nothing was submitted (no REPLY line)" bash -c "! rade read $ag --scrollback | grep -q REPLY"
 menu "$X/src" activate "Insert Path in Agent" >/dev/null
 check "a folder inserts its path too" eventually 5 screen_has "$ag" "'src/a b.rs' src"
 # Focus on the sink (not an Agent): the Tab's Agent Pane still takes it.
 rade close "$ag" --force >/dev/null
-check "no Agent Pane left → disabled again" eventually 5 is 'menu "$X/src/main.rs" items | jq "[.items[] | select(.label==\"Insert Path in Agent\") | .enabled][0]"' false
+check "R129-d no Agent Pane left → disabled again" eventually 5 is 'menu "$X/src/main.rs" items | jq "[.items[] | select(.label==\"Insert Path in Agent\") | .enabled][0]"' false
 
 echo "== R129-e: Refresh and Collapse All (no inotify watches)"
 check "folders expanded" eventually 5 bash -c "tree rows | jq -e '.rows[] | select(.path==\"$X/src\") | .expanded'"
@@ -158,26 +158,26 @@ mkdir -p "$X/zeta"
 sleep 1.2
 check "a new file is absent without a watch" test "$(rows | grep -c new-file.rs || true)" = 0
 files refresh >/dev/null
-check "present after Refresh" eventually 5 bash -c "tree rows | jq -e '[.rows[].path] | index(\"$X/src/new-file.rs\")'"
+check "R129-e present after Refresh" eventually 5 bash -c "tree rows | jq -e '[.rows[].path] | index(\"$X/src/new-file.rs\")'"
 check "a new top-level folder too" eventually 5 bash -c "tree rows | jq -e '[.rows[].path] | index(\"$X/zeta\")'"
-check "expanded folders stay expanded" test "$(tree rows | jq -c --arg a "$X/src" --arg b "$X/src/deep" '[.rows[] | select(.path==$a or .path==$b) | .expanded]')" = "[true,true]"
+check "R129-e expanded folders stay expanded" test "$(tree rows | jq -c --arg a "$X/src" --arg b "$X/src/deep" '[.rows[] | select(.path==$a or .path==$b) | .expanded]')" = "[true,true]"
 rm "$X/src/main.rs"
 files refresh >/dev/null
 check "a deleted file is gone after Refresh" eventually 5 bash -c "! tree rows | jq -e '[.rows[].path] | index(\"$X/src/main.rs\")'"
 scene files-page
 files collapse >/dev/null
-check "Collapse All → only top-level rows" eventually 5 bash -c "tree rows | jq -e '[.rows[].depth] | max == 0'"
+check "R129-e Collapse All → only top-level rows" eventually 5 bash -c "tree rows | jq -e '[.rows[].depth] | max == 0'"
 check "folders are collapsed" test "$(tree rows | jq '[.rows[] | select(.expanded)] | length')" = 0
 
 echo "== R129-f: Open Terminal Here, Reveal in Files"
 tabs_before=$(rade list --json | jq '[.panes[].tab] | unique | length')
 menu "$X/src" activate "Open Terminal Here" >/dev/null
 check "a new Tab" eventually 5 is "rade list --json | jq '[.panes[].tab] | unique | length'" $((tabs_before + 1))
-check "its Terminal starts in src/" eventually 5 bash -c "rade list --json | jq -e '[.panes[] | select(.cwd==\"$X/src\")] | length == 1'"
+check "R129-f its Terminal starts in src/" eventually 5 bash -c "rade list --json | jq -e '[.panes[] | select(.cwd==\"$X/src\")] | length == 1'"
 menu "$X/docs/guide.md" activate "Open Terminal Here" >/dev/null
 check "a file → its folder" eventually 5 bash -c "rade list --json | jq -e '[.panes[] | select(.cwd==\"$X/docs\")] | length == 1'"
 menu "$X/src/a b.rs" activate "Reveal in Files" >/dev/null
-check "Reveal in Files → ShowItems with the file URI" eventually 5 grep -qF "ShowItems file://$X/src/a%20b.rs" "$FM_LOG"
+check "R129-f Reveal in Files → ShowItems with the file URI" eventually 5 grep -qF "ShowItems file://$X/src/a%20b.rs" "$FM_LOG"
 echo "  filemanager.log: $(cat "$FM_LOG" | tr '\n' ';')"
 
 echo

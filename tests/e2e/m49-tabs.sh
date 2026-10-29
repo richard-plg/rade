@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# E2E (M49, R115.3 amended, R115-g): a Tab holding Agents of two kinds shows
+# E2E (M49, R115.3 amended, R115-i): a Tab holding Agents of two kinds shows
 # the lead Agent's glyph then the other kind's (`debug.tabs` `marks`), with a
 # per-Agent tooltip; screenshots dark + light → target/e2e-m49/.
 # Usage: tests/e2e/m49-tabs.sh   (NO_BUILD=1, KEEP=1)
@@ -38,7 +38,7 @@ shot one-kind-dark
 RADE_PANE_ID=$cx RADE_SOCKET=$SOCK rade spawn --agent claude --name cl >/dev/null
 cl=$(rade list --json | jq -r '[.panes[] | select(.name=="cl")][0].pane')
 check "claude spawned into codex's Tab" test "$(info "$cl" tab)" = "$tab"
-check "R115-g Tab marks == [codex, claude]" eventually 10 is "marks_of $tab" '["codex","claude"]'
+check "R115-i Tab marks == [codex, claude]" eventually 10 is "marks_of $tab" '["codex","claude"]'
 tip=$(rpc debug.tabs | jq -r --arg t "$tab" '.tabs[] | select(.tab==$t) | .tooltip')
 check "tooltip has 'cx · codex ·'" grep -q "cx · codex · " <<<"$tip"
 check "tooltip has 'cl · claude ·'" grep -q "cl · claude · " <<<"$tip"

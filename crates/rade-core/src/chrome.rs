@@ -714,7 +714,7 @@ mod tests {
     }
 
     #[test]
-    fn r115_f_tab_marks_lead_first_then_other_kinds_worst_status() {
+    fn r115_h_tab_marks_lead_first_then_other_kinds_worst_status() {
         let agent = |id: &str, name: &str, st: AgentStatus| {
             let mut p = Pane::new(id.into(), "/w".into(), Some(name.into()), None);
             p.agent = Some(name.into());
