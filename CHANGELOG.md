@@ -10,6 +10,8 @@ the 0.x sections were written by hand. Requirement IDs (R…) refer to [docs/int
 
 ## [Unreleased]
 
+Upgrading with shell aliases such as `cl` / `clw`: declare them once in `~/.config/rade/accounts.toml` (or Settings → Accounts), and if `config.toml` starts the agent with `CLAUDE_CONFIG_DIR=…` in `[agents.claude] command`, remove that prefix — the account chooses the login now ([guide](docs/features/accounts-and-usage.md#moving-from-aliases-or-a-command-prefix)).
+
 ## [1.2.0] - 2026-10-26
 
 ### Added
