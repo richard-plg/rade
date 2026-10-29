@@ -384,6 +384,25 @@ impl FileTree {
                 }
             });
             expander.add_controller(click);
+            // R129.4: drag a row onto a Terminal = the R5 drop (uri-list →
+            // quoted path); offers the file list and its path as text.
+            let drag = gtk::DragSource::new();
+            drag.set_actions(gtk::gdk::DragAction::COPY);
+            let li = item.downgrade();
+            drag.connect_prepare(move |_, _, _| {
+                let li = li.upgrade()?;
+                let path = li
+                    .item()
+                    .and_downcast::<gtk::TreeListRow>()
+                    .and_then(|r| r.item())
+                    .map(|o| path_of(&o))?;
+                let files = gtk::gdk::FileList::from_array(&[gio::File::for_path(&path)]);
+                Some(gtk::gdk::ContentProvider::new_union(&[
+                    gtk::gdk::ContentProvider::for_value(&files.to_value()),
+                    gtk::gdk::ContentProvider::for_value(&path.display().to_string().to_value()),
+                ]))
+            });
+            expander.add_controller(drag);
         });
         let weak = Rc::downgrade(&self.0);
         f.connect_bind(move |_, item| {
@@ -667,6 +686,38 @@ impl FileTree {
         })
     }
 
+    /// R129.5 on the focused row: Ctrl+Alt+C Copy Path, Ctrl+Shift+Alt+C Copy
+    /// Relative Path; F5 Refresh while focus is in the Files page. True when
+    /// the key was taken.
+    fn handle_key(&self, key: gtk::gdk::Key, state: gtk::gdk::ModifierType) -> bool {
+        use gtk::gdk::{Key, ModifierType as M};
+        let Some(app) = try_app() else { return false };
+        let Some(focus) = gtk::prelude::GtkWindowExt::focus(&app.window) else {
+            return false;
+        };
+        if focus != *self.0.root.upcast_ref::<gtk::Widget>() && !focus.is_ancestor(&self.0.root) {
+            return false;
+        }
+        let mods = state & (M::CONTROL_MASK | M::SHIFT_MASK | M::ALT_MASK | M::SUPER_MASK);
+        if key == Key::F5 && mods.is_empty() {
+            self.refresh();
+            return true;
+        }
+        let relative = mods == M::CONTROL_MASK | M::SHIFT_MASK | M::ALT_MASK;
+        if key.to_lower() != Key::c || !(relative || mods == M::CONTROL_MASK | M::ALT_MASK) {
+            return false;
+        }
+        let Some(path) = expander_path(&focus) else {
+            return false;
+        };
+        if relative {
+            copy_relative(&path);
+        } else {
+            copy_path(&path);
+        }
+        true
+    }
+
     /// `debug.ui files [arg]` (R129): the header — title, its tooltip, the
     /// buttons right to left as shown — after `arg` = refresh | collapse |
     /// title | ignored pressed it.
@@ -701,6 +752,21 @@ impl FileTree {
             "rows" => {}
             "expand" | "collapse" => self.row_at(pos()?).unwrap().set_expanded(op == "expand"),
             "activate" => self.activate_at(pos()?),
+            // Keyboard focus on a row (R129.5).
+            "focus" => {
+                let at = pos()?;
+                self.0.list.scroll_to(at, gtk::ListScrollFlags::FOCUS, None);
+                let row = self
+                    .0
+                    .state
+                    .borrow()
+                    .bound
+                    .get(path.unwrap())
+                    .map(|b| b.icon.clone());
+                if let Some(e) = row.and_then(|i| i.ancestor(gtk::TreeExpander::static_type())) {
+                    e.parent().unwrap_or(e).grab_focus();
+                }
+            }
             // A middle-click on a file row (R113.2).
             "activate_side" => {
                 pos()?;
@@ -766,6 +832,16 @@ fn row_menu(path: &Path, dir: bool) -> gio::Menu {
         for (label, action) in items {
             let i = gio::MenuItem::new(Some(label), None);
             i.set_action_and_target_value(Some(action), Some(&target));
+            // R129.5: shown, not bound (the tree's own key handler acts).
+            match *action {
+                "files.copy-path" => {
+                    i.set_attribute_value("accel", Some(&"<Control><Alt>c".to_variant()))
+                }
+                "files.copy-relative" => {
+                    i.set_attribute_value("accel", Some(&"<Control><Shift><Alt>c".to_variant()))
+                }
+                _ => {}
+            }
             m.append_item(&i);
         }
         m
@@ -963,4 +1039,35 @@ fn open_at(path: &Path, side: bool) {
     if let Err(e) = app.update(|m| m.open_viewer_at(&p, &w, &path, None, true, side)) {
         eprintln!("rade: open {}: {e}", path.display());
     }
+}
+
+/// The window key handling (keys.rs): the Files page own keys (R129.5).
+pub(crate) fn key(key: gtk::gdk::Key, state: gtk::gdk::ModifierType) -> bool {
+    try_app().is_some_and(|a| a.files.handle_key(key, state))
+}
+
+/// The path of the row `w` is (the focus is a row's list item; its
+/// TreeExpander is a child) or sits in.
+fn expander_path(w: &gtk::Widget) -> Option<PathBuf> {
+    let of = |x: &gtk::Widget| {
+        x.downcast_ref::<gtk::TreeExpander>()
+            .and_then(|e| e.list_row())
+            .and_then(|r| r.item())
+            .map(|o| path_of(&o))
+    };
+    let mut up = Some(w.clone());
+    while let Some(x) = up {
+        if let Some(p) = of(&x) {
+            return Some(p);
+        }
+        up = x.parent();
+    }
+    let mut down = w.first_child();
+    while let Some(x) = down {
+        if let Some(p) = of(&x) {
+            return Some(p);
+        }
+        down = x.first_child();
+    }
+    None
 }
