@@ -86,6 +86,40 @@ pub fn tab_count(agents: usize) -> Option<usize> {
     (agents >= 2).then_some(agents)
 }
 
+/// R115.3: the glyphs of a Tab's Agent kinds: the lead Agent's (the Fan-out
+/// grid's owner, else the first Agent Pane) then each other distinct kind in
+/// Pane order, at most 3, each with the worst status of that kind in the Tab.
+pub fn tab_marks(
+    panes: &[&Pane],
+    grid: Option<&str>,
+) -> Vec<(crate::design::AgentMark, Option<AgentStatus>)> {
+    let agents: Vec<_> = panes.iter().filter(|p| p.agent_name().is_some()).collect();
+    let lead = grid
+        .and_then(|g| agents.iter().find(|p| p.id == g))
+        .or(agents.first());
+    let mut kinds: Vec<crate::design::AgentMark> = Vec::new();
+    for p in lead.into_iter().chain(agents.iter()) {
+        if let Some(m) = p.mark() {
+            if !kinds.contains(&m) {
+                kinds.push(m);
+            }
+        }
+    }
+    kinds.truncate(3);
+    kinds
+        .into_iter()
+        .map(|m| {
+            let st = crate::status::worst(
+                agents
+                    .iter()
+                    .filter(|p| p.mark() == Some(m))
+                    .map(|p| p.status),
+            );
+            (m, st)
+        })
+        .collect()
+}
+
 /// What a Tab with no Agent and no user name shows instead of the Worktree
 /// name: `Review` when it holds only Reviews, a Browser's host when it
 /// holds only Browsers.
@@ -677,6 +711,47 @@ mod tests {
         assert_eq!(header_name(&agent), "codex");
         let viewer = Pane::viewer("p_3".into(), "/w/a.md".into(), None);
         assert!(!has_header(&viewer, 2));
+    }
+
+    #[test]
+    fn r115_f_tab_marks_lead_first_then_other_kinds_worst_status() {
+        let agent = |id: &str, name: &str, st: AgentStatus| {
+            let mut p = Pane::new(id.into(), "/w".into(), Some(name.into()), None);
+            p.agent = Some(name.into());
+            p.status = Some(st);
+            p
+        };
+        use crate::design::AgentMark::*;
+        let a = agent("p_1", "codex", AgentStatus::Done);
+        let b = agent("p_2", "claude", AgentStatus::Running);
+        let c = agent("p_3", "claude", AgentStatus::Waiting);
+        let marks = tab_marks(&[&a, &b, &c], None);
+        assert_eq!(
+            marks,
+            vec![
+                (Codex, Some(AgentStatus::Done)),
+                (Claude, Some(AgentStatus::Waiting))
+            ]
+        );
+        // the grid owner leads
+        let marks = tab_marks(&[&a, &b, &c], Some("p_2"));
+        assert_eq!(
+            marks.iter().map(|m| m.0).collect::<Vec<_>>(),
+            vec![Claude, Codex]
+        );
+        // one kind
+        assert_eq!(tab_marks(&[&b, &c], None).len(), 1);
+        // four kinds -> first 3
+        let d = agent("p_4", "opencode", AgentStatus::Done);
+        let e = agent("p_5", "antigravity", AgentStatus::Done);
+        let marks = tab_marks(&[&a, &b, &d, &e], None);
+        assert_eq!(
+            marks.iter().map(|m| m.0).collect::<Vec<_>>(),
+            vec![Codex, Claude, OpenCode]
+        );
+        // no Agents
+        let shell = Pane::new("p_9".into(), "/w".into(), None, None);
+        assert!(tab_marks(&[&shell], None).is_empty());
     }
 
     #[test]
