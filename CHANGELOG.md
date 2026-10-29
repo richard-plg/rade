@@ -10,7 +10,19 @@ the 0.x sections were written by hand. Requirement IDs (R…) refer to [docs/int
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-10-29
+
 Upgrading with shell aliases such as `cl` / `clw`: declare them once in `~/.config/rade/accounts.toml` (or Settings → Accounts), and if `config.toml` starts the agent with `CLAUDE_CONFIG_DIR=…` in `[agents.claude] command`, remove that prefix — the account chooses the login now ([guide](docs/features/accounts-and-usage.md#moving-from-aliases-or-a-command-prefix)).
+
+### Added
+
+- Agent Accounts can load a .env file and extra variables, be declared once for every Workspace, and are recognised on Agents you start by hand
+- `rade account add --user --env-file … --env K=V` and `rade account set` manage an account's .env file and variables
+- Settings → Accounts lists your accounts; each has one Environment table where you add variables in place or paste KEY=VALUE lines
+
+### Fixed
+
+- A Workspace that sets CLAUDE_CONFIG_DIR in [env] keeps that login with user accounts; the command-prefix refusal now says how to fix it
 
 ## [1.2.0] - 2026-10-26
 
@@ -1129,7 +1141,8 @@ Initial release: everything built in milestones M0–M12.
   releases with the `.deb` and `SHA256SUMS`, `rade-app --version`, this
   changelog (ADR-0012).
 
-[Unreleased]: https://github.com/richard-plg/rade/compare/v1.2.0...HEAD
+[Unreleased]: https://github.com/richard-plg/rade/compare/v1.3.0...HEAD
+[1.3.0]: https://github.com/richard-plg/rade/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/richard-plg/rade/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/richard-plg/rade/compare/v1.0.1...v1.1.0
 [1.0.1]: https://github.com/richard-plg/rade/compare/v1.0.0...v1.0.1
