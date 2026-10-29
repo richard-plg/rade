@@ -113,6 +113,8 @@ struct State {
 pub struct Inner {
     pub root: gtk::Box,
     title: gtk::Label,
+    refresh: gtk::Button,
+    collapse: gtk::Button,
     list: gtk::ListView,
     scroll: gtk::ScrolledWindow,
     /// An empty folder's empty state (R103.6).
@@ -169,7 +171,16 @@ impl FileTree {
         show_ignored.set_icon_name("view-reveal-symbolic");
         show_ignored.set_tooltip_text(Some("Show files ignored by .gitignore"));
         show_ignored.add_css_class("flat");
+        // R129.1: right to left — Show ignored, Refresh, Collapse All.
+        let refresh = gtk::Button::from_icon_name("view-refresh-symbolic");
+        refresh.set_tooltip_text(Some("Refresh"));
+        refresh.add_css_class("flat");
+        let collapse = gtk::Button::from_icon_name("ph-arrows-in-line-vertical-symbolic");
+        collapse.set_tooltip_text(Some("Collapse All"));
+        collapse.add_css_class("flat");
         header.append(&title);
+        header.append(&collapse);
+        header.append(&refresh);
         header.append(&show_ignored);
 
         let list = gtk::ListView::new(None::<gtk::NoSelection>, None::<gtk::ListItemFactory>);
@@ -188,6 +199,8 @@ impl FileTree {
         let tree = Self(Rc::new(Inner {
             root,
             title,
+            refresh,
+            collapse,
             list,
             scroll,
             empty,
@@ -220,7 +233,68 @@ impl FileTree {
                 FileTree(inner).rebuild();
             }
         });
+        let weak = Rc::downgrade(&tree.0);
+        tree.0.refresh.connect_clicked(move |_| {
+            if let Some(inner) = weak.upgrade() {
+                FileTree(inner).refresh();
+            }
+        });
+        let weak = Rc::downgrade(&tree.0);
+        tree.0.collapse.connect_clicked(move |_| {
+            if let Some(inner) = weak.upgrade() {
+                FileTree(inner).collapse_all();
+            }
+        });
+        // R129.2: the title copies the full root path.
+        let click = gtk::GestureClick::new();
+        let weak = Rc::downgrade(&tree.0);
+        click.connect_released(move |_, _, _, _| {
+            if let Some(inner) = weak.upgrade() {
+                FileTree(inner).copy_root();
+            }
+        });
+        tree.0.title.add_controller(click);
+        tree.0.title.set_cursor_from_name(Some("pointer"));
         tree
+    }
+
+    /// R129.2: copy the root's full path and say so.
+    fn copy_root(&self) {
+        let Some(root) = self.0.state.borrow().root.clone() else {
+            return;
+        };
+        let text = root.display().to_string();
+        self.0.root.display().clipboard().set_text(&text);
+        toast(&format!("Copied {}", glib::markup_escape_text(&text)));
+    }
+
+    /// R129.1: relist every listed folder and the git status; expanded
+    /// folders and the scroll position stay (no rebuild).
+    fn refresh(&self) {
+        if self.0.tree.borrow().is_none() {
+            return self.rebuild();
+        }
+        {
+            let mut st = self.0.state.borrow_mut();
+            let all: Vec<PathBuf> = st.stores.keys().cloned().collect();
+            st.dirty.extend(all);
+        }
+        self.relist();
+        self.queue_git();
+    }
+
+    /// R129.1: fold every expanded folder.
+    fn collapse_all(&self) {
+        let Some(tree) = self.0.tree.borrow().clone() else {
+            return;
+        };
+        let rows: Vec<gtk::TreeListRow> = (0..tree.n_items())
+            .filter_map(|i| tree.item(i).and_downcast::<gtk::TreeListRow>())
+            .filter(|r| r.depth() == 0 && r.is_expanded())
+            .collect();
+        for r in rows {
+            r.set_expanded(false);
+        }
     }
 
     fn show_empty(&self, empty: bool) {
@@ -353,6 +427,9 @@ impl FileTree {
             .to_string_lossy()
             .into_owned();
         self.0.title.set_label(&name);
+        self.0
+            .title
+            .set_tooltip_text(Some(&root.display().to_string()));
         let same = self.0.state.borrow().root.as_deref() == Some(root.as_path());
         if !same {
             self.0.state.borrow_mut().root = Some(root);
@@ -430,6 +507,10 @@ impl FileTree {
     /// ponytail: one inotify watch per listed folder, dropped only on
     /// rebuild; prune on collapse if huge trees ever hit the watch limit.
     fn watch(&self, dir: &Path, relist: bool) {
+        // Test only (R129-e): as if inotify watches were exhausted.
+        if no_watch() {
+            return;
+        }
         let Ok(m) = gio::File::for_path(dir)
             .monitor_directory(gio::FileMonitorFlags::WATCH_MOVES, gio::Cancellable::NONE)
         else {
@@ -559,6 +640,32 @@ impl FileTree {
         })
     }
 
+    /// `debug.ui files [arg]` (R129): the header — title, its tooltip, the
+    /// buttons right to left as shown — after `arg` = refresh | collapse |
+    /// title | ignored pressed it.
+    pub fn debug_header(&self, arg: Option<&str>) -> Value {
+        match arg {
+            Some("refresh") => self.0.refresh.emit_clicked(),
+            Some("collapse") => self.0.collapse.emit_clicked(),
+            Some("title") => self.copy_root(),
+            Some("ignored") => self
+                .0
+                .show_ignored
+                .set_active(!self.0.show_ignored.is_active()),
+            _ => {}
+        }
+        let b = |name: &str, w: &gtk::Widget, icon: Option<glib::GString>| {
+            json!({"name": name, "tooltip": w.tooltip_text().map(|t| t.to_string()),
+                   "icon": icon.map(|i| i.to_string()), "visible": w.is_visible()})
+        };
+        let (r, c, i) = (&self.0.refresh, &self.0.collapse, &self.0.show_ignored);
+        json!({"title": self.0.title.label().to_string(),
+               "title_tooltip": self.0.title.tooltip_text().map(|t| t.to_string()),
+               "buttons": [b("ignored", i.upcast_ref(), i.icon_name()),
+                           b("refresh", r.upcast_ref(), r.icon_name()),
+                           b("collapse", c.upcast_ref(), c.icon_name())]})
+    }
+
     /// `rade debug tree <op> [path]`: rows | expand | collapse | activate |
     /// activate_side | toggle_ignored.
     pub fn debug(&self, op: &str, path: Option<&Path>) -> Result<Value, String> {
@@ -592,6 +699,21 @@ impl FileTree {
             .collect();
         Ok(json!({"root": st.root, "visible": self.0.root.is_mapped(),
                   "show_ignored": self.0.show_ignored.is_active(), "rows": rows}))
+    }
+}
+
+/// `RADE_FILES_NO_WATCH=1` turns the tree's watches off, in test mode only.
+fn no_watch() -> bool {
+    crate::handlers::DEBUG_SOCKET
+        .get()
+        .copied()
+        .unwrap_or(false)
+        && std::env::var_os("RADE_FILES_NO_WATCH").is_some_and(|v| v == "1")
+}
+
+fn toast(markup: &str) {
+    if let Some(app) = try_app() {
+        app.chrome.toast(markup, None);
     }
 }
 

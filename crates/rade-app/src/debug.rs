@@ -577,6 +577,8 @@ pub fn ui(app: &App, p: &Value) -> Result<Value> {
             r["layout"] = crate::layout_mode::debug();
         }
         "sidebar" | "navigator" => r["sidebar"] = app.sidebar.debug_rows(),
+        // R129: the Files page header; `arg` = refresh | collapse | title | ignored.
+        "files" => r["files"] = app.files.debug_header(s("arg")),
         "inbox" => r["inbox"] = app.sidebar.inbox(s("arg")),
         // Project home (R105): `arg` = open <project> | worktree <name> |
         // terminal <source> | action <source> <action>.
