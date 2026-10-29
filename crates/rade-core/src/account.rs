@@ -151,7 +151,7 @@ pub struct Account {
     pub env: Vec<(String, String)>,
     /// `default = true` was written (not the first-listed fallback).
     #[serde(skip)]
-    explicit_default: bool,
+    pub(crate) explicit_default: bool,
 }
 
 /// A key an account's env may not set (R125.1): the agent's own
