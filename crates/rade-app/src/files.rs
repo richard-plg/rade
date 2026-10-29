@@ -12,7 +12,9 @@ use gtk::prelude::*;
 use gtk::{gio, glib};
 use gtk4 as gtk;
 use libadwaita as adw;
-use rade_core::filetree::{git_status, list_dir, Entry, GitState, Icons};
+use rade_core::filetree::{
+    git_status, insert_text, list_dir, relative_path, Entry, GitState, Icons,
+};
 use serde_json::{json, Value};
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
@@ -113,6 +115,7 @@ struct State {
 pub struct Inner {
     pub root: gtk::Box,
     title: gtk::Label,
+    actions: gio::SimpleActionGroup,
     refresh: gtk::Button,
     collapse: gtk::Button,
     list: gtk::ListView,
@@ -199,6 +202,7 @@ impl FileTree {
         let tree = Self(Rc::new(Inner {
             root,
             title,
+            actions: actions(),
             refresh,
             collapse,
             list,
@@ -212,6 +216,9 @@ impl FileTree {
             generation: Cell::new(0),
         }));
         tree.0.list.set_factory(Some(&tree.factory()));
+        tree.0
+            .root
+            .insert_action_group("files", Some(&tree.0.actions));
         let weak = Rc::downgrade(&tree.0);
         adw::StyleManager::default().connect_dark_notify(move |_| {
             let Some(inner) = weak.upgrade() else { return };
@@ -297,6 +304,29 @@ impl FileTree {
         }
     }
 
+    fn root_path(&self) -> Option<PathBuf> {
+        self.0.state.borrow().root.clone()
+    }
+
+    /// The menu of `path` for `debug.menu files <path>` (R129): the menu,
+    /// the widget it hangs on and where.
+    pub fn debug_menu(
+        &self,
+        path: &Path,
+    ) -> Result<(gio::Menu, gtk::Widget, gtk::gdk::Rectangle), String> {
+        let root = self.root_path().ok_or("no root")?;
+        if relative_path(&root, path).is_none() || !path.exists() {
+            return Err(format!("'{}' is not under the tree", path.display()));
+        }
+        sync_insert_enabled(&self.0.actions);
+        let at = gtk::gdk::Rectangle::new(24, 60, 1, 1);
+        Ok((
+            row_menu(path, path.is_dir()),
+            self.0.root.clone().upcast(),
+            at,
+        ))
+    }
+
     fn show_empty(&self, empty: bool) {
         self.0.empty.set_visible(empty);
         self.0.scroll.set_visible(!empty);
@@ -341,17 +371,14 @@ impl FileTree {
                 else {
                     return;
                 };
-                if path.is_dir() {
-                    return;
-                }
                 match g.current_button() {
-                    2 => {
+                    2 if !path.is_dir() => {
                         g.set_state(gtk::EventSequenceState::Claimed);
                         open_side(&path);
                     }
                     3 => {
                         g.set_state(gtk::EventSequenceState::Claimed);
-                        file_menu(&at, &path, x, y);
+                        row_menu_popup(&at, &path, x, y);
                     }
                     _ => {}
                 }
@@ -730,28 +757,91 @@ fn style(name: &gtk::Label, mark: &gtk::Label, git: Option<GitState>) {
     }
 }
 
-/// A file row's right-click menu: Open, Open to the Side (R113.2).
-fn file_menu(at: &impl IsA<gtk::Widget>, path: &Path, x: f64, y: f64) {
-    let menu = gio::Menu::new();
+/// A row's menu (R129.3): files and folders; `Insert Path in Agent` is
+/// greyed (its action disabled) when no Agent Pane can take it.
+fn row_menu(path: &Path, dir: bool) -> gio::Menu {
     let target = path.display().to_string().to_variant();
-    for (label, action) in [
-        ("Open", "files.open"),
-        ("Open to the Side", "files.open-side"),
-    ] {
-        let i = gio::MenuItem::new(Some(label), None);
-        i.set_action_and_target_value(Some(action), Some(&target));
-        menu.append_item(&i);
+    let section = |items: &[(&str, &str)]| {
+        let m = gio::Menu::new();
+        for (label, action) in items {
+            let i = gio::MenuItem::new(Some(label), None);
+            i.set_action_and_target_value(Some(action), Some(&target));
+            m.append_item(&i);
+        }
+        m
+    };
+    let menu = gio::Menu::new();
+    if !dir {
+        menu.append_section(
+            None,
+            &section(&[
+                ("Open", "files.open"),
+                ("Open to the Side", "files.open-side"),
+            ]),
+        );
     }
+    menu.append_section(
+        None,
+        &section(&[
+            ("Copy Path", "files.copy-path"),
+            ("Copy Relative Path", "files.copy-relative"),
+            ("Insert Path in Agent", "files.insert"),
+        ]),
+    );
+    menu.append_section(
+        None,
+        &section(&[
+            ("Reveal in Files", "files.reveal"),
+            ("Open Terminal Here", "files.terminal"),
+        ]),
+    );
+    menu
+}
+
+/// Whether menu action `action` (`files.…`) is enabled now.
+pub fn action_enabled(action: &str) -> bool {
+    let Some(app) = try_app() else { return true };
+    app.files
+        .0
+        .actions
+        .is_action_enabled(action.strip_prefix("files.").unwrap_or(action))
+        || !action.starts_with("files.")
+}
+
+fn sync_insert_enabled(actions: &gio::SimpleActionGroup) {
+    if let Some(a) = actions
+        .lookup_action("insert")
+        .and_downcast::<gio::SimpleAction>()
+    {
+        a.set_enabled(insert_target().is_some());
+    }
+}
+
+fn actions() -> gio::SimpleActionGroup {
     let group = gio::SimpleActionGroup::new();
-    for (name, side) in [("open", false), ("open-side", true)] {
+    let add = |name: &str, f: fn(&Path)| {
         let a = gio::SimpleAction::new(name, Some(glib::VariantTy::STRING));
         a.connect_activate(move |_, v| {
             let p: String = v.and_then(|v| v.get()).unwrap_or_default();
-            glib::idle_add_local_once(move || open_at(Path::new(&p), side));
+            glib::idle_add_local_once(move || f(Path::new(&p)));
         });
         group.add_action(&a);
+    };
+    add("open", |p| open_at(p, false));
+    add("open-side", |p| open_at(p, true));
+    add("copy-path", copy_path);
+    add("copy-relative", copy_relative);
+    add("insert", insert_path);
+    add("reveal", reveal);
+    add("terminal", terminal_here);
+    group
+}
+
+fn row_menu_popup(at: &impl IsA<gtk::Widget>, path: &Path, x: f64, y: f64) {
+    if let Some(app) = try_app() {
+        sync_insert_enabled(&app.files.0.actions);
     }
-    at.insert_action_group("files", Some(&group));
+    let menu = row_menu(path, path.is_dir());
     let pop = gtk::PopoverMenu::from_model(Some(&menu));
     pop.set_parent(at);
     pop.set_has_arrow(false);
@@ -761,6 +851,95 @@ fn file_menu(at: &impl IsA<gtk::Widget>, path: &Path, x: f64, y: f64) {
         glib::idle_add_local_once(move || p.unparent());
     });
     pop.popup();
+}
+
+fn copy_text(text: &str) {
+    if let Some(d) = gtk::gdk::Display::default() {
+        d.clipboard().set_text(text);
+    }
+}
+
+fn copy_path(path: &Path) {
+    copy_text(&path.display().to_string());
+}
+
+fn copy_relative(path: &Path) {
+    let Some(root) = try_app().and_then(|a| a.files.root_path()) else {
+        return;
+    };
+    if let Some(rel) = relative_path(&root, path) {
+        copy_text(&rel);
+    }
+}
+
+/// The Agent Pane Insert Path in Agent types into (R129.3): the focused
+/// Pane of the active Tab when it is an Agent, else that Tab's first Agent
+/// Pane, else the active Worktree's newest Agent Pane.
+fn insert_target() -> Option<String> {
+    let app = try_app()?;
+    let m = app.model.borrow();
+    let (p, w) = m.active();
+    let agents = m.agent_panes(&p.id, &w.id);
+    if let Some(tab) = m.active_tab() {
+        if let Some(a) = agents.iter().find(|a| a.id == tab.focused) {
+            return Some(a.id.clone());
+        }
+        if let Some(a) = agents
+            .iter()
+            .find(|a| m.locate(&a.id).is_some_and(|l| l.tab == tab.id))
+        {
+            return Some(a.id.clone());
+        }
+    }
+    agents.last().map(|a| a.id.clone())
+}
+
+fn insert_path(path: &Path) {
+    let Some(app) = try_app() else { return };
+    let (Some(root), Some(id)) = (app.files.root_path(), insert_target()) else {
+        return;
+    };
+    let Some(text) = insert_text(&root, path) else {
+        return;
+    };
+    if let Err(e) = crate::handlers::send_text(&app, &id, &text, false, false) {
+        toast(&glib::markup_escape_text(&e.to_string()));
+    }
+}
+
+fn reveal(path: &Path) {
+    let Some(app) = try_app() else { return };
+    gtk::FileLauncher::new(Some(&gio::File::for_path(path))).open_containing_folder(
+        Some(&app.window),
+        gio::Cancellable::NONE,
+        |r| {
+            if r.is_err() {
+                toast("Couldn't open the file manager");
+            }
+        },
+    );
+}
+
+/// A new Tab in the active Worktree whose Terminal starts in `path` (its
+/// folder for a file).
+fn terminal_here(path: &Path) {
+    let Some(app) = try_app() else { return };
+    let dir = if path.is_dir() {
+        path.to_path_buf()
+    } else {
+        path.parent().map(Path::to_path_buf).unwrap_or_default()
+    };
+    let r = app.update(|m| {
+        let (p, w) = m.active();
+        let (p, w) = (p.id.clone(), w.id.clone());
+        let (tab, pane) = m.new_tab(&p, &w, None, None)?;
+        m.set_pane_cwd(&pane, &dir);
+        m.move_after_active(&p, &w, &tab);
+        m.select_tab(&tab)
+    });
+    if let Err(e) = r {
+        toast(&glib::markup_escape_text(&e.to_string()));
+    }
 }
 
 /// Open to the Side from the tree (middle-click, its menu).

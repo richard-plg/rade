@@ -784,6 +784,11 @@ pub fn debug_menu(p: &Value) -> Result<Value> {
                 .ok_or_else(|| Error::not_found(format!("no sidebar row for '{target}'")))?;
             (menu, parent, at)
         }
+        // A Files row (R129.3); `target` = its absolute path.
+        "files" => app
+            .files
+            .debug_menu(std::path::Path::new(target))
+            .map_err(Error::not_found)?,
         "terminal" => {
             let (id, t) = crate::handlers::terminal(&app, target, None)?;
             let (x, y) = match s("text") {
@@ -812,7 +817,7 @@ pub fn debug_menu(p: &Value) -> Result<Value> {
         }
         o => {
             return Err(Error::usage(format!(
-                "menu must be tab|source|scratch|project|worktree|terminal, not '{o}'"
+                "menu must be tab|source|scratch|project|worktree|files|terminal, not '{o}'"
             )))
         }
     };
@@ -842,7 +847,10 @@ pub fn debug_menu(p: &Value) -> Result<Value> {
                 .iter()
                 .find(|(l, _, _, _)| l == want || l.starts_with(want))
                 .ok_or_else(|| Error::not_found(format!("no menu item '{want}'")))?;
-            let on: gtk::Widget = if action.starts_with("sb.") {
+            if !crate::files::action_enabled(action) {
+                return Err(Error::usage(format!("'{want}' is disabled")));
+            }
+            let on: gtk::Widget = if action.starts_with("sb.") || action.starts_with("files.") {
                 parent.clone()
             } else {
                 app.window.clone().upcast()
@@ -855,7 +863,8 @@ pub fn debug_menu(p: &Value) -> Result<Value> {
     let items: Vec<Value> = items
         .into_iter()
         .map(|(label, action, target, accel)| {
-            json!({"label": label, "action": action, "target": target, "accel": accel})
+            let enabled = crate::files::action_enabled(&action);
+            json!({"label": label, "action": action, "target": target, "accel": accel, "enabled": enabled})
         })
         .collect();
     Ok(json!({ "items": items }))

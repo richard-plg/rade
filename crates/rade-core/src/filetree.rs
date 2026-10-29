@@ -233,10 +233,49 @@ impl Icons {
     }
 }
 
+/// `p` relative to the tree's `root` (R129.3): `.` for the root itself,
+/// `None` for a path outside it.
+pub fn relative_path(root: &Path, p: &Path) -> Option<String> {
+    let rel = p.strip_prefix(root).ok()?;
+    Some(if rel.as_os_str().is_empty() {
+        ".".to_string()
+    } else {
+        rel.to_string_lossy().into_owned()
+    })
+}
+
+/// What Insert Path in Agent types (R129.3): the relative path, shell-quoted
+/// like a drop (R5.2), then a space; never Enter.
+pub fn insert_text(root: &Path, p: &Path) -> Option<String> {
+    let rel = relative_path(root, p)?;
+    Some(format!("{} ", crate::paste::escape_paths(&[rel])?))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use GitState::*;
+
+    #[test]
+    fn r129_a_relative_path_and_insert_text() {
+        let root = Path::new("/w/repo");
+        assert_eq!(
+            relative_path(root, Path::new("/w/repo/src/a.rs")).as_deref(),
+            Some("src/a.rs")
+        );
+        assert_eq!(relative_path(root, root).as_deref(), Some("."));
+        assert_eq!(relative_path(root, Path::new("/w/other/a.rs")), None);
+        assert_eq!(relative_path(root, Path::new("/w/repository/a")), None);
+        assert_eq!(
+            insert_text(root, Path::new("/w/repo/a b.rs")).as_deref(),
+            Some("'a b.rs' ")
+        );
+        assert_eq!(
+            insert_text(root, Path::new("/w/repo/src/a.rs")).as_deref(),
+            Some("src/a.rs ")
+        );
+        assert_eq!(insert_text(root, Path::new("/x")), None);
+    }
 
     fn icons() -> Icons {
         Icons::from_json(include_str!("../../rade-app/assets/file-icons/map.json")).unwrap()
