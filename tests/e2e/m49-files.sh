@@ -10,7 +10,7 @@
 # Usage: tests/e2e/m49-files.sh   (NO_BUILD=1 to skip the build, KEEP=1 to keep the temp dir)
 set -euo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
-OUT=$(cd "$HERE/../.." && pwd)/target/e2e-m49
+OUT=$(cd "$HERE/../.." && pwd)/target/e2e-m49/files
 source "$HERE/lib.sh"
 
 # The tree's inotify watches are off (test mode only): changes show on Refresh.

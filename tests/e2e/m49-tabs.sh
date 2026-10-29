@@ -5,7 +5,7 @@
 # Usage: tests/e2e/m49-tabs.sh   (NO_BUILD=1, KEEP=1)
 set -uo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
-OUT=${OUT:-$HERE/../../target/e2e-m49}
+OUT=$(cd "$HERE/../.." && pwd)/target/e2e-m49/tabs
 source "$HERE/lib.sh"
 FAKE=$HERE/fake-agent.sh
 mkdir -p "$XDG_CONFIG_HOME/rade"
