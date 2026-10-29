@@ -117,6 +117,29 @@ check "R125-e set --user edits clw from corp (accounts = \"own\") in accounts.to
 rade account set clw --user --unset-env BAR >/dev/null
 check "R125-e --unset-env BAR puts accounts.toml back byte for byte" cmp -s "$T/acc-pre" "$ACC"
 
+echo "== R125-j a Workspace's [env] login stays its default"
+V=$HOME/workspaces/viact
+mkdir -p "$V/svc2" "$V/.rade" "$HOME/.claude-vm25" && G -C "$V/svc2" init -q -b main && echo b >"$V/svc2/README.md" && G -C "$V/svc2" add -A && G -C "$V/svc2" commit -qm init
+printf 'name = "viact"\n\n[env]\nCLAUDE_CONFIG_DIR = "~/.claude-work"\n' >"$V/.rade/workspace.toml"
+printf '\n[[account]]\nagent = "claude"\nname = "clv"\nconfig_dir = "~/.claude-vm25"\n' >>"$ACC"
+rade workspace add "$V" >/dev/null
+rade source add "$V/svc2" --workspace viact >/dev/null
+check "R125-j viact (no account, [env] ~/.claude-work): clw is its default, not the user default cl" \
+    test "$(rade account list --workspace viact --json | jq -r '[.accounts[] | select(.default) | .name] | join(",")')" = clw
+j1=$(rade spawn --agent claude --cmd env --source svc2 --tab new --name j1)
+check "R125-j an Agent spawned there without --account runs on clw" \
+    eventually 10 bash -c "line_is $j1 RADE_ACCOUNT=clw && line_is $j1 'CLAUDE_CONFIG_DIR=$HOME/.claude-work'"
+printf 'name = "viact"\n\n[env]\nCLAUDE_CONFIG_DIR = "~/.claude-other"\n' >"$V/.rade/workspace.toml"
+j2=$(rade spawn --agent claude --cmd env --source svc2 --tab new --name j2)
+check "R125-j [env] on a dir no account has: no account, the Pane keeps [env]" \
+    eventually 10 bash -c "line_is $j2 'CLAUDE_CONFIG_DIR=$HOME/.claude-other' && ! rade read $j2 --scrollback | grep -q '^RADE_ACCOUNT='"
+j3=$(rade spawn --agent claude --account clv --cmd env --source svc2 --tab new --name j3)
+check "R125-j --account clv still works there" \
+    eventually 10 bash -c "line_is $j3 RADE_ACCOUNT=clv && line_is $j3 'CLAUDE_CONFIG_DIR=$HOME/.claude-vm25'"
+# The rest of the suite runs with the three user accounts of the scene.
+sed -i '/^$/{N;/\n\[\[account\]\]$/{N;N;N;/name = "clv"/d}}' "$ACC"
+for p in "$j1" "$j2" "$j3"; do rade close --force "$p" >/dev/null 2>&1 || true; done
+
 echo "== R125-c the account's env file reaches the Pane, never state or answers"
 p1=$(rade spawn --agent claude --account clw --cmd env --source notes --tab new --name p1)
 eventually 10 screen_has "$p1" RADE_ACCOUNT= || true

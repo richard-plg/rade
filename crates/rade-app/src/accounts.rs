@@ -218,6 +218,13 @@ fn list(s: Scope) -> Result<Value> {
 
 fn add(a: Add) -> Result<Value> {
     let (id, root) = workspace(a.workspace, a.caller)?;
+    // A default-login account (no config dir) only in accounts.toml: an
+    // older app sharing workspace.toml would refuse the whole list.
+    if !a.user && a.config_dir.trim().is_empty() {
+        return Err(Error::usage(
+            "a Workspace account needs --config-dir; one on the default login goes in accounts.toml (--user)",
+        ));
+    }
     let decl = AccountDecl {
         agent: a.agent,
         name: a.name,
@@ -282,10 +289,22 @@ fn set_default(n: Named) -> Result<Value> {
         .ok()
         .and_then(|l| account::find(&l, &name, agent, &id).ok().cloned());
     // The explicit default replaces a forecast Toast's choice (R110.4).
+    // A user account's default applies in every Workspace, so it clears
+    // the choice everywhere.
     if let Some(kind) = found.as_ref().map(|a| a.agent).or(agent) {
         let ws = id.clone();
+        let everywhere = user.is_some();
         on_main(move || {
-            app().update(|m| m.clear_next_default(&ws, kind));
+            app().update(|m| {
+                let all: Vec<String> = if everywhere {
+                    m.workspaces.iter().map(|w| w.id.clone()).collect()
+                } else {
+                    vec![ws]
+                };
+                for w in all {
+                    m.clear_next_default(&w, kind);
+                }
+            });
             Ok(())
         })?;
     }
@@ -309,6 +328,11 @@ fn set(s: Set) -> Result<Value> {
     let a = account::find(&list, &s.name, agent, if s.user { "(user)" } else { &id })?.clone();
     let mut edits: Vec<Edit> = Vec::new();
     if let Some(d) = s.config_dir {
+        if d.trim().is_empty() && a.scope == account::Scope::Workspace {
+            return Err(Error::usage(
+                "a Workspace account needs a config dir; one on the default login goes in accounts.toml (--user)",
+            ));
+        }
         edits.push(Edit::ConfigDir(d));
     }
     if s.no_env_file {
@@ -1202,6 +1226,7 @@ fn usage_changed() {
                     } else {
                         Vec::new()
                     },
+                    login: store_of(a).display().to_string(),
                 }
             })
             .collect();

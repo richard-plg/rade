@@ -100,8 +100,11 @@ pub fn cards() -> (Vec<Card>, Option<String>) {
     let mut cards = sa::cards(&user, &own, own_only, &home);
     // The ✓ is the default this Workspace really uses (R125.3).
     if let Some(r) = &root {
+        // With a forecast Toast's choice for later Agents (R110.4).
+        let next = app().model.borrow().next_defaults.clone();
         if let Ok(merged) =
             account::workspace_accounts(&id, r, Some(&crate::accounts::user_file()), &home)
+                .map(|l| account::with_next_defaults(l, &id, &next))
         {
             for c in &mut cards {
                 c.effective_default = merged
@@ -499,8 +502,10 @@ fn icon_button(icon: &str, tip: &str) -> gtk::Button {
     b
 }
 
-/// A folder / file chooser that puts its pick into `entry` and commits.
-fn chooser(folder: bool, entry: &gtk::Entry) -> gtk::Widget {
+/// A folder / file chooser that puts its pick into `entry` and, with
+/// `commit`, activates it (a draft's entry only takes the text: nothing is
+/// written before Create, R126.3).
+fn chooser(folder: bool, entry: &gtk::Entry, commit: bool) -> gtk::Widget {
     let b = icon_button(
         if folder {
             "ph-folder-simple-symbolic"
@@ -523,7 +528,9 @@ fn chooser(folder: bool, entry: &gtk::Entry) -> gtk::Widget {
             };
             let Some(p) = f.path() else { return };
             e.set_text(&tilde(&p));
-            e.emit_activate();
+            if commit {
+                e.emit_activate();
+            }
         };
         if folder {
             fd.set_title("Config dir of this login");
@@ -646,11 +653,18 @@ fn build_detail(p: &Rc<Pane>) {
         def.connect_state_set(move |_, on| {
             let n = name.clone();
             glib::idle_add_local_once(move || {
-                write(
-                    edit_many(agent, &n, &[Edit::Default(on)]),
-                    true,
-                    Focus::None,
-                )
+                let r = edit_many(agent, &n, &[Edit::Default(on)]);
+                // The file's default replaces a forecast Toast's choice in
+                // every Workspace (R110.4).
+                if r.is_ok() {
+                    app().update(|m| {
+                        let ws: Vec<String> = m.workspaces.iter().map(|w| w.id.clone()).collect();
+                        for w in ws {
+                            m.clear_next_default(&w, agent);
+                        }
+                    });
+                }
+                write(r, true, Focus::None)
             });
             glib::Propagation::Proceed
         });
@@ -692,7 +706,7 @@ fn build_detail(p: &Rc<Pane>) {
                         Focus::None,
                     )
                 });
-                let act = edit_ok.then(|| chooser(true, &e));
+                let act = edit_ok.then(|| chooser(true, &e, true));
                 g.add(&key, &e, act.as_ref());
                 // The .env file row comes right after the login (a
                 // read-only account without one has none).
@@ -711,7 +725,7 @@ fn build_detail(p: &Rc<Pane>) {
                         Focus::None,
                     )
                 });
-                let act = edit_ok.then(|| chooser(false, &f));
+                let act = edit_ok.then(|| chooser(false, &f, true));
                 g.add(&fkey, &f, act.as_ref());
                 if let EnvFileState::Error(e) = &c.env_file_state {
                     let l = label(e, &["settings-account-error"]);
@@ -907,6 +921,18 @@ fn build_detail(p: &Rc<Pane>) {
             "Not offered in this Workspace: it sets accounts = \"own\".",
             &["settings-description"],
         ));
+    }
+    if !c.same_login.is_empty() {
+        let l = label(
+            &format!(
+                "Same login as {}: one quota. An Agent you start by hand is matched by whether it sets {}.",
+                c.same_login.join(", "),
+                c.agent.var()
+            ),
+            &["settings-description", "settings-account-same-login"],
+        );
+        l.set_wrap(true);
+        p.detail.append(&l);
     }
 }
 
@@ -1125,7 +1151,7 @@ fn draft_detail(p: &Rc<Pane>, d: &Draft) {
         let t = e.text().to_string();
         set_draft(|d| d.dir = t);
     });
-    let ch = chooser(true, &dir);
+    let ch = chooser(true, &dir, false);
     g.add(&key, &dir, Some(&ch));
     if let Some(e) = p.error.borrow().as_ref() {
         let l = label(e, &["settings-account-error"]);
@@ -1172,7 +1198,7 @@ fn state() -> Value {
         .map(|c| {
             json!({"agent": c.agent, "name": c.name, "scope": c.scope, "editable": c.editable(),
                 "default": c.effective_default, "default_in_file": c.default, "dir": c.dir_text(), "badge": c.badge(),
-                "unused_here": c.unused_here})
+                "unused_here": c.unused_here, "same_login": c.same_login})
         })
         .collect();
     drop(cards);

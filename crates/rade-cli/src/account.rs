@@ -215,7 +215,24 @@ fn usage_line(name: &str, agent: &str, r: &Value) -> String {
     )
 }
 
+/// `--user` answered with another file: the running app predates user
+/// accounts (it ignored the flag and wrote workspace.toml).
+pub fn older_app(c: &AccountCmd, r: &Value) -> Option<String> {
+    let user = matches!(
+        c,
+        AccountCmd::Add { user: true, .. } | AccountCmd::Set { user: true, .. }
+    );
+    let file = r["file"].as_str()?;
+    (user && !file.ends_with("accounts.toml")).then(|| {
+        format!("the running RADE app is older than `--user` and wrote {file}; restart it (Updates → Restart) and run this again")
+    })
+}
+
 pub fn print(c: &AccountCmd, r: &Value) {
+    if let Some(e) = older_app(c, r) {
+        eprintln!("rade: error: {e}");
+        std::process::exit(2);
+    }
     match c {
         AccountCmd::List { .. } => {
             for a in r["accounts"].as_array().into_iter().flatten() {
@@ -255,6 +272,23 @@ mod tests {
         let c = json!({"agent": "claude", "name": "clw", "config_dir": "/x",
                        "default": false, "scope": "user"});
         assert_eq!(line(&c), "claude  clw  /x  (user)");
+    }
+
+    #[test]
+    fn r125_older_app_that_ignored_user_is_reported() {
+        let c = AccountCmd::Set {
+            name: "clw".into(),
+            agent: None,
+            user: true,
+            config_dir: None,
+            env_file: None,
+            no_env_file: false,
+            env: vec![],
+            unset_env: vec![],
+            workspace: None,
+        };
+        assert!(older_app(&c, &json!({"file": "/w/.rade/workspace.toml"})).is_some());
+        assert!(older_app(&c, &json!({"file": "/h/.config/rade/accounts.toml"})).is_none());
     }
 
     #[test]

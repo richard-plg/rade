@@ -273,7 +273,12 @@ fn validate(
 
 /// Each agent without a `default = true` gets its first listed account.
 fn fill_defaults(list: &mut [Account]) {
-    for kind in AgentKind::ALL {
+    fill_defaults_except(list, &[]);
+}
+
+/// [`fill_defaults`] but for the agents of `skip`, which stay without one.
+fn fill_defaults_except(list: &mut [Account], skip: &[AgentKind]) {
+    for kind in AgentKind::ALL.into_iter().filter(|k| !skip.contains(k)) {
         if !list.iter().any(|a| a.agent == kind && a.default) {
             if let Some(first) = list.iter_mut().find(|a| a.agent == kind) {
                 first.default = true;
@@ -317,6 +322,7 @@ pub fn workspace_accounts(
         }
     };
     let mut list = validate(id, &wf.account, &ws_path, home, Scope::Workspace)?;
+    let mut no_default: Vec<AgentKind> = Vec::new();
     if let (false, Some(uf)) = (own_only, user_file) {
         let user = validate(id, &user_decls(uf)?, uf, home, Scope::User)?;
         let clash: Vec<String> = user
@@ -341,8 +347,38 @@ pub fn workspace_accounts(
             }
             list.push(u);
         }
+        // A Workspace without its own accounts of an agent whose `[env]`
+        // sets that agent's login (R25: `rade workspace setup`) keeps that
+        // login by default: the user account on that dir, else none —
+        // never the user file's default on another login (R125.3).
+        let env = wf.env(home);
+        for kind in AgentKind::ALL {
+            if list
+                .iter()
+                .any(|a| a.agent == kind && a.scope == Scope::Workspace)
+            {
+                continue;
+            }
+            let Some((_, dir)) = env.iter().find(|(k, _)| k == kind.var()) else {
+                continue;
+            };
+            let dir = PathBuf::from(dir);
+            let hit = list.iter().position(|a| {
+                a.agent == kind && !a.declared_dir.is_empty() && same_dir(&a.config_dir, &dir)
+            });
+            for (i, a) in list.iter_mut().enumerate() {
+                if a.agent == kind {
+                    a.default = Some(i) == hit;
+                    // No match: no default at all (`fill_defaults` skips it).
+                    a.explicit_default = Some(i) == hit;
+                }
+            }
+            if hit.is_none() {
+                no_default.push(kind);
+            }
+        }
     }
-    fill_defaults(&mut list);
+    fill_defaults_except(&mut list, &no_default);
     Ok(list)
 }
 
@@ -696,9 +732,28 @@ fn check_dir(preset: &str, var: &str, raw: &str, account: &Account, home: &Path)
         return Ok(());
     }
     Err(Error::forbidden(format!(
-        "preset '{preset}' sets {var}={raw} but account '{}' uses {} (ADR-0035)",
-        account.name, account.declared_dir
+        "preset '{preset}' sets {var}={raw} but account '{}' uses {} (ADR-0035); remove the {var}=… prefix from [agents.{preset}] command in config.toml — the account chooses the login",
+        account.name,
+        account.dir_text()
     )))
+}
+
+impl Account {
+    /// Its login as shown: the dir as written, or `~/.claude (default
+    /// login)` for an account without one (R125.1).
+    pub fn dir_text(&self) -> String {
+        if self.declared_dir.is_empty() {
+            format!(
+                "~/{} (default login)",
+                match self.agent {
+                    AgentKind::Claude => ".claude",
+                    AgentKind::Codex => ".codex",
+                }
+            )
+        } else {
+            self.declared_dir.clone()
+        }
+    }
 }
 
 fn unquote(v: &str) -> &str {
@@ -712,7 +767,7 @@ fn unquote(v: &str) -> &str {
 
 /// Same directory: by `realpath` when both exist, else by their text
 /// without trailing slashes.
-fn same_dir(a: &Path, b: &Path) -> bool {
+pub(crate) fn same_dir(a: &Path, b: &Path) -> bool {
     if let (Ok(x), Ok(y)) = (a.canonicalize(), b.canonicalize()) {
         return x == y;
     }
@@ -1295,10 +1350,20 @@ impl State {
             None => kind.default_dir(home),
         };
         let list = self.account_lists(home).remove(&ws)?.ok()?;
-        let hits: Vec<&Account> = list
+        // Two accounts may name one login (`cl` = `~/.claude` written out,
+        // `clp` = the default login): a set variable prefers the written
+        // dir, an unset one the default login (R125.4).
+        let set = inv.env.contains_key(kind.var());
+        let all: Vec<&Account> = list
             .iter()
             .filter(|a| a.agent == kind && same_dir(&dir, &a.config_dir))
             .collect();
+        let preferred: Vec<&Account> = all
+            .iter()
+            .copied()
+            .filter(|a| a.declared_dir.is_empty() != set)
+            .collect();
+        let hits = if preferred.is_empty() { all } else { preferred };
         let found = match hits.as_slice() {
             [one] => (*one).clone(),
             [] => return None,
@@ -1372,6 +1437,8 @@ impl State {
             p.status = None;
             p.status_since = None;
             p.notice = Some(format!("rade: not resumed: {}", e.message));
+            // A detected account belonged to the Agent that won't run (R125.4).
+            p.clear_detected_account();
             refused.push(id);
         }
         refused

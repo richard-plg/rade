@@ -51,6 +51,9 @@ pub struct Card {
     pub variables: Vec<(String, String, bool)>,
     /// A user account, but the Workspace sets `accounts = "own"`.
     pub unused_here: bool,
+    /// Other accounts of this agent on the same login (`cl` = `~/.claude`
+    /// and `clp` = the default login): one quota, shown as a warning.
+    pub same_login: Vec<String>,
 }
 
 impl Card {
@@ -195,15 +198,32 @@ fn card(a: &Account, home: &Path, unused_here: bool) -> Card {
             .map(|(k, v)| (k.clone(), v.clone(), secret_key(k)))
             .collect(),
         unused_here,
+        same_login: vec![],
     }
 }
 
 /// The cards: every user account (editable; `own_only` marks them unused
 /// in this Workspace), then the Workspace's own accounts (read-only).
 pub fn cards(user: &[Account], own: &[Account], own_only: bool, home: &Path) -> Vec<Card> {
-    user.iter()
-        .map(|a| card(a, home, own_only))
-        .chain(own.iter().map(|a| card(a, home, false)))
+    let all: Vec<(&Account, bool)> = user
+        .iter()
+        .map(|a| (a, own_only))
+        .chain(own.iter().map(|a| (a, false)))
+        .collect();
+    all.iter()
+        .map(|(a, unused)| {
+            let mut c = card(a, home, *unused);
+            c.same_login = all
+                .iter()
+                .filter(|(o, _)| {
+                    o.agent == a.agent
+                        && o.name != a.name
+                        && crate::account::same_dir(&o.config_dir, &a.config_dir)
+                })
+                .map(|(o, _)| o.name.clone())
+                .collect();
+            c
+        })
         .collect()
 }
 
@@ -326,6 +346,14 @@ mod tests {
             .all(|r| r.value.is_none()));
         assert!(!format!("{rows:?}").contains("file-"));
         assert_eq!(c.badge(), ".env · 3 vars");
+        assert!(c.same_login.is_empty());
+        // R125.4: `cl` written as ~/.claude and the default-login `x` share a login.
+        let f2 = d.join("two.toml");
+        std::fs::write(&f2, "[[account]]\nagent = \"claude\"\nname = \"x\"\n\n[[account]]\nagent = \"claude\"\nname = \"cl\"\nconfig_dir = \"~/.claude\"\n\n[[account]]\nagent = \"codex\"\nname = \"cx\"\n").unwrap();
+        let c = cards(&user_accounts(&f2, home).unwrap(), &[], false, home);
+        assert_eq!(c[0].same_login, vec!["cl".to_string()]);
+        assert_eq!(c[1].same_login, vec!["x".to_string()]);
+        assert!(c[2].same_login.is_empty());
         let _ = std::fs::remove_dir_all(&d);
     }
 
