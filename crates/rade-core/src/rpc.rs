@@ -237,6 +237,9 @@ pub struct PaneInfo {
     pub title: Option<String>,
     /// Its Agent Account (R108.2); null without one.
     pub account: Option<String>,
+    /// `account` was detected from a hand-started Agent (R125.4).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub account_detected: bool,
 }
 
 #[cfg(test)]

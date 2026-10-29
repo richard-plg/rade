@@ -174,7 +174,9 @@ pub fn rows_with(
             .filter(|(w, _)| w.as_str() != workspace)
             .filter_map(|(_, l)| l.as_ref().ok())
             .flatten()
-            .filter(|a| a.agent == agent)
+            // A user account is offered in the Workspace itself or not at
+            // all (`accounts = "own"`), never as another Workspace's (R125.3).
+            .filter(|a| a.agent == agent && a.scope == crate::account::Scope::Workspace)
             .collect();
         foreign.sort_by(|a, b| a.workspace.cmp(&b.workspace).then(a.name.cmp(&b.name)));
         out.extend(foreign.into_iter().map(|a| Row {
@@ -272,6 +274,27 @@ mod tests {
         rows.iter()
             .map(|r| format!("{}:{}", r.section, r.name))
             .collect()
+    }
+
+    #[test]
+    fn user_accounts_are_never_shown_as_another_workspaces() {
+        // R125.3: `cl` is offered in `acme` (from accounts.toml) and in
+        // `personal` too; in acme it is own, never a locked foreign row.
+        let mut l = lists();
+        for ws in ["acme", "personal"] {
+            let mut user = l.get(ws).unwrap().clone().unwrap();
+            let mut a = user[0].clone();
+            a.name = "cl".into();
+            a.workspace = ws.into();
+            a.default = false;
+            a.scope = crate::account::Scope::User;
+            user.push(a);
+            l.insert(ws.into(), Ok(user));
+        }
+        let r = rows("acme", &l);
+        let cl: Vec<&Row> = r.iter().filter(|x| x.name == "cl").collect();
+        assert_eq!(cl.len(), 1);
+        assert!(!cl[0].locked);
     }
 
     #[test]

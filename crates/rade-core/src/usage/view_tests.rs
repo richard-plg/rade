@@ -212,7 +212,32 @@ fn usage(agent: AgentKind, name: &str, samples: &[Vec<Limit>]) -> AccountUsage {
             .iter()
             .map(|s| (s.last().unwrap().clone(), limits::forecast(s, NOW)))
             .collect(),
+        login: String::new(),
     }
+}
+
+#[test]
+fn r125_k_an_account_on_the_same_login_is_never_the_other() {
+    // `cl` (~/.claude written out) and `clp` (the default login) are one
+    // quota: the Toast for cl never offers clp.
+    let mut cl = usage(AgentKind::Claude, "cl", &[rising(), vec![week(41.0)]]);
+    let mut clp = usage(
+        AgentKind::Claude,
+        "clp",
+        &[vec![five(8.0)], vec![week(12.0)]],
+    );
+    let mut clw = usage(
+        AgentKind::Claude,
+        "clw",
+        &[vec![five(20.0)], vec![week(30.0)]],
+    );
+    cl.login = "claude-aaaa".into();
+    clp.login = "claude-aaaa".into();
+    clw.login = "claude-bbbb".into();
+    let t = forecast_toast(&[cl.clone(), clp.clone()], &[], NOW, 0).unwrap();
+    assert_eq!(t.other, None);
+    let t = forecast_toast(&[cl, clp, clw], &[], NOW, 0).unwrap();
+    assert_eq!(t.other.as_deref(), Some("clw"));
 }
 
 #[test]

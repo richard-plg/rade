@@ -919,7 +919,13 @@ fn detail_card(d: &Data, det: &Value) -> gtk::Box {
             row.append(&r);
             card.append(&row);
         }
-        if g == "Weekly" && detailed_off {
+        if let (true, Some(t)) = (g == "Weekly", det["detailed_note"].as_str()) {
+            // R125.6: a token login can't ask for Detailed limits.
+            card.append(&label(
+                &format!("Detailed limits {t}"),
+                &["usage-detailed-note"],
+            ));
+        } else if g == "Weekly" && detailed_off {
             let note = gtk::Box::new(gtk::Orientation::Horizontal, 4);
             note.add_css_class("usage-detailed-off");
             note.append(&label("Detailed limits off ·", &["usage-detailed-note"]));
@@ -1138,7 +1144,21 @@ fn set_detailed(ws: &str, name: &str, on: bool) {
     let Some(app) = try_app() else { return };
     let root = app.model.borrow().workspace(ws).map(|w| w.root.clone());
     let Some(root) = root else { return };
-    if let Err(e) = rade_core::account::set_detailed_file(&root, AgentKind::Claude, name, on) {
+    let found = crate::accounts::lists_cached(&app.model.borrow())
+        .get(ws)
+        .and_then(|l| l.as_ref().ok())
+        .and_then(|l| {
+            l.iter()
+                .find(|a| a.agent == AgentKind::Claude && a.name == name)
+                .cloned()
+        });
+    let res = match &found {
+        Some(a) => crate::accounts::set_detailed(a, &root, on),
+        None => {
+            rade_core::account::set_detailed_file(&root, AgentKind::Claude, name, on).map(|_| ())
+        }
+    };
+    if let Err(e) = res {
         crate::worktrees::alert("Could not change Detailed limits", &e.message);
     }
     crate::accounts::forget_lists();

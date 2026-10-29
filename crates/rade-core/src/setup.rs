@@ -133,8 +133,9 @@ fn codex_dirs(env: Env) -> Vec<PathBuf> {
 
 /// `var` from the `[env]` of every registered Workspace (R25.5), then the
 /// `config_dir` of each of its `[[account]]` tables whose agent uses `var`
-/// (R108.5): the roots come from `state.json`, read as plain JSON (no
-/// migration, no write).
+/// (R108.5), then each user account's of `accounts.toml` (R125.3): the
+/// roots come from `state.json`, read as plain JSON (no migration, no
+/// write).
 fn workspace_dirs(env: Env, var: &str) -> Vec<PathBuf> {
     let home = home_dir(env);
     let state: Value = std::fs::read_to_string(crate::paths::state_file(env))
@@ -160,6 +161,16 @@ fn workspace_dirs(env: Env, var: &str) -> Vec<PathBuf> {
                 if !dirs.contains(&d) {
                     dirs.push(d);
                 }
+            }
+        }
+    }
+    let user = crate::account::user_decls(&crate::paths::accounts_file(env)).unwrap_or_default();
+    for a in &user {
+        let kind = crate::account::AgentKind::parse(&a.agent);
+        if kind.is_some_and(|k| k.var() == var) && !a.config_dir.trim().is_empty() {
+            let d = PathBuf::from(crate::workspace::expand_tilde(a.config_dir.trim(), &home));
+            if !dirs.contains(&d) {
+                dirs.push(d);
             }
         }
     }

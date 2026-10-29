@@ -22,6 +22,9 @@ pub struct WorkspaceFile {
     /// `[[account]]` tables (R108.1), validated by
     /// [`crate::account::accounts`].
     pub account: Vec<crate::account::AccountDecl>,
+    /// `"own"`: only the accounts above, no user accounts (R125.3);
+    /// `"all"` / none: these and the user's.
+    pub accounts: Option<String>,
 }
 
 /// `[identity]` (R25.1): who the Workspace is on git and GitHub.

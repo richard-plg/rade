@@ -304,6 +304,9 @@ pub struct AccountUsage {
     pub agent: Option<AgentKind>,
     pub name: String,
     pub limits: Vec<(Limit, Option<Forecast>)>,
+    /// Its login's store (empty: unknown). Two accounts on one login are
+    /// one quota: neither is offered instead of the other (R125.4).
+    pub login: String,
 }
 
 /// The forecast Toast to raise.
@@ -385,6 +388,7 @@ pub fn forecast_toast(
     let other = accounts
         .iter()
         .filter(|o| o.agent == Some(agent) && o.name != a.name)
+        .filter(|o| a.login.is_empty() || o.login != a.login)
         .filter_map(|o| tightest_of(o).map(|t| (t, o)))
         .filter(|(t, _)| *t < HOT_PERCENT)
         .min_by(|x, y| x.0.total_cmp(&y.0).then(x.1.name.cmp(&y.1.name)))

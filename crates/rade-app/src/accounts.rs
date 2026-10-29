@@ -26,6 +26,7 @@ pub fn dispatch(method: &str, p: Value) -> Result<Value> {
         "account.list" => list(params(p)?),
         "account.add" => add(params(p)?),
         "account.set_default" => set_default(params(p)?),
+        "account.set" => set(params(p)?),
         "usage.list" => usage_list(params(p)?),
         "usage.get" => usage_get(params(p)?),
         "usage.record" => usage_record(params(p)?),
@@ -50,6 +51,28 @@ struct Add {
     name: String,
     config_dir: String,
     default: bool,
+    /// Into the user's `accounts.toml` (R125.5).
+    user: bool,
+    env_file: String,
+    env: std::collections::BTreeMap<String, String>,
+}
+
+/// `account.set` (R125.5): changes of one account, in one write of the
+/// file that declares it.
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct Set {
+    workspace: Option<String>,
+    caller: Option<String>,
+    name: String,
+    agent: Option<String>,
+    /// The user's account of that name, whatever the Workspace allows.
+    user: bool,
+    config_dir: Option<String>,
+    env_file: Option<String>,
+    no_env_file: bool,
+    env: std::collections::BTreeMap<String, String>,
+    unset_env: Vec<String>,
 }
 
 #[derive(Deserialize, Default)]
@@ -90,11 +113,61 @@ fn home() -> PathBuf {
     rade_core::paths::home_dir(&rade_core::paths::process_env)
 }
 
-/// The Workspace's accounts, or its validation error.
+/// `$XDG_CONFIG_HOME/rade/accounts.toml` (R125.3).
+pub fn user_file() -> PathBuf {
+    rade_core::paths::accounts_file(&rade_core::paths::process_env)
+}
+
+/// The accounts the Workspace may use (its own, then the user's unless
+/// `accounts = "own"`), or its validation error.
 fn accounts_of(id: &str, root: &std::path::Path) -> Result<Vec<Account>> {
-    let file = root.join(".rade/workspace.toml");
-    let f = rade_core::workspace::WorkspaceFile::read(root).map_err(Error::usage)?;
-    account::accounts(id, &f.account, &file, &home())
+    account::workspace_accounts(id, root, Some(&user_file()), &home())
+}
+
+/// R125.4: give a Pane without an account the one its hand-started
+/// Agent runs under (its Preset's kind, the invocation's config dir).
+pub fn detect(app: &crate::app::App, pane: &str, inv: &rade_core::preset::Invocation) {
+    let Some((agent, (source, worktree))) = ({
+        let m = app.model.borrow();
+        m.pane(pane)
+            .filter(|p| p.account.is_none())
+            .and_then(|p| p.agent.clone())
+            .zip(m.pane_worktree(pane))
+    }) else {
+        return;
+    };
+    let Some(kind) = app
+        .config_for(&source, Some(&worktree))
+        .presets()
+        .ok()
+        .and_then(|p| AgentKind::of_hooks(p.get(&agent)?.hooks))
+    else {
+        return;
+    };
+    if app
+        .update(|m| m.detect_account(pane, kind, inv, &home()))
+        .is_some()
+    {
+        forget_lists();
+    }
+}
+
+/// Detailed limits on or off in the file that declares the account
+/// (`accounts.toml` for a user account, R125.3).
+pub fn set_detailed(a: &Account, root: &Path, on: bool) -> Result<()> {
+    match a.scope {
+        account::Scope::User => account::edit_user_file(&a.file, |t| {
+            account::set_detailed_in_toml(t, a.agent, &a.name, on)
+        }),
+        account::Scope::Workspace => {
+            account::set_detailed_file(root, a.agent, &a.name, on).map(|_| ())
+        }
+    }
+}
+
+/// Every registered Workspace's (id, root), from any thread.
+fn roots() -> Result<Vec<(String, PathBuf)>> {
+    all_workspaces()
 }
 
 fn agent_arg(a: Option<&str>) -> Result<Option<AgentKind>> {
@@ -105,10 +178,32 @@ fn agent_arg(a: Option<&str>) -> Result<Option<AgentKind>> {
     .transpose()
 }
 
+/// Keys of the account's env (R125.5): `[account.env]`'s and its env
+/// file's (when readable). Never a value.
+pub fn env_keys(a: &Account) -> Vec<String> {
+    let mut keys: Vec<String> = a
+        .env_file
+        .as_deref()
+        .and_then(|f| rade_core::dotenv::read(f).ok())
+        .unwrap_or_default()
+        .into_iter()
+        .map(|(k, _)| k)
+        .collect();
+    for (k, _) in &a.env {
+        if !keys.contains(k) {
+            keys.push(k.clone());
+        }
+    }
+    keys
+}
+
 fn row(a: &Account) -> Value {
     json!({
         "agent": a.agent, "name": a.name, "config_dir": a.config_dir,
         "default": a.default, "detailed_limits": a.detailed_limits,
+        "scope": a.scope, "file": a.file, "env_file": a.env_file,
+        "default_login": a.declared_dir.is_empty(),
+        "env_keys": env_keys(a),
     })
 }
 
@@ -123,14 +218,39 @@ fn list(s: Scope) -> Result<Value> {
 
 fn add(a: Add) -> Result<Value> {
     let (id, root) = workspace(a.workspace, a.caller)?;
+    // A default-login account (no config dir) only in accounts.toml: an
+    // older app sharing workspace.toml would refuse the whole list.
+    if !a.user && a.config_dir.trim().is_empty() {
+        return Err(Error::usage(
+            "a Workspace account needs --config-dir; one on the default login goes in accounts.toml (--user)",
+        ));
+    }
     let decl = AccountDecl {
         agent: a.agent,
         name: a.name,
         config_dir: a.config_dir,
         default: a.default,
         detailed_limits: false,
+        env_file: a.env_file,
+        env: a.env,
     };
-    let file = account::add_account_file(&root, &decl)?;
+    // R125.3: a name may not be declared both for the user and a Workspace.
+    let file = if a.user {
+        let f = user_file();
+        let roots = roots()?;
+        account::edit_user_file(&f, |t| {
+            let new = account::add_to_toml(t, &decl)?;
+            account::check_user_text(&new, &roots)?;
+            Ok(new)
+        })?;
+        f
+    } else {
+        account::edit_workspace_file(&root, |t| {
+            let new = account::add_to_toml(t, &decl)?;
+            account::check_workspace_text(&new, &user_file())?;
+            Ok(new)
+        })?
+    };
     forget_lists();
     let agent = AgentKind::parse(&decl.agent);
     let added = accounts_of(&id, &root)
@@ -150,21 +270,104 @@ fn set_default(n: Named) -> Result<Value> {
         .ok_or_else(|| Error::usage("set_default needs a name"))?;
     let agent = agent_arg(n.agent.as_deref())?;
     let (id, root) = workspace(n.workspace, n.caller)?;
-    let file = account::set_default_file(&root, agent, &name)?;
+    // A user account's default is moved in `accounts.toml` (R125.3).
+    let user = accounts_of(&id, &root)
+        .ok()
+        .and_then(|l| account::find(&l, &name, agent, &id).ok().cloned())
+        .filter(|a| a.scope == account::Scope::User);
+    let file = match &user {
+        Some(a) => {
+            let f = user_file();
+            account::edit_user_file(&f, |t| {
+                account::set_default_in_toml(t, Some(a.agent), &name)
+            })?;
+            f
+        }
+        None => account::set_default_file(&root, agent, &name)?,
+    };
     let found = accounts_of(&id, &root)
         .ok()
         .and_then(|l| account::find(&l, &name, agent, &id).ok().cloned());
     // The explicit default replaces a forecast Toast's choice (R110.4).
+    // A user account's default applies in every Workspace, so it clears
+    // the choice everywhere.
     if let Some(kind) = found.as_ref().map(|a| a.agent).or(agent) {
         let ws = id.clone();
+        let everywhere = user.is_some();
         on_main(move || {
-            app().update(|m| m.clear_next_default(&ws, kind));
+            app().update(|m| {
+                let all: Vec<String> = if everywhere {
+                    m.workspaces.iter().map(|w| w.id.clone()).collect()
+                } else {
+                    vec![ws]
+                };
+                for w in all {
+                    m.clear_next_default(&w, kind);
+                }
+            });
             Ok(())
         })?;
     }
     forget_lists();
     let set = found.as_ref().map(row);
     Ok(json!({"workspace": id, "file": file, "account": set}))
+}
+
+/// `account.set` (R125.5): config dir, env file and variables of one
+/// account, written to the file that declares it (`accounts.toml` for a
+/// user account, else `workspace.toml`), every other byte kept.
+fn set(s: Set) -> Result<Value> {
+    use account::Edit;
+    let agent = agent_arg(s.agent.as_deref())?;
+    let (id, root) = workspace(s.workspace, s.caller)?;
+    let list = if s.user {
+        account::user_accounts(&user_file(), &home())?
+    } else {
+        accounts_of(&id, &root)?
+    };
+    let a = account::find(&list, &s.name, agent, if s.user { "(user)" } else { &id })?.clone();
+    let mut edits: Vec<Edit> = Vec::new();
+    if let Some(d) = s.config_dir {
+        if d.trim().is_empty() && a.scope == account::Scope::Workspace {
+            return Err(Error::usage(
+                "a Workspace account needs a config dir; one on the default login goes in accounts.toml (--user)",
+            ));
+        }
+        edits.push(Edit::ConfigDir(d));
+    }
+    if s.no_env_file {
+        edits.push(Edit::EnvFile(None));
+    } else if let Some(f) = s.env_file {
+        edits.push(Edit::EnvFile(Some(f)));
+    }
+    for (k, v) in s.env {
+        edits.push(Edit::SetEnv(k, v));
+    }
+    for k in s.unset_env {
+        edits.push(Edit::UnsetEnv(k));
+    }
+    let change = |t: &str| -> Result<String> {
+        let mut t = t.to_string();
+        for e in &edits {
+            t = account::edit_in_toml(&t, a.agent, &a.name, e)?;
+        }
+        Ok(t)
+    };
+    let file = match a.scope {
+        account::Scope::User => {
+            account::edit_user_file(&a.file, change)?;
+            a.file.clone()
+        }
+        account::Scope::Workspace => account::edit_workspace_file(&root, change)?,
+    };
+    forget_lists();
+    let now = if s.user {
+        account::user_accounts(&user_file(), &home()).ok()
+    } else {
+        accounts_of(&id, &root).ok()
+    }
+    .and_then(|l| account::find(&l, &a.name, Some(a.agent), &id).ok().map(row));
+    Ok(json!({"workspace": id, "file": file, "account": now}))
 }
 
 // ---- Usage (R109, R110) ------------------------------------------------------
@@ -384,6 +587,21 @@ fn targets(ws: Option<String>, only: Option<(AgentKind, String)>) -> Vec<Target>
     let Ok(wss) = all_workspaces() else {
         return Vec::new();
     };
+    // Every Workspace's checkouts: a user account's sessions may run in
+    // any of them (R125.3), so its tokens are attributed against all.
+    let all_cos: Vec<(String, Vec<(PathBuf, String)>)> = {
+        let w2 = wss.clone();
+        on_main(move || {
+            let app = app();
+            let m = app.model.borrow();
+            Ok(w2
+                .iter()
+                .map(|(id, root)| (id.clone(), checkouts(&m, id, root)))
+                .collect())
+        })
+        .unwrap_or_default()
+    };
+    let union: Vec<(PathBuf, String)> = all_cos.iter().flat_map(|(_, c)| c.clone()).collect();
     let mut out = Vec::new();
     for (id, root) in wss {
         if ws.as_ref().is_some_and(|w| *w != id) {
@@ -402,17 +620,18 @@ fn targets(ws: Option<String>, only: Option<(AgentKind, String)>) -> Vec<Target>
         if list.is_empty() {
             continue;
         }
-        let (id2, root2) = (id.clone(), root.clone());
-        let cos = on_main(move || {
-            let app = app();
-            let m = app.model.borrow();
-            Ok(checkouts(&m, &id2, &root2))
-        })
-        .unwrap_or_default();
+        let cos = all_cos
+            .iter()
+            .find(|(w, _)| *w == id)
+            .map(|(_, c)| c.clone())
+            .unwrap_or_default();
         out.extend(list.into_iter().map(|account| Target {
+            checkouts: match account.scope {
+                account::Scope::User => union.clone(),
+                account::Scope::Workspace => cos.clone(),
+            },
             account,
             root: root.clone(),
-            checkouts: cos.clone(),
         }));
     }
     out
@@ -479,7 +698,8 @@ fn refresh_one(t: &Target, scanned: &mut Vec<PathBuf>) -> Value {
             eprintln!("rade: usage store {}: {e}", path.display());
         }
     }
-    if a.agent == AgentKind::Claude && a.detailed_limits {
+    // R125.6: a token login has no token in its config dir to ask with.
+    if a.agent == AgentKind::Claude && a.detailed_limits && !account::token_login(a) {
         let test_mode = crate::handlers::DEBUG_SOCKET
             .get()
             .copied()
@@ -501,10 +721,8 @@ fn refresh_one(t: &Target, scanned: &mut Vec<PathBuf>) -> Value {
                     "rade: Detailed limits of {}: {why}; turning them off",
                     a.name
                 );
-                if let Err(e) =
-                    account::set_detailed_file(&t.root, AgentKind::Claude, &a.name, false)
-                {
-                    eprintln!("rade: workspace.toml: {}", e.message);
+                if let Err(e) = set_detailed(a, &t.root, false) {
+                    eprintln!("rade: {}: {}", a.file.display(), e.message);
                 }
                 events.push(format!("account {}: Detailed limits off ({why})", a.name));
             }
@@ -651,6 +869,16 @@ fn usage_list(p: ListParams) -> Result<Value> {
             Err(_) => {}
         }
     }
+    // A user account is offered in every Workspace: listed once (R125.3).
+    let mut seen_user = Vec::new();
+    accounts.retain(|a| {
+        a.scope != account::Scope::User || {
+            let key = (a.agent, a.name.clone());
+            let first = !seen_user.contains(&key);
+            seen_user.push(key);
+            first
+        }
+    });
     let now = now_s();
     let offset = rade_core::date::local_offset(now);
     let mut rows = Vec::new();
@@ -784,6 +1012,7 @@ fn usage_get(n: GetParams) -> Result<Value> {
     Ok(json!({
         "account": a.name, "agent": a.agent, "workspace": id, "config_dir": a.config_dir,
         "store": path, "plan": null, "detailed_limits": a.detailed_limits,
+        "detailed_note": account::token_login(a).then_some(account::TOKEN_LOGIN_NOTE),
         "limits": latest.iter().map(limit_json).collect::<Vec<_>>(),
         "groups": groups,
         "tightest": s.tightest.as_ref().map(tightest_json),
@@ -997,6 +1226,7 @@ fn usage_changed() {
                     } else {
                         Vec::new()
                     },
+                    login: store_of(a).display().to_string(),
                 }
             })
             .collect();

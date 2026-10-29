@@ -934,6 +934,36 @@ toast > button.circular image { -gtk-icon-size: 16px; }
 .settings-preview-terminal { margin: 6px 12px 10px; }
 .settings-none { margin: 24px 10px; }
 .settings-code-sample { padding: 6px 12px 12px; color: @term-fg; }
+/* Settings → Accounts (R126): list beside the selected account's detail */
+.settings-accounts-intro { margin: 0 10px 8px; }
+.settings-accounts { margin: 0 8px 8px 10px; border: 1px solid @line; border-radius: 6px; background: @bg1; }
+.settings-accounts-side { border-right: 1px solid @line; padding: 6px; }
+.settings-accounts-list { background: transparent; }
+.settings-accounts-list row { border-radius: 4px; padding: 6px 8px; margin-bottom: 1px; }
+.settings-accounts-list row:hover { background: @bg3; }
+.settings-accounts-list row:selected { background: @acc-dim; }
+.settings-accounts-group { margin: 8px 0 2px; }
+.settings-accounts-name { font-size: 13px; font-weight: 600; color: @fg; }
+.settings-accounts-draft { font-style: italic; color: @fg2; }
+.settings-accounts-default { color: @acc; font-size: 12px; }
+.settings-accounts-lock { color: @fg3; -gtk-icon-size: 12px; }
+.settings-accounts-badge { font-family: "JetBrains Mono", monospace; font-size: 10.5px; color: @fg3; }
+.settings-accounts-new { margin-top: 6px; color: @acc; }
+.settings-account-detail { padding: 14px 16px; }
+.settings-account-title { font-size: 16px; font-weight: 600; color: @fg; }
+.settings-account-saved { font-size: 11px; color: @acc; }
+.settings-account-env-head { margin-top: 10px; }
+.settings-account-key { font-size: 12px; }
+.settings-account-tag { padding: 0 5px; border-radius: 3px; background: @bg3; font-family: "JetBrains Mono", monospace; font-size: 10px; color: @fg2; }
+.settings-account-indent { margin-left: 14px; }
+.settings-account-overridden { text-decoration: line-through; color: @fg3; }
+.settings-account-file-value { font-family: "JetBrains Mono", monospace; font-size: 11px; color: @fg3; }
+.settings-account-entry { background: @bg0; border: 1px solid @line2; border-radius: 6px; min-height: 28px; }
+.settings-account-entry:focus-within { border-color: @acc-line; }
+.settings-account-error { font-family: "JetBrains Mono", monospace; font-size: 11px; color: @wait; }
+.settings-account-add-var, .settings-account-paste { color: @acc; }
+.settings-account-hint { color: @fg3; }
+.settings-account-delete { color: @wait; }
 
 /* Agent Overview (R117, spec G, ADR-0039). The window behind shrinks and
    the layer fades in; cards rise 6 px, 15 ms apart. GTK skips transitions

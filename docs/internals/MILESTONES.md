@@ -165,3 +165,7 @@ Owner request and decisions of 2026-10-25 (`PLAN-voice.md`), ADR-0046, mockup `d
 
 ## M48 — Updates — R127
 Owner request and decisions of 2026-10-26 (`PLAN-updates.md`), ADR-0048. A daily check of GitHub Releases (on by default, stable or rc channel), a Statusline cell only when there is news, an Activity row, a Toast only for a security release (held while an Agent waits), Settings › Updates with the About block; Install = download + SHA-256 + `pkexec apt-get install` while the app runs; restart when the owner says, with Session Restore; `rade version [--check] [--json]`, socket `app.info`. Pure logic in `rade-core/src/update.rs`, app `update.rs` + `update_view.rs`, E2E `tests/e2e/m48.sh` with `fake-github.py`, `fake-install.sh`, `fake-dpkg-query.sh`. Checks: docs/internals/checks/M48.md.
+||||||| parent of d68b2f6 (docs(M47): accounts with env, user accounts, detection, Settings)
+
+## M47 — Agent Accounts: env, user accounts, detection, Settings — R125, R126
+PLAN-accounts.md (owner decisions 2026-10-25), ADR-0047 (amends ADR-0035). An account carries `env_file` (dotenv, read at spawn / restore, never stored) and `[account.env]`; user accounts in `$XDG_CONFIG_HOME/rade/accounts.toml` for every Workspace unless it sets `accounts = "own"`; a hand-started Agent's account detected from its config dir; Settings → Accounts edits the user file. Core in `rade-core/src/account.rs` + `dotenv.rs` + `settings_accounts.rs`, E2E `tests/e2e/m47.sh`.

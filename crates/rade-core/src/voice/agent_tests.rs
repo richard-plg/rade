@@ -105,8 +105,13 @@ fn r124_e_claude_command_and_env() {
         declared_dir: "~/.claude-acme".into(),
         default: true,
         detailed_limits: false,
+        scope: crate::account::Scope::Workspace,
+        file: PathBuf::from("/w/acme/.rade/workspace.toml"),
+        env_file: None,
+        env: vec![],
+        explicit_default: true,
     };
-    crate::account::apply_env(&mut env, &acme);
+    crate::account::apply_env(&mut env, &acme).unwrap();
     assert!(env.iter().any(|(k, _)| k == "RADE_ACCOUNT"));
     let out = env_for(&env);
     assert_eq!(

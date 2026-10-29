@@ -700,7 +700,7 @@ fn request(cmd: &Cmd) -> Result<(&'static str, Value), Error> {
         ),
         Cmd::Fanout(a) => fanout::request(a),
         Cmd::Project(c) => project::request(c)?,
-        Cmd::Account(c) => account::request(c),
+        Cmd::Account(c) => account::request(c).map_err(Error::usage)?,
         Cmd::Config(c) => project::config_request(c),
         Cmd::Code(c) => code::request(c)?,
         Cmd::Browser(a) => browser::request(a)?,

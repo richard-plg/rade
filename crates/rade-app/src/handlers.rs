@@ -480,6 +480,7 @@ fn handle(method: &str, p: Value) -> Result<Value> {
                 ));
             }
             let sid = s.session_id.filter(|x| !x.is_empty());
+            let inv = s.invocation.clone();
             app.update(|m| -> Result<()> {
                 m.set_status(&pane, status, sid, s.agent, now())?;
                 m.record_hook(&pane, status, now())?;
@@ -488,6 +489,10 @@ fn handle(method: &str, p: Value) -> Result<Value> {
                     None => Ok(()),
                 }
             })?;
+            // R125.4: a hand-started Agent's account, from its config dir.
+            if let Some(inv) = inv {
+                crate::accounts::detect(&app, &pane, &inv);
+            }
             // A turn ended: read its account's usage now (R109.2).
             if matches!(status, Some(AgentStatus::Done | AgentStatus::Waiting)) {
                 crate::accounts::turn_ended(&app.model.borrow(), &pane);
@@ -949,7 +954,7 @@ pub(crate) fn plan_spawn(
     s: &Spawn,
     at: Option<&(String, Option<String>)>,
 ) -> Result<SpawnPlan> {
-    use rade_core::account::{check_command, resolve_spawn, AgentKind, SpawnAsk};
+    use rade_core::account::{check_command, AgentKind, SpawnAsk};
     let preset = s
         .agent
         .as_deref()
@@ -990,10 +995,14 @@ pub(crate) fn plan_spawn(
             explicit: s.account.as_deref(),
             parent: parent.as_deref(),
         };
-        resolve_spawn(&ask, &m.account_lists(&home))?
+        m.resolve_account(&ask, &home)?
     };
     if let (Some(a), Some(cmd), Some(name)) = (&account, &command, &s.agent) {
         check_command(name, cmd, a, &home)?;
+    }
+    // R125.2: an unreadable env file refuses the spawn, no Pane.
+    if let Some(a) = &account {
+        rade_core::account::account_env(a)?;
     }
     Ok(SpawnPlan {
         command,

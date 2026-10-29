@@ -4,7 +4,9 @@
 //! Every change is one `rade_core::settings::set` / `reset` of the file
 //! (comments kept), applied at once: Terminals reload their Ghostty config,
 //! the color scheme follows. The Terminal category ends with a live
-//! preview, a real Terminal. `debug.ui {"op": "app_settings…"}` drives it.
+//! preview, a real Terminal. The Accounts category (R126) edits the user's
+//! `accounts.toml` instead (`crate::settings_accounts`).
+//! `debug.ui {"op": "app_settings…"}` drives it.
 
 use crate::app::{app, try_app};
 use adw::prelude::*;
@@ -45,6 +47,10 @@ pub fn install(overlay: &gtk::Overlay) {
     keys.set_propagation_phase(gtk::PropagationPhase::Capture);
     keys.connect_key_pressed(|_, k, _, _| {
         if k == gtk::gdk::Key::Escape {
+            // A draft account / variable in Settings → Accounts goes first.
+            if crate::settings_accounts::escape() {
+                return glib::Propagation::Stop;
+            }
             let popover = try_app()
                 .and_then(|a| gtk::prelude::GtkWindowExt::focus(&a.window))
                 .is_some_and(|f| f.ancestor(gtk::Popover::static_type()).is_some());
@@ -118,6 +124,7 @@ pub fn close() {
     let Some(_v) = OPEN.with(|o| o.borrow_mut().take()) else {
         return;
     };
+    crate::settings_accounts::forget();
     if let Some(s) = SCRIM.with(|s| s.borrow().clone()) {
         s.set_visible(false);
         while let Some(c) = s.first_child() {
@@ -234,7 +241,11 @@ fn open() {
             return;
         };
         let name = row.widget_name().to_string();
-        *v.category.borrow_mut() = st::CATEGORIES.iter().copied().find(|c| *c == name);
+        *v.category.borrow_mut() = st::CATEGORIES
+            .iter()
+            .copied()
+            .chain([ACCOUNTS])
+            .find(|c| *c == name);
         scroll_to(&v, &name);
     });
 
@@ -245,6 +256,23 @@ fn open() {
     search.grab_focus();
 }
 
+const ACCOUNTS: &str = rade_core::settings_accounts::CATEGORY;
+
+/// The page's scroll position (Settings → Accounts keeps it, R126.4).
+pub fn scroll_value() -> Option<f64> {
+    OPEN.with(|o| {
+        o.borrow()
+            .as_ref()
+            .map(|v| v.scroller.vadjustment().value())
+    })
+}
+
+pub fn set_scroll_value(y: f64) {
+    if let Some(v) = OPEN.with(|o| o.borrow().clone()) {
+        v.scroller.vadjustment().set_value(y);
+    }
+}
+
 /// Rebuilds the categories and rows for the search text and the config
 /// the app runs with now.
 fn render() {
@@ -253,7 +281,11 @@ fn render() {
     };
     let config = app().config.borrow().clone();
     let query = v.search.text().to_string();
-    let shown = st::categories(&query);
+    let mut shown = st::categories(&query);
+    // R126: the Accounts category, after the config.toml ones.
+    if crate::settings_accounts::matches_query(&query) {
+        shown.push(ACCOUNTS);
+    }
 
     while let Some(c) = v.categories.first_child() {
         v.categories.remove(&c);
@@ -294,6 +326,17 @@ fn render() {
             // The one persistent About widget (R127, §5.1), kept current.
             crate::update::render();
             v.rows.append(&crate::update_view::about_block());
+        }
+        if *c == ACCOUNTS {
+            v.rows.append(&label(
+                &format!(
+                    "Your accounts are in {} and offered in every Workspace unless it sets accounts = \"own\"; a Workspace's own accounts show locked.",
+                    tilde(&crate::accounts::user_file())
+                ),
+                &["settings-description", "settings-accounts-intro"],
+            ));
+            v.rows.append(&crate::settings_accounts::section(&query));
+            continue;
         }
         for s in st::SETTINGS
             .iter()

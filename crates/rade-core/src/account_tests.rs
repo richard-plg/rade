@@ -115,8 +115,10 @@ fn bad_agent_or_empty_fields_are_validation_errors() {
     )
     .unwrap_err();
     assert!(e.message.contains("opencode") && e.message.contains("workspace.toml"));
-    let e = parse("acme", "[[account]]\nagent = \"claude\"\nname = \"x\"\n").unwrap_err();
-    assert!(e.message.contains("config_dir"), "{}", e.message);
+    // R125.1: no config_dir = the agent's default login, not an error.
+    let a = parse("acme", "[[account]]\nagent = \"claude\"\nname = \"x\"\n").unwrap();
+    assert_eq!(a[0].config_dir, PathBuf::from("/home/u/.claude"));
+    assert_eq!(a[0].declared_dir, "");
     let e = parse(
         "acme",
         "[[account]]\nagent = \"claude\"\nconfig_dir = \"~/.x\"\n",
@@ -276,7 +278,7 @@ fn account_env_replaces_the_workspace_variable() {
         ("RADE_WORKSPACE".to_string(), "acme".to_string()),
         ("RADE_ACCOUNT".to_string(), "old".to_string()),
     ];
-    apply_env(&mut env, &team);
+    apply_env(&mut env, &team).unwrap();
     let get = |k: &str| {
         env.iter()
             .filter(|(n, _)| n == k)
@@ -295,9 +297,12 @@ fn r108_j_preset_prefix_with_another_dir_is_forbidden() {
     let team = parse("acme", ACME).unwrap().remove(1);
     let e = check_command("claude", "CLAUDE_CONFIG_DIR=~/.claude claude", &team, home).unwrap_err();
     assert_eq!(e.kind, ErrorKind::Forbidden);
-    assert_eq!(
-        e.message,
-        "preset 'claude' sets CLAUDE_CONFIG_DIR=~/.claude but account 'acme-team' uses ~/.claude-team (ADR-0035)"
+    assert!(
+        e.message.starts_with(
+            "preset 'claude' sets CLAUDE_CONFIG_DIR=~/.claude but account 'acme-team' uses ~/.claude-team (ADR-0035)"
+        ),
+        "{}",
+        e.message
     );
     // The same directory, however it is written, is allowed.
     for ok in [
@@ -493,6 +498,7 @@ fn add_account_keeps_other_bytes_and_moves_default() {
         config_dir: "~/.claude-team".into(),
         default: false,
         detailed_limits: false,
+        ..Default::default()
     };
     let added = add_to_toml(&two, &decl).unwrap();
     assert!(added.starts_with(&two), "{added}");
@@ -535,12 +541,23 @@ fn add_account_keeps_other_bytes_and_moves_default() {
             ..decl.clone()
         },
         AccountDecl {
-            config_dir: " ".into(),
+            name: " ".into(),
             ..decl.clone()
         },
     ] {
         assert_eq!(add_to_toml(&two, &bad).unwrap_err().kind, ErrorKind::Usage);
     }
+    // R125.1: no config dir = the default login; no `config_dir` key written.
+    let plain = add_to_toml(
+        &two,
+        &AccountDecl {
+            name: "plain".into(),
+            config_dir: " ".into(),
+            ..decl.clone()
+        },
+    )
+    .unwrap();
+    assert!(plain.ends_with("name = \"plain\"\n"), "{plain}");
     // An explicit `default = false` becomes `true` in place.
     let f = two.replacen(
         "name = \"acme\"\nconfig_dir = \"~/.codex\"\ndefault = true",
@@ -576,6 +593,7 @@ fn account_files_are_written_atomically_creating_dot_rade() {
         config_dir: "~/.claude-work".into(),
         default: false,
         detailed_limits: false,
+        ..Default::default()
     };
     // No `.rade/` yet: created, the file holds just the table.
     let file = add_account_file(&root, &decl).unwrap();
@@ -902,4 +920,690 @@ fn r110_g_next_default_changes_later_agents_only_in_memory() {
     let l = st.account_lists(home).remove("acme").unwrap().unwrap();
     assert!(l.iter().any(|a| a.name == "acme" && a.default));
     let _ = std::fs::remove_dir_all(&root);
+}
+
+// ---- M47 (R125, R126, ADR-0047) ----
+
+const USER: &str = r#"# my logins
+[[account]]
+agent = "claude"
+name = "cl"
+config_dir = "~/.claude"
+default = true
+
+[[account]]
+agent = "claude"
+name = "clw"
+config_dir = "~/.claude-work"
+"#;
+
+fn tmp_file(tag: &str, name: &str, text: &str) -> PathBuf {
+    let d = crate::paths::outside_temp_dir().join(format!("rade-m47-{tag}-{}", std::process::id()));
+    std::fs::create_dir_all(&d).unwrap();
+    let f = d.join(name);
+    std::fs::write(&f, text).unwrap();
+    f
+}
+
+fn get<'a>(env: &'a [(String, String)], k: &str) -> Vec<&'a str> {
+    env.iter()
+        .filter(|(n, _)| n == k)
+        .map(|(_, v)| v.as_str())
+        .collect()
+}
+
+#[test]
+fn r125_b_env_order_and_reserved_keys() {
+    let file = tmp_file("order", "clw.env", "B=file\nC=file\n");
+    let text = format!(
+        "[[account]]\nagent = \"claude\"\nname = \"clw\"\nconfig_dir = \"~/.claude-work\"\nenv_file = \"{}\"\n[account.env]\nC = \"inline\"\n",
+        file.display()
+    );
+    let a = parse("acme", &text).unwrap().remove(0);
+    let mut env = vec![
+        ("A".to_string(), "ws".to_string()),
+        ("B".to_string(), "ws".to_string()),
+    ];
+    apply_env(&mut env, &a).unwrap();
+    assert_eq!(get(&env, "A"), ["ws"]);
+    assert_eq!(get(&env, "B"), ["file"]);
+    assert_eq!(get(&env, "C"), ["inline"]);
+    let n = env.len();
+    assert_eq!(
+        env[n - 2],
+        ("CLAUDE_CONFIG_DIR".into(), "/home/u/.claude-work".into())
+    );
+    assert_eq!(env[n - 1], ("RADE_ACCOUNT".into(), "clw".into()));
+
+    // A reserved key in [account.env] is a validation error naming the file.
+    let bad = "[[account]]\nagent = \"claude\"\nname = \"x\"\nconfig_dir = \"~/.x\"\n[account.env]\nCLAUDE_CONFIG_DIR = \"~/.y\"\n";
+    let e = parse("acme", bad).unwrap_err().message;
+    assert!(
+        e.contains("workspace.toml") && e.contains("CLAUDE_CONFIG_DIR"),
+        "{e}"
+    );
+    // A codex account may set CLAUDE_CONFIG_DIR (not its variable).
+    let other = "[[account]]\nagent = \"codex\"\nname = \"x\"\nconfig_dir = \"~/.x\"\n[account.env]\nCLAUDE_CONFIG_DIR = \"~/.y\"\n";
+    assert!(parse("acme", other).is_ok());
+    // A reserved key in the env file: the file is named; the login is still set.
+    let rf = tmp_file("order", "rade.env", "RADE_X=1\n");
+    let text = format!(
+        "[[account]]\nagent = \"claude\"\nname = \"r\"\nconfig_dir = \"~/.r\"\nenv_file = \"{}\"\n",
+        rf.display()
+    );
+    let a = parse("acme", &text).unwrap().remove(0);
+    let mut env = vec![];
+    let e = apply_env(&mut env, &a).unwrap_err().message;
+    assert!(e.contains("rade.env") && e.contains("RADE_X"), "{e}");
+    assert_eq!(get(&env, "RADE_ACCOUNT"), ["r"]);
+    assert!(get(&env, "RADE_X").is_empty());
+    let _ = std::fs::remove_dir_all(file.parent().unwrap());
+}
+
+#[test]
+fn r125_d_missing_env_file_names_the_file() {
+    let text = "[[account]]\nagent = \"claude\"\nname = \"clw\"\nconfig_dir = \"~/.c\"\nenv_file = \"/nonexistent/clw.env\"\n";
+    let a = parse("acme", text).unwrap().remove(0);
+    let e = account_env(&a).unwrap_err();
+    assert_eq!(e.kind, ErrorKind::Usage);
+    assert!(e.message.contains("/nonexistent/clw.env"), "{}", e.message);
+}
+
+#[test]
+fn r125_e_user_accounts_merge_own_only_and_defaults() {
+    let home = Path::new(HOME);
+    let user = tmp_file("merge", "accounts.toml", USER);
+    let (mut st, acme) = ws_state("m47-acme", "acme", "[[account]]\nagent = \"claude\"\nname = \"acme-work\"\nconfig_dir = \"~/.claude-acme\"\ndefault = true\n");
+    st.user_accounts_file = Some(user.clone());
+    let corp =
+        crate::paths::outside_temp_dir().join(format!("rade-acct-m47-corp-{}", std::process::id()));
+    std::fs::create_dir_all(corp.join(".rade")).unwrap();
+    std::fs::write(corp.join(".rade/workspace.toml"), "accounts = \"own\"\n").unwrap();
+    st.add_workspace(&corp, "corp").unwrap();
+    let lists = st.account_lists(home);
+    let names = |ws: &str| -> Vec<(String, bool, Scope)> {
+        lists[ws]
+            .as_ref()
+            .unwrap()
+            .iter()
+            .map(|a| (a.name.clone(), a.default, a.scope))
+            .collect()
+    };
+    assert_eq!(
+        names("acme"),
+        [
+            ("acme-work".into(), true, Scope::Workspace),
+            ("cl".into(), false, Scope::User),
+            ("clw".into(), false, Scope::User)
+        ]
+    );
+    assert_eq!(
+        names("default"),
+        [
+            ("cl".into(), true, Scope::User),
+            ("clw".into(), false, Scope::User)
+        ]
+    );
+    assert!(names("corp").is_empty());
+    // The user account carries the Workspace it is used in (the lock).
+    assert_eq!(lists["acme"].as_ref().unwrap()[2].workspace, "acme");
+    let spawn = |ws: &str| {
+        resolve_spawn(
+            &SpawnAsk {
+                workspace: ws,
+                agent: Some(AgentKind::Claude),
+                explicit: Some("clw"),
+                parent: None,
+            },
+            &lists,
+        )
+    };
+    assert_eq!(spawn("acme").unwrap().unwrap().name, "clw");
+    let e = spawn("corp").unwrap_err();
+    assert_eq!(e.kind, ErrorKind::Forbidden);
+    assert!(
+        e.message.contains("clw") && e.message.contains("corp"),
+        "{}",
+        e.message
+    );
+    // The same name in both files: an error naming both.
+    std::fs::write(
+        acme.join(".rade/workspace.toml"),
+        "[[account]]\nagent = \"claude\"\nname = \"clw\"\nconfig_dir = \"~/.x\"\n",
+    )
+    .unwrap();
+    let e = st
+        .account_lists(home)
+        .remove("acme")
+        .unwrap()
+        .unwrap_err()
+        .message;
+    assert!(
+        e.contains("workspace.toml") && e.contains("accounts.toml") && e.contains("clw"),
+        "{e}"
+    );
+    // A bad `accounts` value.
+    std::fs::write(corp.join(".rade/workspace.toml"), "accounts = \"mine\"\n").unwrap();
+    assert!(st.account_lists(home).remove("corp").unwrap().is_err());
+    for d in [acme, corp, user.parent().unwrap().to_path_buf()] {
+        let _ = std::fs::remove_dir_all(d);
+    }
+}
+
+#[test]
+fn user_default_is_used_when_the_workspace_names_none() {
+    let home = Path::new(HOME);
+    let user = tmp_file(
+        "udef",
+        "accounts.toml",
+        USER.replace("default = true\n", "")
+            .replace(
+                "\"~/.claude-work\"\n",
+                "\"~/.claude-work\"\ndefault = true\n",
+            )
+            .as_str(),
+    );
+    let (mut st, root) = ws_state(
+        "m47-udef",
+        "acme",
+        "[[account]]\nagent = \"claude\"\nname = \"acme-work\"\nconfig_dir = \"~/.claude-acme\"\n",
+    );
+    st.user_accounts_file = Some(user.clone());
+    let l = st.account_lists(home).remove("acme").unwrap().unwrap();
+    assert_eq!(default_for(&l, AgentKind::Claude).unwrap().name, "clw");
+    let _ = std::fs::remove_dir_all(root);
+    let _ = std::fs::remove_dir_all(user.parent().unwrap());
+}
+
+#[test]
+fn r125_g_hand_started_agent_gets_its_account_detected() {
+    let home = Path::new(HOME);
+    let user = tmp_file("detect", "accounts.toml", USER);
+    let (mut st, root) = ws_state("m47-detect", "acme", "");
+    st.user_accounts_file = Some(user.clone());
+    let shell = st
+        .spawn(
+            SpawnSpec {
+                source: Some("api".into()),
+                ..Default::default()
+            },
+            &Limits::default(),
+        )
+        .unwrap();
+    let inv = |dir: Option<&str>| Invocation {
+        argv: vec!["claude".into()],
+        env: dir
+            .map(|d| BTreeMap::from([("CLAUDE_CONFIG_DIR".to_string(), d.to_string())]))
+            .unwrap_or_default(),
+    };
+    st.set_status(&shell, None, None, Some("claude".into()), 1)
+        .unwrap();
+    assert_eq!(
+        st.detect_account(
+            &shell,
+            AgentKind::Claude,
+            &inv(Some("~/.claude-work")),
+            home
+        ),
+        Some("clw".into())
+    );
+    let p = st.pane(&shell).unwrap();
+    assert_eq!(p.account.as_deref(), Some("clw"));
+    assert!(p.account_detected);
+    // Recorded in state.json.
+    let back: State = serde_json::from_value(serde_json::to_value(&st).unwrap()).unwrap();
+    assert!(back.pane(&shell).unwrap().account_detected);
+    // Never re-detected while it has one.
+    assert_eq!(
+        st.detect_account(&shell, AgentKind::Claude, &inv(None), home),
+        None
+    );
+    // The Agent ends: cleared.
+    st.set_status(
+        &shell,
+        Some(crate::agents::AgentStatus::Exited),
+        None,
+        None,
+        2,
+    )
+    .unwrap();
+    let p = st.pane(&shell).unwrap();
+    assert_eq!(p.account, None);
+    assert!(!p.account_detected);
+    // No CLAUDE_CONFIG_DIR: ~/.claude → cl.
+    assert_eq!(
+        st.detect_account(&shell, AgentKind::Claude, &inv(None), home),
+        Some("cl".into())
+    );
+    // A chosen account is never cleared by an exit.
+    let mut p = st.pane(&shell).unwrap().clone();
+    p.account_detected = false;
+    p.clear_detected_account();
+    assert_eq!(p.account.as_deref(), Some("cl"));
+    // Unknown dir: none.
+    let (mut st2, root2) = ws_state("m47-detect2", "acme", "");
+    st2.user_accounts_file = Some(user.clone());
+    let s2 = st2
+        .spawn(
+            SpawnSpec {
+                source: Some("api".into()),
+                ..Default::default()
+            },
+            &Limits::default(),
+        )
+        .unwrap();
+    assert_eq!(
+        st2.detect_account(&s2, AgentKind::Claude, &inv(Some("/elsewhere")), home),
+        None
+    );
+    for d in [root, root2, user.parent().unwrap().to_path_buf()] {
+        let _ = std::fs::remove_dir_all(d);
+    }
+}
+
+#[test]
+fn detection_with_two_accounts_on_one_dir_takes_the_default() {
+    let home = Path::new(HOME);
+    let text = "[[account]]\nagent = \"claude\"\nname = \"a\"\nconfig_dir = \"~/.c\"\n\n[[account]]\nagent = \"claude\"\nname = \"b\"\nconfig_dir = \"~/.c\"\ndefault = true\n";
+    let (mut st, root) = ws_state("m47-two", "acme", text);
+    let shell = st
+        .spawn(
+            SpawnSpec {
+                source: Some("api".into()),
+                ..Default::default()
+            },
+            &Limits::default(),
+        )
+        .unwrap();
+    let inv = Invocation {
+        argv: vec!["claude".into()],
+        env: BTreeMap::from([("CLAUDE_CONFIG_DIR".to_string(), "$HOME/.c".to_string())]),
+    };
+    assert_eq!(
+        st.detect_account(&shell, AgentKind::Claude, &inv, home),
+        Some("b".into())
+    );
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn r125_h_accounts_toml_is_its_own_file() {
+    // config.toml gains no key: an older Config still parses it.
+    let cfg: crate::config::Config = toml::from_str("idle_seconds = 2\n").unwrap();
+    assert_eq!(cfg.idle_seconds, 2);
+    // Unknown top-level keys in accounts.toml are ignored.
+    let f = tmp_file("unknown", "accounts.toml", &format!("version = 3\n{USER}"));
+    assert_eq!(user_decls(&f).unwrap().len(), 2);
+    assert_eq!(
+        crate::paths::accounts_file(&|k| (k == "HOME").then(|| "/home/u".to_string())),
+        PathBuf::from("/home/u/.config/rade/accounts.toml")
+    );
+    let _ = std::fs::remove_dir_all(f.parent().unwrap());
+}
+
+#[test]
+fn r126_a_accounts_toml_edits_keep_other_bytes() {
+    let ed = |t: &str, name: &str, e: Edit| edit_in_toml(t, AgentKind::Claude, name, &e);
+    // Add with env.
+    let decl = AccountDecl {
+        agent: "claude".into(),
+        name: "x".into(),
+        config_dir: "~/.x".into(),
+        env_file: "~/.x.env".into(),
+        env: BTreeMap::from([("A".into(), "1".into())]),
+        ..Default::default()
+    };
+    let t1 = add_to_toml(USER, &decl).unwrap();
+    assert!(t1.starts_with(USER), "{t1}");
+    assert!(
+        t1.contains("env_file = \"~/.x.env\"\n\n[account.env]\nA = \"1\"\n"),
+        "{t1}"
+    );
+    // Config dir.
+    let t2 = ed(&t1, "clw", Edit::ConfigDir("~/.cw".into())).unwrap();
+    assert_eq!(t2, t1.replace("\"~/.claude-work\"", "\"~/.cw\""));
+    // Set, change, unset a variable (the last removes [account.env]).
+    let t3 = ed(&t2, "clw", Edit::SetEnv("FOO".into(), "bar".into())).unwrap();
+    assert!(t3.contains("[account.env]\nFOO = \"bar\""), "{t3}");
+    assert!(t3.starts_with("# my logins\n"));
+    let t4 = ed(&t3, "clw", Edit::SetEnv("FOO".into(), "baz".into())).unwrap();
+    assert_eq!(t4, t3.replace("\"bar\"", "\"baz\""));
+    let t5 = ed(&t4, "clw", Edit::UnsetEnv("FOO".into())).unwrap();
+    assert_eq!(t5, t2);
+    // Env file set and cleared.
+    let t6 = ed(&t5, "cl", Edit::EnvFile(Some("~/.t.env".into()))).unwrap();
+    assert!(
+        t6.contains("default = true\nenv_file = \"~/.t.env\"\n"),
+        "{t6}"
+    );
+    assert_eq!(ed(&t6, "cl", Edit::EnvFile(None)).unwrap(), t5);
+    // Default moved.
+    let t7 = set_default_in_toml(&t5, Some(AgentKind::Claude), "clw").unwrap();
+    let decls = WorkspaceFile::parse(&t7).unwrap().account;
+    assert!(!decls[0].default && decls[1].default);
+    // Delete.
+    let t8 = ed(&t5, "x", Edit::Remove).unwrap();
+    assert_eq!(
+        t8.trim_end(),
+        t2.split("\n[[account]]\nagent = \"claude\"\nname = \"x\"")
+            .next()
+            .unwrap()
+            .trim_end()
+    );
+    // Refused: reserved key, bad name, rename onto a used name; unknown account.
+    for (n, e) in [
+        ("clw", Edit::SetEnv("RADE_X".into(), "1".into())),
+        (
+            "clw",
+            Edit::SetEnv("CLAUDE_CONFIG_DIR".into(), "~/.y".into()),
+        ),
+        ("clw", Edit::SetEnv("1A".into(), "1".into())),
+        ("clw", Edit::Name("cl".into())),
+    ] {
+        assert_eq!(ed(&t5, n, e).unwrap_err().kind, ErrorKind::Usage);
+    }
+    assert_eq!(
+        ed(&t5, "nope", Edit::Remove).unwrap_err().kind,
+        ErrorKind::NotFound
+    );
+    assert!(ed("not toml [", "cl", Edit::Remove).is_err());
+}
+
+#[test]
+fn r125_i_token_logins_get_no_detailed_limits() {
+    let f = tmp_file("token", "clw.env", "export CLAUDE_CODE_OAUTH_TOKEN=tok-1\n");
+    let inline = "[[account]]\nagent = \"claude\"\nname = \"cl\"\nconfig_dir = \"~/.c\"\ndetailed_limits = true\n[account.env]\nCLAUDE_CODE_OAUTH_TOKEN = \"tok-2\"\n";
+    let file = format!(
+        "[[account]]\nagent = \"claude\"\nname = \"clw\"\nconfig_dir = \"~/.cw\"\ndetailed_limits = true\nenv_file = \"{}\"\n",
+        f.display()
+    );
+    assert!(token_login(&parse("acme", inline).unwrap()[0]));
+    assert!(token_login(&parse("acme", &file).unwrap()[0]));
+    assert!(!token_login(&parse("acme", ACME).unwrap()[0]));
+    let _ = std::fs::remove_dir_all(f.parent().unwrap());
+}
+
+#[test]
+fn edit_default_on_and_off() {
+    let on = edit_in_toml(USER, AgentKind::Claude, "clw", &Edit::Default(true)).unwrap();
+    let d = WorkspaceFile::parse(&on).unwrap().account;
+    assert!(!d[0].default && d[1].default);
+    let off = edit_in_toml(&on, AgentKind::Claude, "clw", &Edit::Default(false)).unwrap();
+    assert!(!WorkspaceFile::parse(&off)
+        .unwrap()
+        .account
+        .iter()
+        .any(|a| a.default));
+    assert!(off.starts_with("# my logins\n"));
+}
+
+#[test]
+fn r125_d_fanout_and_judge_accounts_refuse_a_missing_env_file() {
+    // Review finding: Agents RADE starts itself check the env file too.
+    let home = Path::new(HOME);
+    let (st, root) = ws_state(
+        "m47-fanout-env",
+        "acme",
+        "[[account]]\nagent = \"claude\"\nname = \"clw\"\nconfig_dir = \"~/.cw\"\nenv_file = \"/nonexistent/clw.env\"\n",
+    );
+    let e = st
+        .agent_account(
+            "api",
+            "claude",
+            Some(AgentKind::Claude),
+            "claude",
+            None,
+            home,
+        )
+        .unwrap_err();
+    assert_eq!(e.kind, ErrorKind::Usage);
+    assert!(e.message.contains("/nonexistent/clw.env"), "{}", e.message);
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn r125_e_user_account_in_an_own_workspace_is_forbidden_without_other_workspaces() {
+    // Review finding: no other Workspace lists the user account (only
+    // `default`, which is own too here): still FORBIDDEN, not USAGE.
+    let home = Path::new(HOME);
+    let user = tmp_file("own-alone", "accounts.toml", USER);
+    let (mut st, root) = ws_state("m47-own-alone", "corp", "accounts = \"own\"\n");
+    st.user_accounts_file = Some(user.clone());
+    let ask = SpawnAsk {
+        workspace: "corp",
+        agent: Some(AgentKind::Claude),
+        explicit: Some("clw"),
+        parent: None,
+    };
+    let e = st.resolve_account(&ask, home).unwrap_err();
+    assert_eq!(e.kind, ErrorKind::Forbidden, "{}", e.message);
+    let _ = std::fs::remove_dir_all(root);
+    let _ = std::fs::remove_dir_all(user.parent().unwrap());
+}
+
+#[test]
+fn r126_a_a_name_both_files_would_declare_is_refused_before_writing() {
+    let (_, acme) = ws_state(
+        "m47-clash",
+        "acme",
+        "[[account]]\nagent = \"claude\"\nname = \"clw\"\nconfig_dir = \"~/.x\"\n",
+    );
+    let (_, corp) = ws_state(
+        "m47-clash-own",
+        "corp",
+        "accounts = \"own\"\n[[account]]\nagent = \"claude\"\nname = \"clw\"\nconfig_dir = \"~/.y\"\n",
+    );
+    let roots = vec![
+        ("acme".to_string(), acme.clone()),
+        ("corp".to_string(), corp.clone()),
+    ];
+    let e = check_user_text(USER, &roots).unwrap_err().message;
+    assert!(
+        e.contains("clw") && e.contains(&acme.display().to_string()),
+        "{e}"
+    );
+    assert!(!e.contains(&corp.display().to_string()), "{e}");
+    // Only `own` Workspaces: fine.
+    assert!(check_user_text(USER, &roots[1..]).is_ok());
+    // The other way: a Workspace file declaring a user account's name.
+    let uf = tmp_file("clash", "accounts.toml", USER);
+    let ws = "[[account]]\nagent = \"claude\"\nname = \"cl\"\nconfig_dir = \"~/.z\"\n";
+    assert!(check_workspace_text(ws, &uf)
+        .unwrap_err()
+        .message
+        .contains("'cl'"));
+    assert!(check_workspace_text(&format!("accounts = \"own\"\n{ws}"), &uf).is_ok());
+    // A codex account may share a claude account's name.
+    let cx = "[[account]]\nagent = \"codex\"\nname = \"cl\"\nconfig_dir = \"~/.c\"\n";
+    assert!(check_workspace_text(cx, &uf).is_ok());
+    for d in [acme, corp, uf.parent().unwrap().to_path_buf()] {
+        let _ = std::fs::remove_dir_all(d);
+    }
+}
+
+#[test]
+fn r125_b_default_login_leaves_the_variable_out() {
+    let a = parse("acme", "[[account]]\nagent = \"claude\"\nname = \"clp\"\n")
+        .unwrap()
+        .remove(0);
+    // A Workspace [env] pointing elsewhere is removed, not replaced.
+    let mut env = vec![(
+        "CLAUDE_CONFIG_DIR".to_string(),
+        "/home/u/.claude-work".to_string(),
+    )];
+    apply_env(&mut env, &a).unwrap();
+    assert!(get(&env, "CLAUDE_CONFIG_DIR").is_empty());
+    assert_eq!(get(&env, "RADE_ACCOUNT"), ["clp"]);
+    // A prefix naming ~/.claude is that login; another dir is refused.
+    let home = Path::new(HOME);
+    assert!(check_command("claude", "CLAUDE_CONFIG_DIR=~/.claude claude", &a, home).is_ok());
+    assert!(check_command("claude", "CLAUDE_CONFIG_DIR=~/.cw claude", &a, home).is_err());
+    // Clearing the dir removes the key.
+    let t = edit_in_toml(
+        USER,
+        AgentKind::Claude,
+        "clw",
+        &Edit::ConfigDir(String::new()),
+    )
+    .unwrap();
+    assert!(!t.contains("claude-work"), "{t}");
+}
+
+// ---- M47 release review (2026-10-29) ----
+
+#[test]
+fn r125_j_a_workspace_env_login_stays_the_default() {
+    // viact: [env] CLAUDE_CONFIG_DIR=~/.claude-work, no [[account]]; the
+    // user default `cl` (~/.claude) must not take it over.
+    let home = Path::new(HOME);
+    let user = tmp_file(
+        "envlogin",
+        "accounts.toml",
+        &format!("{USER}\n[[account]]\nagent = \"claude\"\nname = \"clv\"\nconfig_dir = \"~/.claude-vm25\"\n"),
+    );
+    let (mut st, root) = ws_state(
+        "m47-envlogin",
+        "viact",
+        "[env]\nCLAUDE_CONFIG_DIR = \"~/.claude-work\"\n",
+    );
+    st.user_accounts_file = Some(user.clone());
+    let l = st.account_lists(home).remove("viact").unwrap().unwrap();
+    assert_eq!(default_for(&l, AgentKind::Claude).unwrap().name, "clw");
+    // No user account on that dir: no default, so [env] stays as it is.
+    std::fs::write(
+        root.join(".rade/workspace.toml"),
+        "[env]\nCLAUDE_CONFIG_DIR = \"~/.claude-other\"\n",
+    )
+    .unwrap();
+    let l = st.account_lists(home).remove("viact").unwrap().unwrap();
+    assert!(default_for(&l, AgentKind::Claude).is_none());
+    let ask = SpawnAsk {
+        workspace: "viact",
+        agent: Some(AgentKind::Claude),
+        explicit: None,
+        parent: None,
+    };
+    assert!(st.resolve_account(&ask, home).unwrap().is_none());
+    // An explicit --account still works.
+    let ask = SpawnAsk {
+        explicit: Some("clv"),
+        ..ask
+    };
+    assert_eq!(st.resolve_account(&ask, home).unwrap().unwrap().name, "clv");
+    // A Workspace's own account of that agent: the [env] rule does not apply.
+    std::fs::write(
+        root.join(".rade/workspace.toml"),
+        "[env]\nCLAUDE_CONFIG_DIR = \"~/.claude-other\"\n[[account]]\nagent = \"claude\"\nname = \"own\"\nconfig_dir = \"~/.claude-own\"\n",
+    )
+    .unwrap();
+    // (Its own account has no `default = true`, so the user file's wins, R125.3.)
+    let l = st.account_lists(home).remove("viact").unwrap().unwrap();
+    assert_eq!(default_for(&l, AgentKind::Claude).unwrap().name, "cl");
+    let _ = std::fs::remove_dir_all(root);
+    let _ = std::fs::remove_dir_all(user.parent().unwrap());
+}
+
+#[test]
+fn r125_k_the_prefix_refusal_says_how_to_fix_it() {
+    let home = Path::new(HOME);
+    let clp = parse("acme", "[[account]]\nagent = \"claude\"\nname = \"clp\"\n")
+        .unwrap()
+        .remove(0);
+    let e = check_command(
+        "claude",
+        "CLAUDE_CONFIG_DIR=/home/u/.claude-work claude",
+        &clp,
+        home,
+    )
+    .unwrap_err()
+    .message;
+    assert!(e.starts_with("preset 'claude' sets CLAUDE_CONFIG_DIR=/home/u/.claude-work but account 'clp' uses ~/.claude (default login)"), "{e}");
+    assert!(
+        e.contains(
+            "remove the CLAUDE_CONFIG_DIR=… prefix from [agents.claude] command in config.toml"
+        ),
+        "{e}"
+    );
+}
+
+#[test]
+fn r125_k_two_accounts_on_one_login_detect_by_whether_the_variable_is_set() {
+    // cl = ~/.claude written out, clp = the default login (no dir).
+    let home = Path::new(HOME);
+    let text = "[[account]]\nagent = \"claude\"\nname = \"clp\"\n\n[[account]]\nagent = \"claude\"\nname = \"cl\"\nconfig_dir = \"~/.claude\"\n\n[[account]]\nagent = \"claude\"\nname = \"clw\"\nconfig_dir = \"~/.claude-work\"\ndefault = true\n";
+    let (mut st, root) = ws_state("m47-samelogin", "acme", text);
+    let pane = |st: &mut State| {
+        st.spawn(
+            SpawnSpec {
+                source: Some("api".into()),
+                ..Default::default()
+            },
+            &Limits::default(),
+        )
+        .unwrap()
+    };
+    let inv = |dir: Option<&str>| Invocation {
+        argv: vec!["claude".into()],
+        env: dir
+            .map(|d| BTreeMap::from([("CLAUDE_CONFIG_DIR".to_string(), d.to_string())]))
+            .unwrap_or_default(),
+    };
+    let a = pane(&mut st);
+    assert_eq!(
+        st.detect_account(&a, AgentKind::Claude, &inv(Some("$HOME/.claude")), home),
+        Some("cl".into())
+    );
+    let b = pane(&mut st);
+    assert_eq!(
+        st.detect_account(&b, AgentKind::Claude, &inv(None), home),
+        Some("clp".into())
+    );
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn r125_d_a_refused_restore_drops_a_detected_account() {
+    let home = Path::new(HOME);
+    let user = tmp_file(
+        "refdet",
+        "accounts.toml",
+        "[[account]]\nagent = \"claude\"\nname = \"clw\"\nconfig_dir = \"~/.claude-work\"\nenv_file = \"/nonexistent/x.env\"\n",
+    );
+    let (mut st, root) = ws_state("m47-refdet", "acme", "");
+    st.user_accounts_file = Some(user.clone());
+    let p = st
+        .spawn(
+            SpawnSpec {
+                source: Some("api".into()),
+                ..Default::default()
+            },
+            &Limits::default(),
+        )
+        .unwrap();
+    st.set_status(&p, None, None, Some("claude".into()), 1)
+        .unwrap();
+    let inv = Invocation {
+        argv: vec!["claude".into()],
+        env: BTreeMap::from([(
+            "CLAUDE_CONFIG_DIR".to_string(),
+            "~/.claude-work".to_string(),
+        )]),
+    };
+    st.set_invocation(&p, inv.clone()).unwrap();
+    assert_eq!(
+        st.detect_account(&p, AgentKind::Claude, &inv, home),
+        Some("clw".into())
+    );
+    let mut back: State = serde_json::from_value(serde_json::to_value(&st).unwrap()).unwrap();
+    back.user_accounts_file = Some(user.clone());
+    back.prepare_restore(&builtins(), 0);
+    assert_eq!(
+        back.refuse_restores(&|_: &str, _: &str| builtins(), home),
+        vec![p.clone()]
+    );
+    let pane = back.pane(&p).unwrap();
+    assert_eq!(pane.account, None);
+    assert!(!pane.account_detected);
+    let _ = std::fs::remove_dir_all(root);
+    let _ = std::fs::remove_dir_all(user.parent().unwrap());
 }
