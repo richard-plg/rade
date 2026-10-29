@@ -235,6 +235,8 @@ struct SetStatus {
     agent: Option<String>,
     caller: Option<String>,
     invocation: Option<rade_core::preset::Invocation>,
+    /// The Agent process that sent it (R128; CLI 1.4+).
+    reporter: Option<rade_core::agents::Reporter>,
 }
 
 #[derive(Deserialize)]
@@ -480,6 +482,16 @@ fn handle(method: &str, p: Value) -> Result<Value> {
                 ));
             }
             let sid = s.session_id.filter(|x| !x.is_empty());
+            // R128: a report from another Agent than the Pane's is dropped whole.
+            if let Some(why) = foreign_report(
+                &app,
+                &pane,
+                s.agent.as_deref(),
+                s.reporter.as_ref(),
+                sid.as_deref(),
+            ) {
+                return Ok(json!({"pane": pane, "ignored": why}));
+            }
             let inv = s.invocation.clone();
             app.update(|m| -> Result<()> {
                 m.set_status(&pane, status, sid, s.agent, now())?;
@@ -821,6 +833,53 @@ fn source_list(app: &App, l: ListParams) -> Result<Value> {
         })
         .collect();
     Ok(json!({ "sources": sources }))
+}
+
+thread_local! {
+    /// (Pane, session) pairs already written to Activity as ignored (R128).
+    static IGNORED: std::cell::RefCell<std::collections::HashSet<(String, String)>> =
+        Default::default();
+}
+
+/// [`rade_core::model::State::foreign_report`] with the Pane's own Presets;
+/// the first drop of a session also writes an Activity line.
+fn foreign_report(
+    app: &App,
+    pane: &str,
+    agent: Option<&str>,
+    reporter: Option<&rade_core::agents::Reporter>,
+    session: Option<&str>,
+) -> Option<&'static str> {
+    reporter?;
+    let (source, worktree) = app.model.borrow().pane_worktree(pane)?;
+    let presets = app.config_for(&source, Some(&worktree)).presets().ok()?;
+    // The program in the Pane's foreground now (R115.4), not the 3 s poll.
+    let foreground = rade_core::process::pane_pids()
+        .get(pane)
+        .and_then(|pid| {
+            rade_core::process::foreground_argv(std::path::Path::new("/proc"), *pid as u32)
+        })
+        .and_then(|argv| rade_core::preset::detect(&presets, &argv));
+    let (why, name, project) = {
+        let m = app.model.borrow();
+        let why = m.foreign_report(pane, agent, reporter, foreground.as_deref(), &presets)?;
+        let p = m.pane(pane)?;
+        let name = p.name.clone().unwrap_or_else(|| pane.to_string());
+        (why, name, crate::activity_view::project_of_pane(&m, pane))
+    };
+    let who = agent
+        .map(String::from)
+        .or_else(|| reporter.map(|r| r.binary.clone()))
+        .unwrap_or_else(|| "another agent's".into());
+    let key = (pane.to_string(), session.unwrap_or_default().to_string());
+    if IGNORED.with(|i| i.borrow_mut().insert(key)) {
+        crate::activity_view::push(
+            rade_core::activity::Event::ignored(&name, &who, now())
+                .in_project(project)
+                .on_pane(Some(pane.to_string())),
+        );
+    }
+    Some(why)
 }
 
 /// `--pane`, else the caller (`RADE_PANE_ID`).

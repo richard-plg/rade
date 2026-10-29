@@ -20,6 +20,8 @@ pub enum Kind {
     Limit,
     /// An Update (R127): available, installed, failed.
     Update,
+    /// A hook report dropped because another Agent sent it (R128).
+    Ignored,
 }
 
 /// One event. A row reads `<actor> <text>` (`tests asked which
@@ -101,6 +103,16 @@ impl Event {
     /// `RADE 1.2.0 is available` (R127).
     pub fn update(text: &str, at: u64) -> Event {
         Event::new(Kind::Update, at, "RADE", text.into())
+    }
+
+    /// `b1-k2 ignored a codex session (started by its Agent)` (R128).
+    pub fn ignored(pane: &str, agent: &str, at: u64) -> Event {
+        Event::new(
+            Kind::Ignored,
+            at,
+            pane,
+            format!("ignored a {agent} session (started by its Agent)"),
+        )
     }
 
     pub fn limit(account: &str, text: &str, at: u64) -> Event {
@@ -196,6 +208,17 @@ mod tests {
         assert_eq!((e.kind, e.actor.as_str(), e.at), (Kind::Update, "RADE", 9));
         assert_eq!(e.line(), "RADE 1.2.0 is available");
         assert_eq!(serde_json::to_string(&e.kind).unwrap(), "\"update\"");
+    }
+
+    #[test]
+    fn r128_ignored_event_names_the_pane() {
+        let e = Event::ignored("b1-k2", "codex", 3);
+        assert_eq!(e.kind, Kind::Ignored);
+        assert_eq!(
+            e.line(),
+            "b1-k2 ignored a codex session (started by its Agent)"
+        );
+        assert_eq!(serde_json::to_string(&e.kind).unwrap(), "\"ignored\"");
     }
 
     #[test]

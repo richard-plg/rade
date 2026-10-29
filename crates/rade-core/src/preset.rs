@@ -523,6 +523,34 @@ fn is_name(k: &str) -> bool {
         && k.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
+/// A one-shot run of an agent CLI (R128.3): Codex `exec`, Claude `-p` /
+/// `--print`. `words` is an argv or a command's shell words (quotes and
+/// `VAR=value` prefixes allowed); the agent is the first word whose base
+/// name is `codex` or `claude` (an interpreter may come before it).
+pub fn is_headless<S: AsRef<str>>(words: &[S]) -> bool {
+    headless_program(words).is_some()
+}
+
+/// The agent of a one-shot run ([`is_headless`]): `codex` or `claude`.
+pub fn headless_program<S: AsRef<str>>(words: &[S]) -> Option<&'static str> {
+    let words: Vec<&str> = words
+        .iter()
+        .map(|w| w.as_ref().trim_matches(|c| c == '\'' || c == '"'))
+        .collect();
+    let base = |w: &str| w.rsplit('/').next().unwrap_or(w).to_string();
+    let at = words
+        .iter()
+        .position(|w| matches!(base(w).as_str(), "codex" | "claude" | "codex.js"))?;
+    let rest = &words[at + 1..];
+    match base(words[at]).as_str() {
+        "codex" | "codex.js" => rest.contains(&"exec").then_some("codex"),
+        _ => rest
+            .iter()
+            .any(|w| *w == "-p" || *w == "--print" || w.starts_with("--print="))
+            .then_some("claude"),
+    }
+}
+
 /// Single-quote for POSIX shells.
 pub fn shell_quote(s: &str) -> String {
     format!("'{}'", s.replace('\'', r"'\''"))
@@ -855,5 +883,40 @@ mod tests {
         assert_eq!(a.len(), 36);
         assert_eq!(&a[14..15], "4");
         assert_ne!(a, new_uuid());
+    }
+
+    #[test]
+    fn r128_c_one_shot_runs() {
+        let argv = |s: &str| {
+            shell_words(s)
+                .into_iter()
+                .map(String::from)
+                .collect::<Vec<_>>()
+        };
+        for yes in [
+            "codex exec draw",
+            "codex --no-daemon exec --skip-git-repo-check -s workspace-write -C /x 'p'",
+            "codex -m x exec",
+            "/usr/bin/codex exec",
+            "node /usr/lib/node_modules/@openai/codex/bin/codex.js exec hi",
+            "'codex' '--no-daemon' 'exec' 'hi'",
+            "claude -p hi",
+            "CLAUDE_CONFIG_DIR=/x claude --print",
+            "claude --print=json",
+        ] {
+            assert!(is_headless(&argv(yes)), "{yes}");
+        }
+        for no in [
+            "codex",
+            "codex resume X",
+            "codex --yolo",
+            "claude --resume X",
+            "claude 'fix exec bug'",
+            "zsh -ic 'clv \"Đọc TASK.md\"'",
+            "bash ~/bin/agent.sh -p",
+            "",
+        ] {
+            assert!(!is_headless(&argv(no)), "{no}");
+        }
     }
 }

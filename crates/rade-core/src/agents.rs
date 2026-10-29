@@ -11,6 +11,21 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::time::Duration;
 
+/// The Agent process behind a hook report (R128): the nearest ancestor of
+/// `rade status --hook` running a Preset's program, sent by the CLI.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Reporter {
+    /// Its program's base name (`codex`), as [`Preset::binary`].
+    pub binary: String,
+    /// A one-shot run (`codex exec`, `claude -p`; [`crate::preset::is_headless`]).
+    #[serde(default)]
+    pub headless: bool,
+}
+
+/// [`State::foreign_report`]'s reasons (`pane.set_status` answers them).
+pub const IGNORED_ANOTHER: &str = "another agent";
+pub const IGNORED_ONE_SHOT: &str = "one-shot run";
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum AgentStatus {
@@ -299,6 +314,55 @@ impl State {
         Ok(())
     }
 
+    /// Why a hook report about Pane `pane` must be dropped whole (R128), or
+    /// `None` to take it. A Pane with a live Agent (one that has not
+    /// `exited`) keeps it: a report from another kind of agent (by the
+    /// Preset it names, else its `reporter`; kinds as the glyphs, R115) is
+    /// taken only once that kind runs in the Pane's `foreground` (a Preset
+    /// name, read when the report arrives), and a one-shot run (`codex
+    /// exec`, `claude -p`) never speaks for a Pane that isn't one itself.
+    /// A report without a reporter (by hand, an older CLI) is always taken,
+    /// and so is one about a Pane whose kind is unknown (a wrapper Preset).
+    pub fn foreign_report(
+        &self,
+        pane: &str,
+        agent: Option<&str>,
+        reporter: Option<&Reporter>,
+        foreground: Option<&str>,
+        presets: &BTreeMap<String, Preset>,
+    ) -> Option<&'static str> {
+        let reporter = reporter?;
+        let p = self.pane(pane)?;
+        p.agent
+            .as_deref()
+            .filter(|_| p.status != Some(AgentStatus::Exited))?;
+        let one_shot_pane = p
+            .command()
+            .is_some_and(|c| crate::preset::is_headless(&crate::preset::shell_words(c)))
+            || p.invocation
+                .as_ref()
+                .is_some_and(|i| crate::preset::is_headless(&i.argv));
+        if reporter.headless && !one_shot_pane {
+            return Some(IGNORED_ONE_SHOT);
+        }
+        use crate::design::{agent_glyph, AgentMark};
+        let known = |m: AgentMark| (m != AgentMark::Other).then_some(m);
+        let own = p.mark().and_then(known)?;
+        let kind_of = |name: &str| {
+            known(agent_glyph(name)).or_else(|| {
+                presets
+                    .get(name)
+                    .and_then(|x| known(agent_glyph(x.binary())))
+            })
+        };
+        let reported = match agent {
+            Some(a) => kind_of(a),
+            None => known(agent_glyph(&reporter.binary)),
+        }?;
+        (reported != own && foreground.and_then(kind_of) != Some(reported))
+            .then_some(IGNORED_ANOTHER)
+    }
+
     /// Record the Agent's real invocation (R11.2; `pane.set_status`).
     pub fn set_invocation(&mut self, pane: &str, invocation: Invocation) -> Result<()> {
         let loc = self.locate_or_err(pane)?;
@@ -346,6 +410,31 @@ impl State {
         let Some(loc) = self.locate(id) else { return };
         let Ok(t) = self.tab_mut(&loc) else { return };
         let p = t.pane_mut(id).unwrap();
+        // R128.4: a one-shot run (`codex exec`) recorded over the Pane's
+        // Agent by 1.0–1.3 is never re-run; the Pane comes back a shell.
+        if let Some(prog) = p
+            .invocation
+            .as_ref()
+            .and_then(|i| crate::preset::headless_program(&i.argv))
+        {
+            p.invocation = None;
+            let how = if prog == "codex" {
+                "codex exec"
+            } else {
+                "claude -p"
+            };
+            p.notice = Some(format!(
+                "rade: not resumed: the last session recorded here was a one-shot {prog} run ({how})"
+            ));
+            p.agent = None;
+            p.session_id = None;
+            p.had_turn = false;
+            p.status = Some(AgentStatus::Exited);
+            p.clear_detected_account();
+            if let crate::PaneKind::Terminal { command, .. } = &mut p.kind {
+                *command = None;
+            }
+        }
         let command = restore_command(p, presets);
         // A hand-started Agent that exited: its shell is all that
         // comes back, so it is no longer an Agent Pane.

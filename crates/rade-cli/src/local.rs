@@ -54,8 +54,22 @@ pub fn hook(
     // The report that names the Preset (session start) also records how the
     // Agent was really started, so Session Restore can re-run it (R11.2).
     let invocation = agent.as_deref().and_then(|a| invocation(&presets, a));
+    // Which Agent process this is (R128): the app drops a report from an
+    // Agent other than the Pane's, even when the walk above lost the parent.
+    let reporter = rade_core::process::nearest_agent(
+        Path::new("/proc"),
+        std::os::unix::process::parent_id(),
+        &binaries,
+        &[
+            format!("RADE_PANE_ID={pane}"),
+            format!("RADE_SOCKET={socket}"),
+        ],
+    )
+    .map(|(binary, argv)| {
+        json!({"binary": binary, "headless": rade_core::preset::is_headless(&argv)})
+    });
     let params = json!({"pane": pane, "status": state, "session_id": session, "agent": agent,
-        "invocation": invocation});
+        "invocation": invocation, "reporter": reporter});
     let _ = call_at(
         &PathBuf::from(socket),
         "pane.set_status",

@@ -729,3 +729,343 @@ fn r104_m_agents_spawned_beside_a_link_checkout_terminal_start_there() {
         .unwrap();
     assert_eq!(cwd(&w, &out), Path::new("/tmp/x"));
 }
+
+fn reporter(binary: &str, headless: bool) -> Reporter {
+    Reporter {
+        binary: binary.into(),
+        headless,
+    }
+}
+
+/// [`State::foreign_report`] then, when taken, the report as the socket
+/// method applies it.
+fn report(
+    w: &mut State,
+    pane: &str,
+    status: Option<AgentStatus>,
+    sid: Option<&str>,
+    agent: Option<&str>,
+    from: &Reporter,
+) -> Option<&'static str> {
+    let presets = crate::preset::builtins();
+    let why = w.foreign_report(pane, agent, Some(from), None, &presets);
+    if why.is_none() {
+        w.set_status(pane, status, sid.map(Into::into), agent.map(Into::into), 1)
+            .unwrap();
+    }
+    why
+}
+
+#[test]
+fn r128_a_a_pane_keeps_its_live_agent() {
+    let (mut w, lead) = with_lead();
+    let claude = reporter("claude", false);
+    let exec = reporter("codex", true);
+    let codex = reporter("codex", false);
+    assert_eq!(
+        report(&mut w, &lead, None, Some("S1"), Some("claude"), &claude),
+        None
+    );
+    assert_eq!(
+        report(
+            &mut w,
+            &lead,
+            Some(AgentStatus::Running),
+            Some("S1"),
+            None,
+            &claude
+        ),
+        None
+    );
+    // `codex exec` from Claude's Bash tool: session start, then its turn.
+    assert_eq!(
+        report(&mut w, &lead, None, Some("S2"), Some("codex"), &exec),
+        Some(IGNORED_ONE_SHOT)
+    );
+    assert_eq!(
+        report(
+            &mut w,
+            &lead,
+            Some(AgentStatus::Done),
+            Some("S2"),
+            None,
+            &exec
+        ),
+        Some(IGNORED_ONE_SHOT)
+    );
+    // An interactive Codex the Agent started (its parent gone): still not the Pane's.
+    assert_eq!(
+        report(&mut w, &lead, None, Some("S2"), Some("codex"), &codex),
+        Some(IGNORED_ANOTHER)
+    );
+    assert_eq!(
+        report(
+            &mut w,
+            &lead,
+            Some(AgentStatus::Done),
+            Some("S2"),
+            None,
+            &codex
+        ),
+        Some(IGNORED_ANOTHER)
+    );
+    let p = w.pane(&lead).unwrap();
+    assert_eq!(
+        (p.agent.as_deref(), p.session_id.as_deref(), p.status),
+        (Some("claude"), Some("S1"), Some(AgentStatus::Running))
+    );
+    // `/clear`: the same Agent's new session is taken.
+    assert_eq!(
+        report(&mut w, &lead, None, Some("S3"), Some("claude"), &claude),
+        None
+    );
+    assert_eq!(w.pane(&lead).unwrap().session_id.as_deref(), Some("S3"));
+    // Once it exited, another Agent may take the Pane.
+    assert_eq!(
+        report(
+            &mut w,
+            &lead,
+            Some(AgentStatus::Exited),
+            None,
+            None,
+            &claude
+        ),
+        None
+    );
+    assert_eq!(
+        report(&mut w, &lead, None, Some("S4"), Some("codex"), &codex),
+        None
+    );
+    let p = w.pane(&lead).unwrap();
+    assert_eq!(
+        (p.agent.as_deref(), p.session_id.as_deref()),
+        (Some("codex"), Some("S4"))
+    );
+}
+
+#[test]
+fn r128_b_the_foreground_program_may_take_the_pane() {
+    let presets = crate::preset::builtins();
+    let (mut w, lead) = with_lead();
+    let codex = reporter("codex", false);
+    // Claude ended without an `exited` report; `codex` now runs in the foreground.
+    assert_eq!(
+        w.foreign_report(&lead, Some("codex"), Some(&codex), None, &presets),
+        Some(IGNORED_ANOTHER)
+    );
+    assert_eq!(
+        w.foreign_report(&lead, Some("codex"), Some(&codex), Some("claude"), &presets),
+        Some(IGNORED_ANOTHER)
+    );
+    assert_eq!(
+        w.foreign_report(&lead, Some("codex"), Some(&codex), Some("codex"), &presets),
+        None
+    );
+    w.set_status(&lead, None, Some("S5".into()), Some("codex".into()), 1)
+        .unwrap();
+    assert_eq!(w.pane(&lead).unwrap().agent.as_deref(), Some("codex"));
+    // A one-shot Pane's own `codex exec` reports for it.
+    let (mut w, lead) = with_lead();
+    w.set_invocation(
+        &lead,
+        Invocation {
+            argv: vec!["codex".into(), "exec".into(), "hi".into()],
+            env: Default::default(),
+        },
+    )
+    .unwrap();
+    w.set_status(&lead, None, None, Some("codex".into()), 1)
+        .unwrap();
+    assert_eq!(
+        report(
+            &mut w,
+            &lead,
+            Some(AgentStatus::Done),
+            Some("S6"),
+            None,
+            &reporter("codex", true)
+        ),
+        None
+    );
+    // No reporter, an unknown Preset, an unknown reporter: taken as before.
+    let (w, lead) = with_lead();
+    assert_eq!(
+        w.foreign_report(&lead, Some("codex"), None, None, &presets),
+        None
+    );
+    assert_eq!(
+        w.foreign_report(&lead, Some("mystery"), Some(&codex), None, &presets),
+        None
+    );
+    assert_eq!(
+        w.foreign_report(
+            &lead,
+            None,
+            Some(&reporter("fake-agent.sh", false)),
+            None,
+            &presets
+        ),
+        None
+    );
+}
+
+#[test]
+fn r128_b_a_wrapper_preset_takes_its_agents_reports() {
+    // `[agents.clv] command = "zsh -ic 'clv'"`: its kind is unknown until
+    // the session start records `claude` as its invocation.
+    let mut presets = crate::preset::builtins();
+    presets.insert(
+        "clv".into(),
+        crate::preset::Preset {
+            command: "zsh -ic 'clv'".into(),
+            ..presets["claude"].clone()
+        },
+    );
+    let mut w = State::new(Path::new("/home/u"));
+    w.add_source(Path::new("/tmp/x"), None).unwrap();
+    let p = w
+        .spawn(
+            SpawnSpec {
+                source: Some("x".into()),
+                agent: Some("clv".into()),
+                command: Some("zsh -ic 'clv'".into()),
+                ..Default::default()
+            },
+            &limits(),
+        )
+        .unwrap();
+    let claude = reporter("claude", false);
+    assert_eq!(
+        w.foreign_report(&p, Some("claude"), Some(&claude), None, &presets),
+        None
+    );
+    w.set_status(&p, None, Some("S1".into()), Some("claude".into()), 1)
+        .unwrap();
+    w.set_invocation(
+        &p,
+        Invocation {
+            argv: vec!["claude".into()],
+            env: Default::default(),
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        w.foreign_report(&p, None, Some(&claude), None, &presets),
+        None
+    );
+    assert_eq!(
+        w.foreign_report(&p, None, Some(&reporter("codex", false)), None, &presets),
+        Some(IGNORED_ANOTHER)
+    );
+}
+
+#[test]
+fn r128_d_a_recorded_one_shot_run_is_never_resumed() {
+    let (mut w, lead) = with_lead();
+    w.set_status(
+        &lead,
+        Some(AgentStatus::Done),
+        Some("7d6a".into()),
+        Some("codex".into()),
+        1,
+    )
+    .unwrap();
+    w.set_invocation(
+        &lead,
+        Invocation {
+            argv: [
+                "codex",
+                "--no-daemon",
+                "exec",
+                "--skip-git-repo-check",
+                "-C",
+                "/x/img",
+                "$imagegen a kitchen",
+            ]
+            .map(String::from)
+            .to_vec(),
+            env: Default::default(),
+        },
+    )
+    .unwrap();
+    let ok = w
+        .spawn(
+            SpawnSpec {
+                source: Some("x".into()),
+                agent: Some("claude".into()),
+                name: Some("ok".into()),
+                ..Default::default()
+            },
+            &limits(),
+        )
+        .unwrap();
+    w.set_status(
+        &ok,
+        Some(AgentStatus::Done),
+        Some("c81a".into()),
+        Some("claude".into()),
+        1,
+    )
+    .unwrap();
+    let mut env = BTreeMap::new();
+    env.insert(
+        "CLAUDE_CONFIG_DIR".to_string(),
+        "/home/u/.claude-work".to_string(),
+    );
+    w.set_invocation(
+        &ok,
+        Invocation {
+            argv: ["claude", "--dangerously-skip-permissions", "Đọc TASK.md"]
+                .map(String::from)
+                .to_vec(),
+            env,
+        },
+    )
+    .unwrap();
+    w.prepare_restore(&crate::preset::builtins(), 2);
+    let p = w.pane(&lead).unwrap();
+    assert_eq!(
+        (
+            p.agent.as_deref(),
+            p.session_id.as_deref(),
+            p.command(),
+            p.status
+        ),
+        (None, None, None, None)
+    );
+    assert!(p.invocation.is_none());
+    assert_eq!(p.name.as_deref(), Some("lead"));
+    assert_eq!(
+        p.notice.as_deref(),
+        Some("rade: not resumed: the last session recorded here was a one-shot codex run (codex exec)")
+    );
+    // Through an interpreter, the notice still names the agent.
+    let (mut w2, n) = with_lead();
+    w2.set_invocation(
+        &n,
+        Invocation {
+            argv: [
+                "node",
+                "/usr/lib/node_modules/@openai/codex/bin/codex.js",
+                "exec",
+                "x",
+            ]
+            .map(String::from)
+            .to_vec(),
+            env: Default::default(),
+        },
+    )
+    .unwrap();
+    w2.prepare_restore(&crate::preset::builtins(), 2);
+    assert!(w2
+        .pane(&n)
+        .unwrap()
+        .notice
+        .as_deref()
+        .unwrap()
+        .ends_with("one-shot codex run (codex exec)"));
+    assert_eq!(
+        w.pane(&ok).unwrap().command(),
+        Some("CLAUDE_CONFIG_DIR='/home/u/.claude-work' 'claude' '--dangerously-skip-permissions' --resume 'c81a'")
+    );
+}
