@@ -1589,13 +1589,13 @@ AC:
 
 The owner's report of 2026-10-30: in a narrow Pane a path or URL continues on the next row, and Ctrl+click opened only the clicked row's piece (or nothing).
 
-1. Ctrl+click reads the clicked row and up to 8 rows above and below. While the token ends its row at the right edge — within 2 columns of the Terminal's width (a soft wrap), or as far right as the rows next to it (Claude Code / Codex wrapping at their own width, the next row indented) — the next row's first word is appended; the same backwards. A URL takes only pieces that look like more of a URL (`/ ? = & % # . - _`).
+1. Ctrl+click reads the clicked row and up to 8 rows above and below. While the token ends its row within 3 columns of the Terminal's width — a soft wrap, or Claude Code / Codex breaking a long token at the width with the next row indented — the next row's first word is appended; the same backwards. A URL takes only pieces that look like more of a URL (`/ ? = & % # . - _`), and a URL on the row above is joined only to such a piece.
 2. Of those joins the longest that opens something wins — a URL, or a path that exists (R7.1 resolution) — else what Ghostty matched, else the clicked word (`rade_core::link::token_across`).
 3. Ghostty's own match is held during the click and opened only when no longer join opens.
 
 AC:
-- R134-a [M51] (unit): Given rows with a soft-wrapped path, a TUI-wrapped URL with an indent, a path over 3 rows, two edge words that open nothing, a short row under a wider one, and a URL followed by plain words. When `token_across` runs on a cell of each. Then the whole path / URL comes back (from either row), the clicked word alone where nothing opens or the row is not at the edge, and the URL without the plain words.
-- R134-b [M51] (e2e): Given a Terminal that prints an existing path longer than its width, and a TUI-shaped text wrapping a path and a URL at 60 columns with an indent. When `rade debug click` Ctrl+clicks a later row of the path, each row of the URL and the second row of the wrapped path. Then the Viewer opens the whole path each time and the stand-in browser gets the whole URL each time.
+- R134-a [M51] (unit): Given rows with a soft-wrapped path, a TUI-wrapped URL with an indent, a path over 3 rows, two edge words that open nothing, a short row under a wider one, a URL followed by plain words, and a short row ending in a URL above a plain word (m4's OSC 8 line). When `token_across` runs on a cell of each. Then the whole path / URL comes back (from either row), the clicked word alone where nothing opens or the row is not at the edge, and the URL without the plain words.
+- R134-b [M51] (e2e): Given a Terminal that prints an existing path longer than its width, and a TUI-shaped text breaking a path and a URL 2 columns short of the width with an indent. When `rade debug click` Ctrl+clicks a later row of the path, each row of the URL and the second row of the wrapped path. Then the Viewer opens the whole path each time and the stand-in browser gets the whole URL each time.
 
 ## R135 — Selected text in the Viewer is visible (M51)
 

@@ -11,7 +11,7 @@ Status: **implemented** (approved 2026-10-30: Q1 delete, Q2 `git init` only, Q3 
 - **Method names**: `worktree.move` (not `worktree.set_project`).
 - **R133.1 — no Fan-out refusal**: Fan-outs belong to a Source, not a Project.
 - **R133.2 — Prune's UI is a palette action** (*Prune Unused Project Checkouts…*), not a Workspace menu item.
-- **R134 — edge rule**: "within 2 columns of the Terminal's width, or as far right as the rows next to it" (the block's widest row failed when a long shell command was on screen); a URL takes only URL-looking pieces.
+- **R134 — edge rule**: within 3 columns of the Terminal's width only. "The block's widest row" failed with a long shell command on screen, and "as far right as the rows next to it" joined m4's OSC 8 click into `…?q=1clearosc8-guide`; Claude Code / Codex break long tokens at the width anyway. A URL takes only URL-looking pieces, in both directions.
 - **R135 — the cause was visibility, not input.** Reproduced on a headless GNOME Shell (Wayland) with Mutter RemoteDesktop input and under Xvfb with XTest: drag, double-click, Ctrl+C and the context menu's Copy all worked; the selection was drawn as (12, 25, 25) / (1, 14, 8) on the page's (7, 9, 11). Fix: token `view-sel`. The keyboard (Ctrl+C reaching a Terminal) was never the problem, so R135's old AC c is gone.
 - **Also seen, not fixed**: an HTML file without its own styles renders black text on the dark Viewer (WebKit's default colors on RADE's page background) — a follow-up.
 
