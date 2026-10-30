@@ -37,8 +37,10 @@ terminal from the UI asks first and names any Agent that's still working.
   <img alt="A confirmation dialog: Close Pane, naming the Agent that is still running" src="../images/close-confirm-dark.png">
 </picture>
 
-Tab labels follow the title the program sets (Claude Code and Codex name their sessions). Double
-click a label to rename it; your name sticks.
+An Agent's Tab is named after its session: the title Claude Code or Codex gives it (cut to 24
+characters; hover for all of it), or the Pane's name if you gave one. With several Agents in a
+Tab, the first one's (the parent's in an Agent Grid) names it. Double click a label to rename it;
+your name sticks.
 
 ## Open files from terminal output
 
@@ -46,6 +48,10 @@ click a label to rename it; your name sticks.
 `~/notes.md`, relative to the terminal's folder — to open it in a [Viewer](viewer-files-search.md)
 beside it, at that line. `Ctrl+Shift+click` opens it in a new Viewer to the side. URLs open in your
 browser. Agents do the same with `rade open src/cart/Cart.tsx:12`.
+
+In a narrow Pane a long path or URL runs onto the next row — wrapped by the terminal, or by
+Claude Code / Codex at their own width with an indent. `Ctrl+click` any of its rows: RADE joins
+the pieces and opens the whole path (when that file exists) or URL.
 
 <picture>
   <source media="(prefers-color-scheme: light)" srcset="../images/ctrl-click-light.png">

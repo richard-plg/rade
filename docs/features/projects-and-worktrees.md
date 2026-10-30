@@ -70,6 +70,22 @@ confirm.
 
 Changing a link's base never rewrites the base its existing Worktrees were cut from.
 
+**A new folder without git.** Add it from *Add source… › A folder…*: its row says *Not a git
+repository* and offers **Initialize**, which runs only `git init -b <base>` (nothing is added or
+committed). It links on its own folder right away; New Worktree waits for its first commit. If you
+cancel the dialog, the folder is not left behind as a Source.
+
+### Removing a Project
+
+**Remove Project…** on a Project's menu (or `rade project remove shop`, `--dry-run` to look first)
+lists what happens, then: the Project's folder and `project.toml` are deleted, its Project
+checkouts that no other Project uses are removed if they're clean (one with uncommitted changes is
+kept and named), Panes running in them close, and its Worktrees move to **Scratch** with their base.
+Repositories and Worktrees are never deleted.
+
+Unlinking a Source or changing a link's base can leave a Project checkout nobody uses; RADE says so.
+`rade project prune` (or *Prune Unused Project Checkouts…* in the palette) removes the clean ones.
+
 ### Which checkout a link uses
 
 - The Source's own folder (**main checkout**) when it's on the link's base and no other link needs
@@ -100,7 +116,12 @@ The left column shows the Workspace on screen:
 - **Projects** → their **Source links** (name and base; a diamond when off base, a chain icon when
   another Project uses the same Source) → **Worktrees** (`↑ahead`, changed files, review state)
   → **Agents** (glyph and status).
-- **Scratch**: terminals at the Workspace root and Worktrees in no Project.
+- **Scratch**: terminals at the Workspace root and Worktrees in no Project. A Scratch Worktree
+  whose branch names a Project (`shop/coupons`, or the link's base) shows `→ Shop?`; click it to
+  move it there. A Worktree's menu has *Move to Project ▸* (another Project, or Scratch); when the
+  new link has another base, RADE asks whether to keep comparing against the old one
+  (`rade worktree move shop-web spike --project shop [--rebase-to-link]`). *Close Panes in
+  Scratch…* on a repository's Scratch row closes the terminals open in its own folder.
 - The **Inbox** pill at the foot.
 
 A folded row shows its children's worst status and waiting count. `Alt+1…9` jumps to Project
@@ -110,7 +131,8 @@ A folded row shows its children's worst status and waiting count. `Alt+1…9` ju
 
 Click a Project row: KPIs (Agents waiting / running, Worktrees, uncommitted files), the **link
 table** (base, checkout, HEAD, ahead/behind, `clean` / `off base` / `also in`), the Project's
-Worktrees and its recent Activity. **Open terminal** opens a shell in the link's checkout.
+Worktrees and its recent Activity. **Open terminal** opens a shell in a link's checkout: with
+several links it asks which (the one you used last first).
 
 ## Worktrees
 

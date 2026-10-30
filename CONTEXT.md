@@ -11,7 +11,7 @@ A working identity (a company, personal work) rooted at a folder such as `~/work
 _Avoid_: Tenant, profile, account (and a Conductor-style "workspace" meaning a checkout)
 
 **Source**:
-A git repository (or plain folder) registered in RADE, in exactly one Workspace and in any number of its Projects (once per Source link). (Called Project before M15.)
+A git repository (or plain folder) registered in RADE, in exactly one Workspace and in any number of its Projects (once per Source link); a plain folder is linked only once it is a git repository (New Project's **Initialize** runs `git init`). (Called Project before M15.)
 _Avoid_: Project, repo, folder
 
 **Project**:

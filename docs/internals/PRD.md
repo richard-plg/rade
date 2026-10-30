@@ -918,6 +918,11 @@ AC:
 - R103-j [M35] (e2e): Given scene A. When `debug.ui chrome` reads the Statusline. Then its cells are, in order, `ACME`, `Shop`, `checkout-v2 ↑3 ↓0`, `1 waiting · 1 running · 2 done`, `:5173`, `richard@acme.io` and the key hints, and with `status_bar = false` it is hidden.
 - R103-k [M35] (e2e): Given Panes `planner` and `tests` in one Tab with `tests` focused. When the keyboard focus moves into `planner` the way a click does, then back into `tests`. Then each time only the Pane with the keyboard has class `focused` (border and glow) and is the Tab's focused Pane, and the other is dimmed.
 
+**M51 amendment (R103.2):** an Agent Tab's name is its lead Agent Pane's label (the Fan-out grid's owner, else the first Agent Pane, as R115.3): the name the user gave the Pane, else its session title (R104.7) cut to 24 characters with `…`, else its Preset — so Tabs of several Claude sessions no longer all read `claude`. A Tab rename still wins; the tooltip keeps the whole title (R1); the Agent count and glyphs are unchanged.
+
+- R103-l [M51] (unit): Given an Agent Pane of Preset `claude`. When its title is `Tính năng projects trên SCRATCH`, `Fix login`, `Claude Code`, none, or 40 characters, and when the Pane is named `planner` or the Tab renamed `api`. Then the Tab label is `Tính năng projects trên…`, `Fix login`, `claude`, `claude`, 23 characters and `…`, `planner`, `api`.
+- R103-m [M51] (e2e): Given two Agent Tabs whose Agents set OSC 2 titles `✳ Fix login` and `Tính năng projects trên SCRATCH`. When `debug.tabs` reads the strip. Then their labels are `Fix login` and `Tính năng projects trên…`, the second's tooltip has the whole title, and before any title the label is the Preset.
+
 ## R104 — Navigator (M37)
 
 The left column replaces the sidebar (ADR-0034 decision 8; spec [a-workspace.md](design/spec/a-workspace.md) rows A.17–A.38).
@@ -1534,6 +1539,73 @@ AC:
 - R130-d [M50] (e2e): Given R130-c's relaunch with the queue still running. When `rade send` targets a waiting Pane of `w5` and `w4` is switched to with one of its Panes focused. Then the text reaches `w5`'s Agent and no Pane of the Tab shown in `w4` is still waiting a second later.
 - R130-e [M50] (e2e): Given a relaunch with 20 or more Agents still waiting after 1 s. When the app quits and starts again. Then state.json holds the same session ids as before, and each Agent that was waiting resumes.
 - R130-f [M50] (e2e): Given a paused Source and a waiting Pane closed right after launch. When the queue has run. Then neither the paused Source's Agents nor the closed Pane started a process.
+
+## R131 — A folder without git in a Project (M51)
+
+The owner's report of 2026-10-30: a new folder added in New Project could not be linked ("not a git repository") and nothing helped. CONTEXT.md lets a Source be a plain folder, but a Source link needs a base branch.
+
+1. **Nothing is left behind.** A folder or `owner/repo` added in New Project or Add Source is registered as a Source for the dialog's plan; on Cancel (or when its row is not saved) it is forgotten again. A cloned folder stays on disk.
+2. **Initialize.** A row whose plan is refused with `not a git repository` shows `Not a git repository` and an **Initialize** button: one confirmation naming the folder and the command, then only `git init -b <the row's base>` — no file added, no commit — and the row is planned again.
+3. **A repository without commits** (`git init`, HEAD unborn): a link whose base is the unborn branch uses the main checkout (it is on its base) and can be created. What needs a commit is refused with `USAGE` `<folder> has no commits yet: commit once, then try again` and 0 commands: a Project checkout for another base, a new Worktree (`git worktree add` has nothing to start from).
+4. **The CLI names the fix**: a plain folder's link is refused with `<folder>: not a git repository (run: git init -b <base>)` (`project plan` exits 2, R98.3); the CLI never runs git for it.
+
+AC:
+- R131-a [M51] (unit): Given an empty folder and a `git init -b main` folder with an untracked file. When they are observed and links at `main` on both and at `develop` on the second are resolved. Then the first is not git and is refused with the `git init` hint, the second has `unborn = main`, its `main` link uses the main checkout with 0 commands, and its `develop` link is refused `has no commits yet`.
+- R131-b [M51] (e2e): Given New Project with a new empty folder added. When the row is read and the dialog cancelled. Then the row shows Initialize, Create is disabled, and after Cancel the folder is no Source and no Project file exists.
+- R131-c [M51] (e2e): Given that row again with `a.txt` in the folder. When Initialize is confirmed and Create pressed. Then HEAD is `refs/heads/main` with no commit, `a.txt` is untracked, the row plans the main checkout, and the link is written with the Source registered.
+- R131-d [M51] (unit+e2e): Given that Project on a repository with no commit. When a Worktree is added on its link, then again after one commit. Then the first is refused `has no commits yet: commit once, then try again` with nothing created, and the second works.
+- R131-e [M51] (e2e): Given a plain folder registered as a Source. When `rade project plan` links it. Then the output names `not a git repository (run: git init -b main)` and no file is written.
+
+## R132 — Worktrees between Projects, Scratch (M51)
+
+From the owner's UX review of 2026-10-30.
+
+1. **Move to Project asks about the base.** When the target Project's link has another base than the one the Worktree compares against (its recorded base, else its link's, else the Source's main branch), one question: `Move “<worktree>” to <Project>?`, buttons `Keep comparing against <old>` (default) and `Compare against <new>` (re-records the Worktree's base; commits are never rebased). Same base, or Scratch: no question, the base is kept. `rade worktree move <source> <worktree> --project <p> | --scratch [--rebase-to-link]` (method `worktree.move`) does the same; a Project that doesn't link the Source, or a main checkout, is refused with `USAGE`.
+2. **Suggestions only on a real match.** A Scratch Worktree's `→ <Project>?` (R104.1): a Project linking its Source whose base is the branch itself, or one of whose `/`-separated parts is the Project id, alone or before `-` / `_` / `.` (`shop/coupons`, `feat/shop-x`; not `shopping-cart`, not `maintenance` for `main`); two Projects match → no suggestion. A Source only one Project links still suggests it.
+3. **Words.** The Move to Project submenu's last item is **Scratch** (✓ when the Worktree is in none), never "No Project"; `scripts/check-removed.sh` fails on a `"No Project` string literal in code.
+4. **Close Panes in Scratch…** replaces Remove from Scratch… (R104.5), with the title `Close <n> Pane(s) of “<source>”?`; what it does is unchanged.
+5. **Project home's Open terminal** with several links shows them (`<source> · <base>`, the one used last first) instead of opening on the first link; with one link it opens at once. The button looks the same (spec B).
+
+AC:
+- R132-a [M51] (unit+e2e): Given Projects linking a Source at `master` / `develop` and ids `beacon`, `atlas`, `shop24`. When branches `masterclass`, `master-old`, `feat/beaconing`, `beacon`, `feat/beacon_x`, `beacon/atlas-x`, `shopping-cart`, `shop24/fix` are suggested. Then only `beacon`, `feat/beacon_x` and `shop24/fix` get a Project, `beacon/atlas-x` none (two match).
+- R132-b [M51] (e2e): Given `checkout-v2` in Shop (develop) and Shop24 linking the Source at `release/2.4`. When it is moved to Shop24 (Cancel, then Compare against), back with `rade worktree move` without and with `--rebase-to-link`, then to Scratch. Then the dialog names both bases and buttons Cancel / Keep / Compare, Cancel moves nothing, the records go `shop24@release/2.4`, `shop@release/2.4`, `shop@develop`, `null@develop`, and a Project not linking the Source or the main checkout is refused (exit 2).
+- R132-c [M51] (e2e): Given that Worktree's row. When its menu is read and check-removed runs on a tree with a planted `"No Project{}"` label. Then the submenu is `Shop ✓`, `Shop24`, `Scratch`, and the script fails.
+- R132-d [M51] (e2e): Given a shell in a linked Source's main checkout under Scratch. When its row's menu is read and the item activated. Then the item is `Close Panes in Scratch…` and the dialog title `Close 1 Pane of “shared-ui”?`.
+- R132-e [M51] (unit+e2e): Given Project Trio with 3 links and Solo with 1. When Trio's home is read, a Terminal opened on `shop-api`, the home read again and Open terminal clicked on each. Then the menu is the 3 links in table order, then `shop-api` first; the Terminal runs in shop-api's checkout; on Trio the click shows the menu and opens nothing, on Solo it opens a Terminal.
+
+## R133 — Remove a Project, prune Project checkouts (M51)
+
+1. **Remove Project…** (Project menu; `rade project remove <p> [--dry-run] [--keep-checkouts]`, method `project.remove`). One confirmation lists, paths relative to the Workspace root: the Project's folder (deleted with `project.toml`; "This can't be undone"), its Project checkouts that no other link uses and that are clean (removed with `git worktree remove`, never forced), those with uncommitted changes (kept, named), the Panes running in a removed checkout (closed), and its Worktrees (moved to Scratch with their base, never removed). Its records and place in the Project order go.
+2. **Prune.** `rade project prune [--workspace <ws>] [--dry-run]` (method `project.prune`) and the palette's **Prune Unused Project Checkouts…** remove every clean git worktree under `<folder>/.projects` that no link of the Workspace resolves to; dirty ones are listed and kept. `rade project link remove` / `set-base` print `1 Project checkout no longer used: <path> (rade project prune)` when they leave one behind.
+3. **Back to base** refused because the base is checked out in an unused Project checkout adds `— an unused Project checkout; rade project prune removes it`.
+
+AC:
+- R133-a [M51] (unit+e2e): Given Project checkouts of Shop24 (clean) and an old Project (dirty), an ordinary Worktree, and Shop's checkout still in use. When the orphans are listed; and, in the app, Store's remove is dry-run with a clean unshared checkout, a checkout shared with Billing, a Pane in the first and a Worktree. Then the orphans are the two `.projects` folders with their dirty counts, and the dry run removes only the unshared checkout, closes 1 Pane, moves 1 Worktree, and writes nothing.
+- R133-b [M51] (e2e): Given that plan. When Remove Project is confirmed. Then the Project's folder is gone, its unshared checkout is removed from disk and `git worktree list`, the shared one stays, the Pane is closed, the Worktree is in Scratch with its base and the Navigator has no row for it.
+- R133-c [M51] (e2e): Given Billing's link moved to another base and Rel's dirty checkout. When `set-base` runs, Rel is removed, the palette's Prune… is opened and `rade project prune` runs with and without `--dry-run`. Then `set-base` reports the unused checkout, Rel's is kept with why, the palette's dialog and the dry run list the clean one and keep the dirty one, and prune removes only the clean one.
+- R133-d [M51] (e2e): Given Store. When Remove Project… is chosen from its menu. Then the dialog `Remove Project “Store”?` says it can't be undone and lists the checkout, the Panes and the Worktree moving to Scratch.
+
+## R134 — Ctrl+click on a wrapped path or URL (M51)
+
+The owner's report of 2026-10-30: in a narrow Pane a path or URL continues on the next row, and Ctrl+click opened only the clicked row's piece (or nothing).
+
+1. Ctrl+click reads the clicked row and up to 8 rows above and below. While the token ends its row at the right edge — within 2 columns of the Terminal's width (a soft wrap), or as far right as the rows next to it (Claude Code / Codex wrapping at their own width, the next row indented) — the next row's first word is appended; the same backwards. A URL takes only pieces that look like more of a URL (`/ ? = & % # . - _`).
+2. Of those joins the longest that opens something wins — a URL, or a path that exists (R7.1 resolution) — else what Ghostty matched, else the clicked word (`rade_core::link::token_across`).
+3. Ghostty's own match is held during the click and opened only when no longer join opens.
+
+AC:
+- R134-a [M51] (unit): Given rows with a soft-wrapped path, a TUI-wrapped URL with an indent, a path over 3 rows, two edge words that open nothing, a short row under a wider one, and a URL followed by plain words. When `token_across` runs on a cell of each. Then the whole path / URL comes back (from either row), the clicked word alone where nothing opens or the row is not at the edge, and the URL without the plain words.
+- R134-b [M51] (e2e): Given a Terminal that prints an existing path longer than its width, and a TUI-shaped text wrapping a path and a URL at 60 columns with an indent. When `rade debug click` Ctrl+clicks a later row of the path, each row of the URL and the second row of the wrapped path. Then the Viewer opens the whole path each time and the stand-in browser gets the whole URL each time.
+
+## R135 — Selected text in the Viewer is visible (M51)
+
+The owner's report of 2026-10-30: text in the Viewer (Markdown, HTML, code) "can't be selected or copied". Reproduced on a headless GNOME Shell (Wayland) with real pointer and key input: drag, double-click, Ctrl+C and the context menu's Copy all worked, but the selection was drawn almost in the page's color (`term-sel` #19403a, an opaque Terminal color, which WebKit and GtkSourceView draw translucent: (12, 25, 25) on (7, 9, 11)).
+
+1. Selections in the Viewer, Review and Diff Panes use the token `view-sel`: the accent, translucent (dark `#4fe3c852`, light `#0b8f7b40`), for `::selection` in Markdown and the GtkSourceView schemes' `selection` and `selection-unfocused`. Text on it keeps ≥ 4.5:1 (`contrast.py`). The Terminal keeps `term-sel`.
+
+AC:
+- R135-a [M51] (e2e): Given a Markdown and a Rust file in the Viewer, dark. When a paragraph / a line is selected and Copy runs. Then the shot has 150 or more pixels more of the selection color than before, and the pasted clipboard is the selected text.
+- R135-b [M51] (unit): Given both themes. When `view-sel`, the scheme XML and the Markdown page CSS are read. Then `view-sel` is `#rrggbbaa` with alpha 0x30–0x70, not `term-sel`, and it is the scheme's `selection` and `selection-unfocused` and the page's `--sel`.
 
 ## Non-goals (v1)
 

@@ -55,7 +55,15 @@ rade project set beacon source.app.checkout main      # keys: name, source.<id>.
 ```
 A link whose checkout left its base shows `drift` in `rade project show`; `rade project link to-base beacon backend` switches a clean one back (a dirty one is refused: tell the user, never stash for them).
 
-A Source that is not added yet shows as `not added`: `rade source add <path or owner/repo>`. There is no remove command: delete the Project's folder. An old `project.toml` with `bases = [...]` is rewritten once on the first read (the original kept as `project.toml.v1.bak`); read the warnings `rade project show` prints after that.
+A Source that is not added yet shows as `not added`: `rade source add <path or owner/repo>`. A folder that is not a git repository can't be linked (`not a git repository (run: git init -b main)`): ask the user before running `git init` in it; a repository with no commit links on its main checkout but gets no Worktree until its first commit.
+
+Remove a Project only when the user asks — it deletes the Project's folder with `project.toml`, removes its clean Project checkouts no other Project uses and moves its Worktrees to Scratch:
+```sh
+rade project remove beacon --dry-run   # what it would delete, close and keep: show the user first
+rade project remove beacon
+rade project prune --dry-run           # clean Project checkouts no link uses any more (after link remove / set-base)
+```
+`rade worktree move <source> <worktree> --project <p> | --scratch` moves a Worktree between Projects; it keeps the base it compares against unless `--rebase-to-link`. An old `project.toml` with `bases = [...]` is rewritten once on the first read (the original kept as `project.toml.v1.bak`); read the warnings `rade project show` prints after that.
 
 New work in a Project: `rade worktree add <source> <name> [--project beacon] [--base <ref>]` (`--project` is needed only when several Projects link the Source; no `--base` = the link's base); its Review compares with the base it recorded.
 
