@@ -249,3 +249,19 @@ fn r99_b_remote_only_base_starts_the_new_branch_not_a_local_copy_of_it() {
     std::fs::remove_dir_all(&bare).unwrap();
     std::fs::remove_dir_all(&r).unwrap();
 }
+
+#[test]
+fn r131_d_worktree_of_a_repository_without_commits_is_refused() {
+    let d = std::env::temp_dir().join(format!("rade-git-r131d-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&d);
+    std::fs::create_dir_all(&d).unwrap();
+    sh(&d, &["init", "-q", "-b", "main"]);
+    let dir = d.with_file_name(format!("rade-git-r131d-wt-{}", std::process::id()));
+    let e = add_worktree(&d, &dir, "feature", None).unwrap_err();
+    assert_eq!(
+        e.message,
+        format!("{} has no commits yet: commit once, then try again", d.display())
+    );
+    assert!(!dir.exists());
+    let _ = std::fs::remove_dir_all(&d);
+}

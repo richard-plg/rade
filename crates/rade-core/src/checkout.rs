@@ -77,6 +77,8 @@ pub struct Repo {
     pub local: BTreeSet<String>,
     /// Remote-only candidates: branch → `<remote>/<branch>`.
     pub remote: BTreeMap<String, String>,
+    /// The branch of a repository with no commit yet (`git init`, R131).
+    pub unborn: Option<String>,
 }
 
 impl Repo {
@@ -324,7 +326,11 @@ pub fn resolve_checkout(links: &[Link], world: &World, records: &[LinkCheckout])
                 "source '{}' is not a Source of this Workspace",
                 l.source
             )),
-            Some(r) if !r.git => Err(format!("{}: not a git repository", r.main.display())),
+            Some(r) if !r.git => Err(format!(
+                "{}: not a git repository (run: git init -b {})",
+                r.main.display(),
+                l.base
+            )),
             Some(r) => Ok(r),
         }
     };
@@ -529,6 +535,15 @@ pub fn resolve_checkout(links: &[Link], world: &World, records: &[LinkCheckout])
             done[i] = true;
             continue;
         }
+        // `git worktree add` needs a commit to start from (R131.3).
+        if repo.unborn.is_some() && repo.local.is_empty() && repo.remote.is_empty() {
+            out[i].refused = Some(format!(
+                "{} has no commits yet: commit once, then try again",
+                repo.main.display()
+            ));
+            done[i] = true;
+            continue;
+        }
         let track = if repo.local.contains(&l.base) {
             None
         } else if let Some(r) = repo.remote.get(&l.base) {
@@ -649,6 +664,12 @@ fn observe_one(path: &Path) -> Repo {
         return repo;
     };
     repo.git = true;
+    if crate::git::run(path, &["rev-parse", "--verify", "--quiet", "HEAD"]).is_err() {
+        repo.unborn = crate::git::run(path, &["symbolic-ref", "--short", "HEAD"])
+            .ok()
+            .map(|b| b.trim().to_string())
+            .filter(|b| !b.is_empty());
+    }
     for w in list.into_iter().filter(|w| !w.bare && !w.prunable) {
         let dirty = crate::git::dirty(&w.path).map_or(0, |d| d.len());
         repo.checkouts.push(Co {
