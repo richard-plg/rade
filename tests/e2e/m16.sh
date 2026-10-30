@@ -180,7 +180,7 @@ check "spawning still works" test "$(spawn --source backend --worktree d1 --cmd 
 rm -r "$V/.rade/projects/broken"
 
 echo "== R30.3 Project menu"
-check "items" test "$(rade debug menu project beacon --json | jq -r '[.items[].label] | join("|")')" = "Project settings…|Add source…|New Worktree…|Open project.toml|Customize Project…|Remove Project…"
+check "items" test "$(rade debug menu project beacon --json | jq -r '[.items[].label] | join("|")')" = "Project settings…|Add source…|New Worktree…|Schedules…|Open project.toml|Customize Project…|Remove Project…"
 rade debug menu project beacon activate "New Worktree…" >/dev/null
 check "dialog: New Worktree in BEACON" eventually 3 is "dialog '{}' | jq -r .heading" "New Worktree in BEACON"
 check "… a Source dropdown, no Base dropdown (one base per link, R97)" test "$(dialog '{}' | jq -c '[.fields.source, .fields.base]')" = '["backend",null]'
