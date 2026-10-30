@@ -44,7 +44,7 @@ never brought to the front: you get the usual notification when the Agent finish
 
 ## The Schedules page
 
-Open it from the Statusline's **⏱ n** (Schedules switched on in this Workspace), the palette
+Open it from the clock button in the titlebar, the Statusline's **⏱ n** (Schedules switched on in this Workspace), the palette
 (**Schedules**), or a Project's right-click menu (**Schedules…**, filtered to that Project). The list
 is grouped by Project, then Scratch, with filters for Workspace, Project and on / off; its LED is
 the accent when on, hollow when off, red when the last run failed.

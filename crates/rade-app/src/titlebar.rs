@@ -237,6 +237,10 @@ impl Titlebar {
         usage.add_css_class("tb-button-usage");
         usage.set_visible(false);
         buttons.append(&usage);
+        // Schedules (R139.1): always there, so the page is one click away.
+        let schedules = tb_button("ph-clock-symbolic", "Schedules", "open_schedules");
+        schedules.add_css_class("tb-button-schedules");
+        buttons.append(&schedules);
         let review_box = gtk::Box::new(gtk::Orientation::Horizontal, 8);
         review_box.append(&icon("ph-git-diff-symbolic", &["review-icon"]));
         review_box.append(&label("Review", &["review-label"]));
