@@ -95,6 +95,7 @@ Default tolerances: sizes and positions **±1 px**; font size **±0.5 px**, fami
 | `term-14` | — | `#8af0dd` | Ghostty palette 14 (bright cyan), from the status tokens | bg0 |
 | `term-15` | — | `#e6e9ed` | Ghostty palette 15 (bright white), from the status tokens | bg0 |
 | `term-sel` | — | `#19403a` | Ghostty selection background (`acc` over `bg0`) | under `term-fg` |
+| `view-sel` | — | `#4fe3c852` | Selected text in the Viewer, Review and Diff Panes (translucent: WebKit and GtkSourceView draw it over the page) | under `fg`, `term-fg` |
 | `syn-comment` | — | `#8b949e` | code token: comments (GitHub Dark Default, MIT; ADR-0037) | bg0, bg1 |
 | `syn-keyword` | — | `#ff7b72` | code token: keywords, storage (GitHub Dark Default, MIT; ADR-0037) | bg0, bg1 |
 | `syn-string` | — | `#a5d6ff` | code token: strings, regexps (GitHub Dark Default, MIT; ADR-0037) | bg0, bg1 |
@@ -162,6 +163,7 @@ Default tolerances: sizes and positions **±1 px**; font size **±0.5 px**, fami
 | `term-14` | — | `#08685a` | Ghostty palette 14 (bright cyan), from the light status tokens | bg0 |
 | `term-15` | — | `#f3f4f5` | Ghostty palette 15 (bright white), from the light status tokens | — (background-like, as in Adwaita) |
 | `term-sel` | — | `#cbe1dd` | Ghostty selection background (`acc` over `bg0`) | under `term-fg` |
+| `view-sel` | — | `#0b8f7b40` | Selected text in the Viewer, Review and Diff Panes (translucent: WebKit and GtkSourceView draw it over the page) | under `fg`, `term-fg` |
 | `syn-comment` | `#6e7781` | `#636c76` | code token: comments (GitHub Light Default, MIT; ADR-0037) | bg0, bg1 |
 | `syn-keyword` | — | `#cf222e` | code token: keywords, storage (GitHub Light Default, MIT; ADR-0037) | bg0, bg1 |
 | `syn-string` | — | `#0a3069` | code token: strings, regexps (GitHub Light Default, MIT; ADR-0037) | bg0, bg1 |

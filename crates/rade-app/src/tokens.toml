@@ -57,6 +57,8 @@ term-13 = "#e58fff"
 term-14 = "#8af0dd"
 term-15 = "#e6e9ed"
 term-sel = "#19403a"
+# Selected text in the Viewer, Review and Diff Panes (R135): translucent, over the page.
+view-sel = "#4fe3c852"
 syn-comment = "#8b949e"
 syn-keyword = "#ff7b72"
 syn-string = "#a5d6ff"
@@ -121,6 +123,7 @@ term-13 = "#9030b0"
 term-14 = "#08685a"
 term-15 = "#f3f4f5"
 term-sel = "#cbe1dd"
+view-sel = "#0b8f7b40"
 syn-comment = "#636c76"
 syn-keyword = "#cf222e"
 syn-string = "#0a3069"
@@ -175,6 +178,8 @@ text = [
   "term-13 on bg0",
   "term-14 on bg0",
   "term-fg on term-sel",
+  "fg on view-sel over bg0",
+  "term-fg on view-sel over bg0",
   "syn-comment on bg0 bg1",
   "syn-keyword on bg0 bg1",
   "syn-string on bg0 bg1",

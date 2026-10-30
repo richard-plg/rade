@@ -356,7 +356,7 @@ fn page_css(dark: bool) -> String {
             ("accent-line", "acc-line"),
             ("accent-dim", "acc-dim"),
             ("mark", "wait-dim"),
-            ("sel", "term-sel"),
+            ("sel", "view-sel"),
             ("note", "run"),
             ("tip", "ok"),
             ("important", "wt"),

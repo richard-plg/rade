@@ -50,6 +50,7 @@
   --term-14: #8af0dd;
   --term-15: #e6e9ed;
   --term-sel: #19403a;
+  --view-sel: #4fe3c852;
   --syn-comment: #8b949e;
   --syn-keyword: #ff7b72;
   --syn-string: #a5d6ff;
@@ -114,6 +115,7 @@ body.light {
   --term-14: #08685a;
   --term-15: #f3f4f5;
   --term-sel: #cbe1dd;
+  --view-sel: #0b8f7b40;
   --syn-comment: #636c76;
   --syn-keyword: #cf222e;
   --syn-string: #0a3069;

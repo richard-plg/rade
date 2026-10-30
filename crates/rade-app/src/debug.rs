@@ -332,6 +332,11 @@ pub fn viewer(v: ViewerOp) -> Result<Value> {
                     None => reply(Err(Error::usage("want L:C-L:C"))),
                 }
             }
+            // Ctrl+C on the selection (R135).
+            ("copy", _) => {
+                viewer.copy();
+                reply(Ok(json!({})))
+            }
             // Ctrl held with the pointer resting on `line:col` (R90.1).
             ("hover", Some(at)) => {
                 let (l, c) = at.split_once(':').unwrap_or((&at, "1"));

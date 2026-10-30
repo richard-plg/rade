@@ -17,13 +17,16 @@
 # R134 (links): Ctrl+click on a path or URL wrapped over rows — a shell's
 # soft wrap, a TUI's hard wrap at its own width with an indent — opens the
 # whole token.
+# R135 (viewer): a selection in the Viewer (Markdown, code) is visible —
+# its pixels differ from the page — and Copy puts the text on the
+# clipboard (read by pasting into a `cat -v` sink, as m49-files.sh does).
 # (Tab labels, R103.2 amendment: tests/e2e/titles.sh.)
 # Usage: tests/e2e/m51.sh   (PARTS="git …", NO_BUILD=1, KEEP=1)
 set -euo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
 OUT=$(cd "$HERE/../.." && pwd)/target/e2e-m51
 source "$HERE/lib.sh"
-PARTS=${PARTS:-git move home remove links}
+PARTS=${PARTS:-git move home remove links viewer}
 part() { [[ " $PARTS " == *" $1 "* ]]; }
 
 mkdir -p "$XDG_CONFIG_HOME/rade"
@@ -334,6 +337,59 @@ TUI
     check "R134-b hard wrap with an indent: the 2nd row's part opens the whole path" \
         eventually 5 is viewer_path "$X/src/components/checkout/ShippingAddressForm.tsx"
     shot links-tui
+fi
+
+if part viewer; then
+    echo "== R135 select and copy in the Viewer"
+    V=$A/views
+    mkdir -p "$V"
+    printf '# Title here\n\nAlpha beta gamma delta epsilon.\n\nSecond paragraph text.\n' >"$V/a.md"
+    printf 'fn main() {\n    println!("hello world");\n}\n' >"$V/a.rs"
+    rade source add "$V" --workspace acme >/dev/null
+    printf 'stty raw -echo\nprintf "SINK READY\\r\\n\\033[?2004h"\nexec cat -v\n' >"$T/sink.sh"
+    sink=$(rade spawn --cmd "bash $T/sink.sh" --source views --name sink --tab new --json | jq -r .pane)
+    eventually 10 screen_has "$sink" 'SINK READY' || true
+    pasted() { rade read "$1" --scrollback | tr -d '\n' | sed -n 's/.*\^\[\[200~\(.*\)\^\[\[201~.*/\1/p'; }
+    paste_clip() { rade focus "$sink" >/dev/null; rade debug action paste >/dev/null; sleep 0.4; pasted "$sink"; }
+    vid() { rade debug state | jq -r '[.. | objects | select(.kind?.type? == "viewer")][0].id'; }
+    # Pixels of the Viewer's half that are the selection color over the page:
+    # view-sel (#4fe3c852) as WebKit and GtkSourceView draw it over bg0 in
+    # dark: (22, 58, 53) — bg0 itself is (7, 9, 11).
+    selpx() { python3 - "$1" <<'PY'
+import sys
+from PIL import Image
+im = Image.open(sys.argv[1]).convert("RGB")
+w, h = im.size
+n = sum(1 for x in range(w // 2, w, 2) for y in range(60, h - 60, 2)
+        if all(abs(a - b) <= 14 for a, b in zip(im.getpixel((x, y)), (22, 58, 53))))
+print(n)
+PY
+    }
+    rade debug action color_scheme_dark >/dev/null
+    for f in a.md a.rs; do
+        rade focus "$sink" >/dev/null
+        rade open "$V/$f" >/dev/null
+        eventually 8 bash -c "[[ \$(rade debug state | jq -r '[.. | objects | select(.kind?.type? == \"viewer\")][0].kind.path') == '$V/$f' ]]"
+        v=$(vid)
+        sleep 1.5
+        shot "viewer-$f-before"
+        before=$(selpx "$OUT/viewer-$f-before.png")
+        if [[ $f == a.md ]]; then
+            rade debug viewer "$v" js "var r = document.createRange(); r.selectNodeContents(document.querySelectorAll('p')[0]); getSelection().removeAllRanges(); getSelection().addRange(r); getSelection().toString()" >/dev/null
+            want="Alpha beta gamma delta epsilon."
+        else
+            rade debug viewer "$v" select 1:1-1:12 >/dev/null
+            want="fn main() {"
+        fi
+        sleep 0.6
+        shot "viewer-$f-selected"
+        after=$(selpx "$OUT/viewer-$f-selected.png")
+        check "R135-a $f: the selection is visible ($before → $after selection pixels)" bash -c "(( $after > $before + 150 ))"
+        rade debug viewer "$v" copy >/dev/null
+        sleep 0.3
+        check "R135-a $f: Copy puts the selected text on the clipboard" eventually 3 is "paste_clip" "$want"
+        rade close "$v" >/dev/null 2>&1 || true
+    done
 fi
 
 echo

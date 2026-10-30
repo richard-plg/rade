@@ -91,8 +91,9 @@ pub fn scheme_xml(dark: bool) -> String {
         t("fg"),
         t("bg0"),
         t("bg1"),
-        t("term-sel"),
-        t("bg3"),
+        // Translucent (R135): a selection shows over the current line too.
+        crate::tokens::get("view-sel", dark),
+        crate::tokens::get("view-sel", dark),
         t("acc"),
         t("bg4"),
         t("term-sel"),
