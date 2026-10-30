@@ -841,7 +841,10 @@ impl Dialog {
                 r.include && !(r.existing && matches!(self.kind, Kind::AddSource { .. })),
             );
             w.init.set_visible(
-                r.include && r.refused.as_deref().is_some_and(|why| why.contains(NOT_GIT)),
+                r.include
+                    && r.refused
+                        .as_deref()
+                        .is_some_and(|why| why.contains(NOT_GIT)),
             );
             match &r.refused {
                 Some(why) if why.contains(NOT_GIT) => {

@@ -287,11 +287,19 @@ pub fn print(c: &ProjectCmd, r: &Value) {
         ProjectCmd::Remove { .. } | ProjectCmd::Prune { .. } => {
             let dry = r["dry_run"] == true;
             if r["file"].is_string() {
-                println!("{} {}", if dry { "would delete" } else { "deleted" }, s(&r["file"]));
+                println!(
+                    "{} {}",
+                    if dry { "would delete" } else { "deleted" },
+                    s(&r["file"])
+                );
             }
             let list = |k: &str| r[k].as_array().cloned().unwrap_or_default();
             for o in list(if dry { "remove" } else { "removed" }) {
-                println!("{} {}", if dry { "would remove" } else { "removed" }, s(&o["path"]));
+                println!(
+                    "{} {}",
+                    if dry { "would remove" } else { "removed" },
+                    s(&o["path"])
+                );
             }
             for o in list(if dry { "keep" } else { "kept" }) {
                 let why = o["why"]
@@ -301,7 +309,11 @@ pub fn print(c: &ProjectCmd, r: &Value) {
                 println!("kept {} ({why})", s(&o["path"]));
             }
             for p in list("panes") {
-                println!("{} Pane {}", if dry { "would close" } else { "closed" }, s(&p["name"]));
+                println!(
+                    "{} Pane {}",
+                    if dry { "would close" } else { "closed" },
+                    s(&p["name"])
+                );
             }
             for w in list("worktrees") {
                 println!("{}/{} → Scratch", s(&w["source"]), s(&w["worktree"]));

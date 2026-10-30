@@ -260,7 +260,10 @@ fn r131_d_worktree_of_a_repository_without_commits_is_refused() {
     let e = add_worktree(&d, &dir, "feature", None).unwrap_err();
     assert_eq!(
         e.message,
-        format!("{} has no commits yet: commit once, then try again", d.display())
+        format!(
+            "{} has no commits yet: commit once, then try again",
+            d.display()
+        )
     );
     assert!(!dir.exists());
     let _ = std::fs::remove_dir_all(&d);

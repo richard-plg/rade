@@ -96,12 +96,15 @@ pub fn suggest(source: &str, branch: &str, projects: &[Project], br: &Branches) 
                 .is_some_and(|rest| rest.is_empty() || rest.starts_with(['-', '_', '.']))
         })
     };
-    let mut hits = projects.iter().filter(|p| p.lists(source) && p.error.is_none()).filter(|p| {
-        base_branches(p, source, br).iter().any(|b| {
-            let b = b.strip_prefix("origin/").unwrap_or(b);
-            !b.is_empty() && branch == b
-        }) || names_id(&p.id)
-    });
+    let mut hits = projects
+        .iter()
+        .filter(|p| p.lists(source) && p.error.is_none())
+        .filter(|p| {
+            base_branches(p, source, br).iter().any(|b| {
+                let b = b.strip_prefix("origin/").unwrap_or(b);
+                !b.is_empty() && branch == b
+            }) || names_id(&p.id)
+        });
     let first = hits.next()?;
     hits.next().is_none().then(|| first.id.clone())
 }

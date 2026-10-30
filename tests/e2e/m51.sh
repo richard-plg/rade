@@ -131,6 +131,13 @@ if part move; then
     check "R132-c the submenu lists Shop ✓, Shop24 and Scratch, no No Project" \
         bash -c "jq -r '[.items[].label | select(startswith(\"Move to Project\"))] | join(\"|\")' '$OUT/move-menu.json' | grep -qx 'Move to Project ▸ Shop ✓|Move to Project ▸ Shop24|Move to Project ▸ Scratch'"
 
+    planted=$(mktemp -d)
+    mkdir -p "$planted/crates" "$planted/skills"
+    printf 'fn a() { let _ = format!("No Project{}", 1); }\n' >"$planted/crates/a.rs"
+    check "R132-c scripts/check-removed.sh fails on a planted \"No Project\" label" \
+        bash -c "! '$ROOT/scripts/check-removed.sh' --root '$planted' --no-help >/dev/null 2>&1"
+    rm -rf "$planted"
+
     echo "-- R132-b the base differs: one question, Keep or Compare against"
     rade debug menu worktree shop-web/checkout-v2 activate "Move to Project ▸ Shop24" >/dev/null
     check "R132-b the dialog names both bases" \

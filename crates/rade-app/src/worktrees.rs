@@ -144,7 +144,12 @@ pub(crate) fn comparison_base(
 
 /// `worktree.move` (R132.1): a Worktree to a Project linking its Source
 /// (`None` = Scratch); `rebase` re-records its base as the new link's.
-pub fn move_to(source: &str, worktree: &str, project: Option<String>, rebase: bool) -> Result<Value> {
+pub fn move_to(
+    source: &str,
+    worktree: &str,
+    project: Option<String>,
+    rebase: bool,
+) -> Result<Value> {
     let app = app();
     let (sid, wid, base) = {
         let m = app.model.borrow();

@@ -333,7 +333,12 @@ fn remove_orphans(r: &Resolution, found: &[checkout::Orphan]) -> (Vec<Value>, Ve
     for o in found {
         let mut v = orphan_json(o);
         if o.dirty > 0 {
-            v["why"] = format!("{} uncommitted change{}", o.dirty, if o.dirty == 1 { "" } else { "s" }).into();
+            v["why"] = format!(
+                "{} uncommitted change{}",
+                o.dirty,
+                if o.dirty == 1 { "" } else { "s" }
+            )
+            .into();
             kept.push(v);
             continue;
         }
@@ -434,7 +439,11 @@ fn remove(rp: RemoveParams) -> Result<Value> {
     let going: Vec<PathBuf> = if rp.keep_checkouts {
         Vec::new()
     } else {
-        found.iter().filter(|o| o.dirty == 0).map(|o| o.path.clone()).collect()
+        found
+            .iter()
+            .filter(|o| o.dirty == 0)
+            .map(|o| o.path.clone())
+            .collect()
     };
     let (pid, g) = (p.id.clone(), going.clone());
     let (panes, worktrees) = on_main(move || {
@@ -459,8 +468,16 @@ fn remove(rp: RemoveParams) -> Result<Value> {
         let (clean, dirty): (Vec<_>, Vec<_>) = found
             .iter()
             .partition(|o| o.dirty == 0 && !rp.keep_checkouts);
-        v["remove"] = clean.iter().map(|o| orphan_json(o)).collect::<Vec<Value>>().into();
-        v["keep"] = dirty.iter().map(|o| orphan_json(o)).collect::<Vec<Value>>().into();
+        v["remove"] = clean
+            .iter()
+            .map(|o| orphan_json(o))
+            .collect::<Vec<Value>>()
+            .into();
+        v["keep"] = dirty
+            .iter()
+            .map(|o| orphan_json(o))
+            .collect::<Vec<Value>>()
+            .into();
         return Ok(v);
     }
     let ids: Vec<String> = panes.into_iter().map(|(id, _)| id).collect();
@@ -714,11 +731,12 @@ fn link_edit(l: LinkParams, set_base: bool) -> Result<Value> {
             move || Ok(scene(&app().model.borrow(), &ws))
         })?;
         let r = resolve(sc, None);
-        let unused: Vec<Value> = checkout::orphans(&r.repos, &r.scene.folder, &used_paths(&r), &canon)
-            .iter()
-            .filter(|o| canon(&o.path) == was)
-            .map(orphan_json)
-            .collect();
+        let unused: Vec<Value> =
+            checkout::orphans(&r.repos, &r.scene.folder, &used_paths(&r), &canon)
+                .iter()
+                .filter(|o| canon(&o.path) == was)
+                .map(orphan_json)
+                .collect();
         v["unused"] = unused.into();
     }
     Ok(v)
@@ -1043,17 +1061,23 @@ pub fn prune_dialog() {
             if !keep.is_empty() {
                 body += &format!("\n\nKeeps, with uncommitted changes:\n{}", keep.join("\n"));
             }
-            crate::changes_ops::confirm("Prune Project checkouts?", &body, "delete", "Remove", move || {
-                let w = ws.clone();
-                crate::worktrees::in_background(
-                    move || dispatch("project.prune", json!({"workspace": w})),
-                    |r| {
-                        if let Err(e) = r {
-                            crate::worktrees::alert("Could not prune", &e.message);
-                        }
-                    },
-                );
-            });
+            crate::changes_ops::confirm(
+                "Prune Project checkouts?",
+                &body,
+                "delete",
+                "Remove",
+                move || {
+                    let w = ws.clone();
+                    crate::worktrees::in_background(
+                        move || dispatch("project.prune", json!({"workspace": w})),
+                        |r| {
+                            if let Err(e) = r {
+                                crate::worktrees::alert("Could not prune", &e.message);
+                            }
+                        },
+                    );
+                },
+            );
         },
     );
 }

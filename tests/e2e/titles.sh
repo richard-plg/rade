@@ -102,12 +102,12 @@ a1=$(rade spawn --agent lead --tab new --json | jq -r .pane)
 a2=$(rade spawn --agent lead --tab new --json | jq -r .pane)
 ta1=$(info "$a1" tab) ta2=$(info "$a2" tab)
 eventually 10 screen_has "$a2" '$' || true
-check "before a title: the Preset 'lead'" eventually 5 is "label $ta1" "lead"
+check "R103-m before a title: the Preset 'lead'" eventually 5 is "label $ta1" "lead"
 rade send "$a1" "printf '\\e]2;✳ Fix login\\a'; exec sleep 600" --enter
 rade send "$a2" "printf '\\e]2;Tính năng projects trên SCRATCH\\a'; exec sleep 600" --enter
-check "Tab 1 = 'Fix login'" eventually 5 is "label $ta1" "Fix login"
-check "Tab 2 = the title cut to 24 characters" eventually 5 is "label $ta2" "Tính năng projects trên…"
-check "…the whole title in its tooltip" tip_has "$ta2" "Tính năng projects trên SCRATCH"
+check "R103-m Tab 1 = 'Fix login'" eventually 5 is "label $ta1" "Fix login"
+check "R103-m Tab 2 = the title cut to 24 characters" eventually 5 is "label $ta2" "Tính năng projects trên…"
+check "R103-m …the whole title in its tooltip" tip_has "$ta2" "Tính năng projects trên SCRATCH"
 rade focus "$a2" >/dev/null
 shot tabs-session
 rade close "$a1" >/dev/null; rade close "$a2" >/dev/null

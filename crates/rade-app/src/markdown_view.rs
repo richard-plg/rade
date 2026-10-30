@@ -340,7 +340,7 @@ impl Drop for Inner {
 
 /// The page's design (R112.5): `markdown.css`'s variables from the tokens
 /// of both themes, the code colors of the theme shown and the code font.
-fn page_css(dark: bool) -> String {
+pub(crate) fn page_css(dark: bool) -> String {
     let vars = |dark: bool| {
         [
             ("bg", "bg0"),

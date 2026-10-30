@@ -847,9 +847,7 @@ pub fn orphans(
     let used: Vec<PathBuf> = used.iter().map(|p| canon(p)).collect();
     let mut out: Vec<Orphan> = repos
         .iter()
-        .flat_map(|(source, r)| {
-            r.checkouts.iter().map(move |c| (source, c))
-        })
+        .flat_map(|(source, r)| r.checkouts.iter().map(move |c| (source, c)))
         .filter(|(_, c)| {
             let p = canon(&c.path);
             p.starts_with(&dir) && !used.contains(&p)

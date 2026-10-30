@@ -761,7 +761,10 @@ fn off_thread(
 /// Open terminal on a link (R105.3): its checkout, created first when the
 /// plan says so (`open_on_link`, R98.3).
 pub fn open_terminal(project: &str, source: &str) {
-    LAST_LINK.with(|l| l.borrow_mut().insert(project.to_string(), source.to_string()));
+    LAST_LINK.with(|l| {
+        l.borrow_mut()
+            .insert(project.to_string(), source.to_string())
+    });
     close();
     let (p, s) = (project.to_string(), source.to_string());
     off_thread("Could not open a terminal", move || {
@@ -914,8 +917,10 @@ pub fn debug(arg: Option<&str>) -> rade_core::rpc::Result<Value> {
                 j["activity_empty"] = json!("No activity since RADE started");
             }
             j["columns"] = json!(COLUMNS);
-            j["open_terminal_menu"] =
-                json!(open_menu(&v).into_iter().map(|(_, n)| n).collect::<Vec<_>>());
+            j["open_terminal_menu"] = json!(open_menu(&v)
+                .into_iter()
+                .map(|(_, n)| n)
+                .collect::<Vec<_>>());
             j["open_terminal_menu_up"] =
                 json!(OPEN_POP.with(|o| o.borrow().as_ref().is_some_and(|p| p.is_visible())));
             j

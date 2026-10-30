@@ -351,9 +351,15 @@ fn move_to_project(source: &str, wt: &str, project: Option<String>) {
         let then = project
             .as_deref()
             .and_then(|p| crate::worktrees::comparison_base(&m, source, wt, Some(p)));
-        let name = m.worktree(source, wt).map(|w| w.name.clone()).unwrap_or_default();
+        let name = m
+            .worktree(source, wt)
+            .map(|w| w.name.clone())
+            .unwrap_or_default();
         let pname = project.as_deref().and_then(|p| {
-            projects(&m).iter().find(|x| x.id == p).map(|x| x.name.clone())
+            projects(&m)
+                .iter()
+                .find(|x| x.id == p)
+                .map(|x| x.name.clone())
         });
         (now, then, name, pname)
     };

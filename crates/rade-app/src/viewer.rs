@@ -775,7 +775,10 @@ impl Viewer {
     /// Copy the selection to the clipboard, as Ctrl+C does (R135, test
     /// driver): the code view's or the WebView's.
     pub fn copy(&self) {
-        match self.markdown().filter(|_| self.stack.visible_child_name().as_deref() != Some("text")) {
+        match self
+            .markdown()
+            .filter(|_| self.stack.visible_child_name().as_deref() != Some("text"))
+        {
             Some(md) => webkit6::prelude::WebViewExt::execute_editing_command(md.widget(), "Copy"),
             None => self.source.emit_copy_clipboard(),
         }

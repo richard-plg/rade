@@ -330,7 +330,11 @@ pub fn token_across(
                 .chain(std::iter::once(word.as_str()))
                 .chain(after[..a].iter().map(String::as_str))
                 .collect();
-            if best.as_ref().is_none_or(|x| t.chars().count() > x.chars().count()) && resolves(&t) {
+            if best
+                .as_ref()
+                .is_none_or(|x| t.chars().count() > x.chars().count())
+                && resolves(&t)
+            {
                 best = Some(t);
             }
         }

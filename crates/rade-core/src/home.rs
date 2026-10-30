@@ -660,15 +660,27 @@ mod tests {
     #[test]
     fn r132_e_open_terminal_menu_puts_the_last_link_first() {
         let l = |s: &str, b: &str| (s.to_string(), s.to_string(), b.to_string());
-        let links = [l("shop-web", "develop"), l("shop-api", "develop"), l("shared-ui", "develop")];
+        let links = [
+            l("shop-web", "develop"),
+            l("shop-api", "develop"),
+            l("shared-ui", "develop"),
+        ];
         let names = |v: Vec<(String, String)>| v.into_iter().map(|(_, n)| n).collect::<Vec<_>>();
         assert_eq!(
             names(open_terminal_menu(&links, None)),
-            ["shop-web · develop", "shop-api · develop", "shared-ui · develop"]
+            [
+                "shop-web · develop",
+                "shop-api · develop",
+                "shared-ui · develop"
+            ]
         );
         assert_eq!(
             names(open_terminal_menu(&links, Some("shared-ui"))),
-            ["shared-ui · develop", "shop-web · develop", "shop-api · develop"]
+            [
+                "shared-ui · develop",
+                "shop-web · develop",
+                "shop-api · develop"
+            ]
         );
         assert_eq!(open_terminal_menu(&links, Some("gone")).len(), 3);
     }

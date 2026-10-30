@@ -351,3 +351,25 @@ fn r115_every_agent_glyph_is_bundled_and_recolourable() {
         );
     }
 }
+
+#[test]
+fn r135_b_viewer_selection_is_translucent_accent_in_both_themes() {
+    for dark in [false, true] {
+        let sel = crate::tokens::get("view-sel", dark);
+        // `#rrggbbaa`: WebKit and GtkSourceView draw it over the page.
+        assert_eq!(sel.len(), 9, "{sel}");
+        let alpha = u8::from_str_radix(&sel[7..], 16).unwrap();
+        assert!((0x30..=0x70).contains(&alpha), "{sel}");
+        // The accent's hue, not the Terminal's opaque selection.
+        assert_ne!(&sel[..7], crate::tokens::get("term-sel", dark));
+        let xml = crate::syntax::scheme_xml(dark);
+        assert!(
+            xml.contains(&format!("<style name=\"selection\" background=\"{sel}\"/>")),
+            "{xml}"
+        );
+        assert!(xml.contains(&format!(
+            "<style name=\"selection-unfocused\" background=\"{sel}\"/>"
+        )));
+        assert!(crate::markdown_view::page_css(dark).contains(&format!("--sel: {sel};")));
+    }
+}

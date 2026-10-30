@@ -351,8 +351,11 @@ pub fn add_worktree(repo: &Path, dir: &Path, name: &str, base: Option<&str>) -> 
     }
     // A fresh `git init` (R131.3): nothing to cut a branch from.
     if run(repo, &["rev-parse", "--verify", "--quiet", "HEAD"]).is_err()
-        && run(repo, &["for-each-ref", "--count=1", "refs/heads", "refs/remotes"])
-            .is_ok_and(|o| o.trim().is_empty())
+        && run(
+            repo,
+            &["for-each-ref", "--count=1", "refs/heads", "refs/remotes"],
+        )
+        .is_ok_and(|o| o.trim().is_empty())
     {
         return Err(Error::usage(format!(
             "{} has no commits yet: commit once, then try again",
