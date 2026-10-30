@@ -1094,6 +1094,7 @@ fn install_menu(list: &gtk::ListBox, rows: Rc<RefCell<Vec<Row>>>) {
         crate::home_view::open_terminal(p, s);
     });
     act("project-customize", |k, _| crate::projects::customize(k));
+    act("project-remove", |k, _| crate::projects::remove_dialog(k));
     act("scratch-remove", |p, _| remove_from_scratch_dialog(p));
     act("remove-worktree", |p, w| {
         crate::worktrees::remove_dialog(p, w)

@@ -825,6 +825,46 @@ pub fn is_project_checkout(
     p.starts_with(canon(&folder.join(PROJECTS))) || records.iter().any(|r| canon(&r.path) == p)
 }
 
+/// A Project checkout that no link of the Workspace uses any more (R133.2).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Orphan {
+    pub source: String,
+    pub path: PathBuf,
+    pub branch: Option<String>,
+    /// Changed or untracked files: a dirty orphan is never removed.
+    pub dirty: usize,
+}
+
+/// The git worktrees under `<folder>/.projects` that are none of `used`
+/// (the paths the Workspace's links resolve to now), by path.
+pub fn orphans(
+    repos: &BTreeMap<String, Repo>,
+    folder: &Path,
+    used: &[PathBuf],
+    canon: &dyn Fn(&Path) -> PathBuf,
+) -> Vec<Orphan> {
+    let dir = canon(&folder.join(PROJECTS));
+    let used: Vec<PathBuf> = used.iter().map(|p| canon(p)).collect();
+    let mut out: Vec<Orphan> = repos
+        .iter()
+        .flat_map(|(source, r)| {
+            r.checkouts.iter().map(move |c| (source, c))
+        })
+        .filter(|(_, c)| {
+            let p = canon(&c.path);
+            p.starts_with(&dir) && !used.contains(&p)
+        })
+        .map(|(source, c)| Orphan {
+            source: source.clone(),
+            path: c.path.clone(),
+            branch: c.branch.clone(),
+            dirty: c.dirty,
+        })
+        .collect();
+    out.sort_by(|a, b| a.path.cmp(&b.path));
+    out
+}
+
 /// What git says about a link's checkout (`project.show`).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Facts {

@@ -10,13 +10,17 @@
 # match. (Close Panes in Scratch…, R132.4: tests/e2e/m37.sh R104-l.)
 # R132.5 (home): Project home's Open terminal with several links offers
 # them, the last used first; with one it opens at once.
+# R133 (remove): Remove Project… / `rade project remove` (folder deleted,
+# unused clean Project checkouts removed, a shared or dirty one kept, Panes
+# there closed, Worktrees to Scratch), `rade project prune`, the
+# "no longer used" line, the to-base hint.
 # (Tab labels, R103.2 amendment: tests/e2e/titles.sh.)
 # Usage: tests/e2e/m51.sh   (PARTS="git …", NO_BUILD=1, KEEP=1)
 set -euo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
 OUT=$(cd "$HERE/../.." && pwd)/target/e2e-m51
 source "$HERE/lib.sh"
-PARTS=${PARTS:-git move home}
+PARTS=${PARTS:-git move home remove}
 part() { [[ " $PARTS " == *" $1 "* ]]; }
 
 mkdir -p "$XDG_CONFIG_HOME/rade"
@@ -192,6 +196,77 @@ if part home; then
     sleep 0.5
     home "click_open" >/dev/null
     check "R132-e with one link Open terminal opens at once" eventually 8 bash -c "[[ \$(panes) != '$before' ]]"
+fi
+
+if part remove; then
+    echo "== R133 remove a Project, prune Project checkouts"
+    LIB=$A/lib
+    mkdir -p "$LIB" && G -C "$LIB" init -q -b main
+    echo x >"$LIB/x" && G -C "$LIB" add -A && G -C "$LIB" commit -qm init
+    for b in develop release/2.4 release/2.5; do G -C "$LIB" branch "$b"; done
+    rade source add "$LIB" --workspace acme >/dev/null
+    PC=$A/.worktrees-dev/.projects
+    # Store's shop-web base is its own (other parts' Projects link develop).
+    G -C "$WEB" branch staging
+    rade project add Store --workspace acme --source shop-web:staging --source lib:develop >/dev/null
+    rade project add Billing --workspace acme --source lib:develop >/dev/null
+    rade project add Rel --workspace acme --source lib:release/2.4 >/dev/null
+    home() { rpc debug.ui "$(jq -nc --arg a "${1:-}" '{op: "home", arg: $a}')" | jq -c .home; }
+    panes() { rade list --json | jq -r '[.panes[].pane] | sort | join(" ")'; }
+    export -f home panes
+    # Use each link once: their Project checkouts are made on first use.
+    for pl in "Store shop-web" "Store lib" "Billing lib" "Rel lib"; do
+        set -- $pl
+        home "open $1" >/dev/null; sleep 0.3
+        home "terminal $2" >/dev/null; sleep 1.5
+    done
+    # Store and Billing share lib's develop checkout (made under the first
+    # Project by id: billing).
+    check "R133 Store's shop-web checkout and the shared lib one exist" \
+        eventually 10 bash -c "[[ -d '$PC/store/shop-web' && -d '$PC/billing/lib' && ! -e '$PC/store/lib' ]]"
+    check "R133 Rel's checkout exists" eventually 10 test -d "$PC/rel/lib"
+    rade worktree add shop-web feat --project store >/dev/null
+    echo dirty >"$PC/rel/lib/dirty.txt"
+    find "$PC" -maxdepth 2 >"$OUT/projects-dirs.txt"
+
+    echo "-- R133-a / R133-d the plan and the dialog"
+    rade project remove store --dry-run --json >"$OUT/remove-plan.json"
+    check "R133-a dry run: removes shop-web's checkout only, closes 1 Pane, 1 Worktree to Scratch" \
+        bash -c "jq -e '([.remove[].path] == [\"$PC/store/shop-web\"]) and (.keep == []) and (.panes | length == 1) and (.worktrees == [{source: \"shop-web\", worktree: \"feat\"}])' '$OUT/remove-plan.json' >/dev/null"
+    check "R133-a dry run wrote nothing" test -f "$A/.rade/projects/store/project.toml"
+    rade debug menu project store activate "Remove Project" >/dev/null
+    check "R133-d Remove Project… asks with the 4 groups" \
+        eventually 5 bash -c "rade debug dialog | jq -e '(.heading == \"Remove Project “Store”?\") and (.body | test(\"This can.t be undone\")) and (.body | test(\".worktrees-dev/.projects/store/shop-web\")) and (.body | test(\"Closes the Panes running there: \")) and (.body | test(\"Its Worktree moves to Scratch\"))' >/dev/null"
+    rade debug dialog >"$OUT/remove-dialog.json"
+    sleep 0.5
+    shot remove-dialog
+    before=$(panes)
+    respond delete
+
+    echo "-- R133-b removed"
+    check "R133-b the Project's folder is gone" eventually 8 test ! -e "$A/.rade/projects/store"
+    check "R133-b shop-web's checkout removed, not in git worktree list" \
+        bash -c "[[ ! -e '$PC/store/shop-web' ]] && ! git -C '$WEB' worktree list | grep -q '.projects/store/shop-web'"
+    check "R133-b lib's shared checkout kept: Billing uses it" test -d "$PC/billing/lib"
+    check "R133-b the Pane in shop-web's checkout closed" bash -c "[[ \$(panes | wc -w) -lt \$(wc -w <<<'$before') ]]"
+    check "R133-b feat is in Scratch with base staging" \
+        eventually 3 is "rade worktree list shop-web --json | jq -r '.worktrees[] | select(.worktree==\"feat\") | \"\\(.project)@\\(.base)\"'" "null@staging"
+    check "R133-b the Navigator has no Store" \
+        eventually 5 bash -c "! rpc debug.ui '{\"op\":\"sidebar\"}' | jq -r '.sidebar[] | select(.kind==\"project\") | .title' | grep -qx Store"
+
+    echo "-- R133-c no longer used, prune"
+    rc=$(code rade project link set-base billing lib release/2.5)
+    check "R133-c set-base reports the unused checkout (exit $rc)" \
+        grep -qF "1 Project checkout no longer used: $PC/billing/lib (rade project prune)" "$T/out"
+    rade project remove rel --json >"$OUT/remove-rel.json"
+    check "R133-c a dirty checkout is kept by remove, with why" \
+        bash -c "jq -e '.kept[0].path == \"$PC/rel/lib\" and (.kept[0].why | test(\"uncommitted\"))' '$OUT/remove-rel.json' >/dev/null && [[ -f '$PC/rel/lib/dirty.txt' ]]"
+    rade project prune --workspace acme --dry-run >"$OUT/prune-dry.txt"
+    check "R133-c prune --dry-run lists the clean one and keeps the dirty one" \
+        bash -c "grep -qx 'would remove $PC/billing/lib' '$OUT/prune-dry.txt' && grep -q '^kept $PC/rel/lib' '$OUT/prune-dry.txt' && [[ -d '$PC/billing/lib' ]]"
+    rade project prune --workspace acme >"$OUT/prune.txt"
+    check "R133-c prune removed it, the dirty one stays" \
+        bash -c "[[ ! -e '$PC/billing/lib' && -f '$PC/rel/lib/dirty.txt' ]] && grep -qx 'removed $PC/billing/lib' '$OUT/prune.txt'"
 fi
 
 echo

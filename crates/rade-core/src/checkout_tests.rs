@@ -1338,3 +1338,37 @@ fn r131_a_plain_folder_and_unborn_repository() {
     );
     let _ = std::fs::remove_dir_all(&base);
 }
+
+#[test]
+fn r133_a_orphans_are_project_checkouts_no_link_uses() {
+    let mut web = repo("shop-web", "develop", 0, &["main"], &[]);
+    web.checkouts.push(co("/w/.worktrees/.projects/shop24/shop-web", "release/2.4", 0));
+    web.checkouts.push(co("/w/.worktrees/.projects/old/shop-web", "main", 2));
+    // An ordinary Worktree is never a Project checkout.
+    web.checkouts.push(co("/w/.worktrees/shop-web/feature", "feature", 0));
+    let mut ui = repo("shared-ui", "main", 0, &[], &[]);
+    ui.checkouts.push(co("/w/.worktrees/.projects/shop/shared-ui", "develop", 0));
+    let repos: BTreeMap<String, Repo> = [("shop-web".to_string(), web), ("shared-ui".to_string(), ui)]
+        .into_iter()
+        .collect();
+    // Shop24 is gone; Shop still uses shared-ui's checkout.
+    let used = [PathBuf::from("/w/.worktrees/.projects/shop/shared-ui")];
+    let found = orphans(&repos, Path::new(FOLDER), &used, &id);
+    assert_eq!(
+        found,
+        vec![
+            Orphan {
+                source: "shop-web".into(),
+                path: "/w/.worktrees/.projects/old/shop-web".into(),
+                branch: Some("main".into()),
+                dirty: 2,
+            },
+            Orphan {
+                source: "shop-web".into(),
+                path: "/w/.worktrees/.projects/shop24/shop-web".into(),
+                branch: Some("release/2.4".into()),
+                dirty: 0,
+            },
+        ]
+    );
+}

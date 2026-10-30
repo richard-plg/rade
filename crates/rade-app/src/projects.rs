@@ -37,6 +37,8 @@ pub fn dispatch(method: &str, p: Value) -> Result<Value> {
         "project.link_remove" => link_edit(params(p)?, false),
         "project.link_set_base" => link_edit(params(p)?, true),
         "project.link_to_base" => link_to_base(params(p)?),
+        "project.remove" => remove(params(p)?),
+        "project.prune" => prune(params(p)?),
         "project.set" => crate::project_settings::dispatch(p),
         "config.explain" => on_main(move || explain(params(p)?)),
         "config.trust" => on_main(move || trust(params(p)?)),
@@ -297,6 +299,217 @@ fn show(s: Show) -> Result<Value> {
 }
 
 #[derive(Deserialize)]
+struct RemoveParams {
+    project: String,
+    caller: Option<String>,
+    #[serde(default)]
+    dry_run: bool,
+    /// Leave every Project checkout on disk.
+    #[serde(default)]
+    keep_checkouts: bool,
+}
+
+#[derive(Deserialize)]
+struct PruneParams {
+    workspace: Option<String>,
+    caller: Option<String>,
+    #[serde(default)]
+    dry_run: bool,
+}
+
+/// The paths the Workspace's links use now (recorded, resolved or planned).
+fn used_paths(r: &Resolution) -> Vec<PathBuf> {
+    r.resolved.iter().filter_map(|x| x.path.clone()).collect()
+}
+
+fn orphan_json(o: &checkout::Orphan) -> Value {
+    json!({"source": o.source, "path": o.path, "branch": o.branch, "dirty": o.dirty})
+}
+
+/// `git worktree remove` of each clean orphan (never `--force`); the
+/// dirty ones and failures are kept, with why.
+fn remove_orphans(r: &Resolution, found: &[checkout::Orphan]) -> (Vec<Value>, Vec<Value>) {
+    let (mut removed, mut kept) = (Vec::new(), Vec::new());
+    for o in found {
+        let mut v = orphan_json(o);
+        if o.dirty > 0 {
+            v["why"] = format!("{} uncommitted change{}", o.dirty, if o.dirty == 1 { "" } else { "s" }).into();
+            kept.push(v);
+            continue;
+        }
+        let Some(main) = r.repos.get(&o.source).map(|x| x.main.clone()) else {
+            continue;
+        };
+        match git::remove_worktree(&main, &o.path, false) {
+            Ok(()) => removed.push(v),
+            Err(e) => {
+                v["why"] = e.message.into();
+                kept.push(v);
+            }
+        }
+    }
+    (removed, kept)
+}
+
+/// `project.prune` (R133.2): the Project checkouts under
+/// `<folder>/.projects` that no link of the Workspace uses; the clean ones
+/// are removed (`dry_run`: only listed), the dirty ones never touched.
+fn prune(pp: PruneParams) -> Result<Value> {
+    let sc = on_main(move || {
+        let app = app();
+        let m = app.model.borrow();
+        let ws = target_workspace(&m, pp.workspace.as_deref(), pp.caller.as_deref())?;
+        Ok(scene(&m, &ws))
+    })?;
+    let r = resolve(sc, None);
+    let found = checkout::orphans(&r.repos, &r.scene.folder, &used_paths(&r), &canon);
+    if pp.dry_run {
+        let (clean, dirty): (Vec<_>, Vec<_>) = found.iter().partition(|o| o.dirty == 0);
+        return Ok(json!({
+            "workspace": r.scene.ws, "dry_run": true,
+            "remove": clean.iter().map(|o| orphan_json(o)).collect::<Vec<_>>(),
+            "keep": dirty.iter().map(|o| orphan_json(o)).collect::<Vec<_>>(),
+        }));
+    }
+    let (removed, kept) = remove_orphans(&r, &found);
+    Ok(json!({"workspace": r.scene.ws, "removed": removed, "kept": kept}))
+}
+
+/// The Panes running in one of `dirs` (a Project checkout about to go).
+fn panes_in(m: &State, dirs: &[PathBuf]) -> Vec<(String, String)> {
+    m.sources
+        .iter()
+        .flat_map(|s| s.worktrees.iter())
+        .flat_map(|w| w.tabs.iter())
+        .flat_map(|t| t.panes())
+        .filter(|p| {
+            let cwd = canon(p.cwd());
+            dirs.iter().any(|d| cwd.starts_with(canon(d)))
+        })
+        .map(|p| {
+            let name = p
+                .name
+                .clone()
+                .or_else(|| p.agent_name().map(String::from))
+                .unwrap_or_else(|| p.id.clone());
+            (p.id.clone(), name)
+        })
+        .collect()
+}
+
+/// `project.remove` (R133.1): delete the Project's folder (`project.toml`
+/// with it), remove its Project checkouts no other link uses (clean ones;
+/// dirty ones are kept and listed), close the Panes running in those, put
+/// its Worktrees in Scratch with their base. `dry_run` only says so.
+fn remove(rp: RemoveParams) -> Result<Value> {
+    let q = rp.project.clone();
+    let caller = rp.caller.clone();
+    let (ws, p, sc) = on_main(move || {
+        let app = app();
+        let m = app.model.borrow();
+        let (ws, p) = find(&m, &q, caller.as_deref())?;
+        let sc = scene(&m, &ws);
+        Ok((ws, p, sc))
+    })?;
+    // This Project's checkouts: its records and its `.projects/<id>` folder.
+    let mine: Vec<PathBuf> = sc
+        .records
+        .iter()
+        .filter(|r| r.project == p.id)
+        .map(|r| canon(&r.path))
+        .collect();
+    let own_dir = canon(&sc.folder.join(checkout::PROJECTS).join(&p.id));
+    let mut rest = sc;
+    rest.projects.retain(|x| x.id != p.id);
+    rest.records.retain(|x| x.project != p.id);
+    let r = resolve(rest, None);
+    let found: Vec<checkout::Orphan> =
+        checkout::orphans(&r.repos, &r.scene.folder, &used_paths(&r), &canon)
+            .into_iter()
+            .filter(|o| {
+                let c = canon(&o.path);
+                mine.contains(&c) || c.starts_with(&own_dir)
+            })
+            .collect();
+    let going: Vec<PathBuf> = if rp.keep_checkouts {
+        Vec::new()
+    } else {
+        found.iter().filter(|o| o.dirty == 0).map(|o| o.path.clone()).collect()
+    };
+    let (pid, g) = (p.id.clone(), going.clone());
+    let (panes, worktrees) = on_main(move || {
+        let app = app();
+        let m = app.model.borrow();
+        let wts: Vec<(String, String)> = m
+            .sources
+            .iter()
+            .flat_map(|s| s.worktrees.iter().map(move |w| (s, w)))
+            .filter(|(_, w)| w.project.as_deref() == Some(pid.as_str()))
+            .map(|(s, w)| (s.id.clone(), w.name.clone()))
+            .collect();
+        Ok((panes_in(&m, &g), wts))
+    })?;
+    let mut v = json!({
+        "project": p.id, "name": p.name, "workspace": ws,
+        "file": p.file, "dry_run": rp.dry_run,
+        "panes": panes.iter().map(|(id, n)| json!({"pane": id, "name": n})).collect::<Vec<_>>(),
+        "worktrees": worktrees.iter().map(|(s, w)| json!({"source": s, "worktree": w})).collect::<Vec<_>>(),
+    });
+    if rp.dry_run {
+        let (clean, dirty): (Vec<_>, Vec<_>) = found
+            .iter()
+            .partition(|o| o.dirty == 0 && !rp.keep_checkouts);
+        v["remove"] = clean.iter().map(|o| orphan_json(o)).collect::<Vec<Value>>().into();
+        v["keep"] = dirty.iter().map(|o| orphan_json(o)).collect::<Vec<Value>>().into();
+        return Ok(v);
+    }
+    let ids: Vec<String> = panes.into_iter().map(|(id, _)| id).collect();
+    on_main(move || {
+        let app = app();
+        for id in &ids {
+            let _ = app.close_pane(id, false);
+        }
+        Ok(())
+    })?;
+    let (removed, kept) = if rp.keep_checkouts {
+        (Vec::new(), found.iter().map(orphan_json).collect())
+    } else {
+        remove_orphans(&r, &found)
+    };
+    let dir = p
+        .file
+        .parent()
+        .ok_or_else(|| Error::internal("project.toml has no folder"))?
+        .to_path_buf();
+    std::fs::remove_dir_all(&dir)
+        .map_err(|e| Error::internal(format!("{}: {e}", dir.display())))?;
+    let (pid, wsid) = (p.id.clone(), ws.clone());
+    on_main(move || {
+        let app = app();
+        app.update(|m| {
+            for s in m.sources.iter_mut().filter(|s| s.workspace == wsid) {
+                for w in s.worktrees.iter_mut() {
+                    if w.project.as_deref() == Some(pid.as_str()) {
+                        w.project = None;
+                    }
+                }
+            }
+            if let Some(w) = m.workspaces.iter_mut().find(|w| w.id == wsid) {
+                w.link_checkouts.retain(|r| r.project != pid);
+                w.project_order.retain(|x| *x != pid);
+            }
+        });
+        app.save_now();
+        crate::navdata::refresh();
+        crate::home_view::close();
+        Ok(())
+    })?;
+    v["removed"] = removed.into();
+    v["kept"] = kept.into();
+    Ok(v)
+}
+
+#[derive(Deserialize)]
 struct PlanSource {
     source: String,
     base: Option<String>,
@@ -483,8 +696,32 @@ fn link_edit(l: LinkParams, set_base: bool) -> Result<Value> {
         let p = p.clone();
         on_main(move || crate::project_settings::write_text(&p, &old, &new))?;
     }
+    let before = on_main({
+        let ws = ws.clone();
+        move || Ok(scene(&app().model.borrow(), &ws))
+    })?;
+    let was = before
+        .records
+        .iter()
+        .find(|r| r.project == p.id && r.source == src)
+        .map(|r| canon(&r.path));
     drop_record(&ws, &p.id, &src);
-    Ok(link_result(&ws, &p, &src))
+    let mut v = link_result(&ws, &p, &src);
+    // Its old Project checkout, if no link uses it now (R133.2).
+    if let Some(was) = was {
+        let sc = on_main({
+            let ws = ws.clone();
+            move || Ok(scene(&app().model.borrow(), &ws))
+        })?;
+        let r = resolve(sc, None);
+        let unused: Vec<Value> = checkout::orphans(&r.repos, &r.scene.folder, &used_paths(&r), &canon)
+            .iter()
+            .filter(|o| canon(&o.path) == was)
+            .map(orphan_json)
+            .collect();
+        v["unused"] = unused.into();
+    }
+    Ok(v)
 }
 
 /// `project.link_to_base` (R100.2, Back to base): `git switch <base>` in
@@ -516,7 +753,17 @@ fn link_to_base(l: LinkParams) -> Result<Value> {
         .filter(|_| f.exists)
         .and_then(|h| drift::drift(&res.base, h, f.dirty));
     let other = checkout::elsewhere(repo, &res.base, &path, &canon);
-    let switched = drift::to_base(&src, d.as_ref(), other.as_deref())?;
+    let unused = other.as_deref().is_some_and(|o| {
+        checkout::orphans(&r.repos, &r.scene.folder, &used_paths(&r), &canon)
+            .iter()
+            .any(|x| canon(&x.path) == canon(o))
+    });
+    let switched = drift::to_base(&src, d.as_ref(), other.as_deref()).map_err(|mut e| {
+        if unused {
+            e.message += " — an unused Project checkout; rade project prune removes it";
+        }
+        e
+    })?;
     if switched {
         git::run(&path, &["switch", &res.base])?;
     }
@@ -699,7 +946,102 @@ pub fn menu(key: &str) -> gio::Menu {
         i.set_action_and_target_value(Some(action), Some(&format!("{key}\u{1f}").to_variant()));
         menu.append_item(&i);
     }
+    let danger = gio::Menu::new();
+    let i = gio::MenuItem::new(Some("Remove Project…"), None);
+    i.set_action_and_target_value(
+        Some("sb.project-remove"),
+        Some(&format!("{key}\u{1f}").to_variant()),
+    );
+    danger.append_item(&i);
+    menu.append_section(None, &danger);
     menu
+}
+
+/// The text of the Remove Project… confirmation from a `dry_run` answer;
+/// paths relative to the Workspace root.
+pub(crate) fn remove_body(v: &Value) -> String {
+    let list = |k: &str| v[k].as_array().cloned().unwrap_or_default();
+    let file = Path::new(v["file"].as_str().unwrap_or_default());
+    // `<root>/.rade/projects/<id>/project.toml`
+    let root = file.ancestors().nth(4).unwrap_or(Path::new("/"));
+    let rel = |p: &str| {
+        Path::new(p)
+            .strip_prefix(root)
+            .map_or_else(|_| p.to_string(), |r| r.display().to_string())
+    };
+    let path = |o: &Value| rel(o["path"].as_str().unwrap_or_default());
+    let mut out = format!(
+        "Deletes {} and its folder. This can't be undone.",
+        rel(&file.display().to_string())
+    );
+    let remove = list("remove");
+    if !remove.is_empty() {
+        out += "\n\nRemoves its Project checkouts (clean, no other Project uses them):";
+        for o in &remove {
+            out += &format!("\n{}", path(o));
+        }
+    }
+    let keep = list("keep");
+    if !keep.is_empty() {
+        out += "\n\nKeeps, with uncommitted changes:";
+        for o in &keep {
+            out += &format!("\n{} ({} changes)", path(o), o["dirty"]);
+        }
+    }
+    let panes = list("panes");
+    if !panes.is_empty() {
+        let names: Vec<&str> = panes.iter().filter_map(|p| p["name"].as_str()).collect();
+        out += &format!("\n\nCloses the Panes running there: {}.", names.join(", "));
+    }
+    let n = list("worktrees").len();
+    if n > 0 {
+        out += &if n == 1 {
+            "\n\nIts Worktree moves to Scratch and keeps its base.".to_string()
+        } else {
+            format!("\n\nIts {n} Worktrees move to Scratch and keep their base.")
+        };
+    }
+    out
+}
+
+/// Remove Project… (R133.1): the plan first (`dry_run`), one confirmation.
+pub fn remove_dialog(key: &str) {
+    let Some((_, p)) = lookup(key) else { return };
+    let id = p.id.clone();
+    crate::worktrees::in_background(
+        move || dispatch("project.remove", json!({"project": id, "dry_run": true})),
+        move |r| {
+            let v = match r {
+                Ok(v) => v,
+                Err(e) => return crate::worktrees::alert("Remove Project", &e.message),
+            };
+            let d = adw::AlertDialog::new(
+                Some(&format!("Remove Project “{}”?", p.name)),
+                Some(&remove_body(&v)),
+            );
+            d.add_response("cancel", "Cancel");
+            d.add_response("delete", "Remove Project");
+            d.set_response_appearance("delete", adw::ResponseAppearance::Destructive);
+            d.set_default_response(Some("cancel"));
+            d.set_close_response("cancel");
+            let id = p.id.clone();
+            d.connect_response(None, move |_, r| {
+                if r != "delete" {
+                    return;
+                }
+                let id = id.clone();
+                crate::worktrees::in_background(
+                    move || dispatch("project.remove", json!({"project": id})),
+                    |r| {
+                        if let Err(e) = r {
+                            crate::worktrees::alert("Could not remove the Project", &e.message);
+                        }
+                    },
+                );
+            });
+            crate::menus::present(d, &["cancel", "delete"]);
+        },
+    );
 }
 
 /// "Open project.toml": a Viewer in the Workspace's General.
