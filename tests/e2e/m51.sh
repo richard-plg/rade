@@ -261,6 +261,15 @@ if part remove; then
     rade project remove rel --json >"$OUT/remove-rel.json"
     check "R133-c a dirty checkout is kept by remove, with why" \
         bash -c "jq -e '.kept[0].path == \"$PC/rel/lib\" and (.kept[0].why | test(\"uncommitted\"))' '$OUT/remove-rel.json' >/dev/null && [[ -f '$PC/rel/lib/dirty.txt' ]]"
+    # The palette's Prune Unused Project Checkouts… asks first.
+    rpc debug.ui '{"op":"key","keys":"ctrl+shift+p"}' >/dev/null
+    eventually 3 bash -c "[[ \$(rade --json debug palette --ui info | jq -r .open) == true ]]" || true
+    rade --json debug palette --ui type "> Prune Unused" >/dev/null
+    eventually 5 bash -c "[[ \$(rade --json debug palette --ui info | jq -r .busy) == false ]]" || true
+    rade --json debug palette --ui key enter >/dev/null
+    check "R133-c the palette's Prune… lists the clean one and the kept one" \
+        eventually 5 bash -c "rade debug dialog | jq -e '(.heading == \"Prune Project checkouts?\") and (.body | test(\"$PC/billing/lib\")) and (.body | test(\"Keeps, with uncommitted changes:\\n$PC/rel/lib\"))' >/dev/null"
+    respond cancel
     rade project prune --workspace acme --dry-run >"$OUT/prune-dry.txt"
     check "R133-c prune --dry-run lists the clean one and keeps the dirty one" \
         bash -c "grep -qx 'would remove $PC/billing/lib' '$OUT/prune-dry.txt' && grep -q '^kept $PC/rel/lib' '$OUT/prune-dry.txt' && [[ -d '$PC/billing/lib' ]]"

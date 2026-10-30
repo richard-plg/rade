@@ -1004,6 +1004,60 @@ pub(crate) fn remove_body(v: &Value) -> String {
     out
 }
 
+/// Prune Unused Project Checkouts… (R133.2): the list first, one
+/// confirmation, then `project.prune` for the shown Workspace.
+pub fn prune_dialog() {
+    let ws = app().model.borrow().active_workspace().to_string();
+    let w = ws.clone();
+    crate::worktrees::in_background(
+        move || dispatch("project.prune", json!({"workspace": w, "dry_run": true})),
+        move |r| {
+            let v = match r {
+                Ok(v) => v,
+                Err(e) => return crate::worktrees::alert("Prune", &e.message),
+            };
+            let paths = |k: &str| -> Vec<String> {
+                v[k].as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|o| o["path"].as_str().map(String::from))
+                    .collect()
+            };
+            let (remove, keep) = (paths("remove"), paths("keep"));
+            if remove.is_empty() {
+                let mut body = "Every Project checkout is used by a link.".to_string();
+                if !keep.is_empty() {
+                    body = format!(
+                        "The unused ones have uncommitted changes and stay:\n{}",
+                        keep.join("\n")
+                    );
+                }
+                return crate::worktrees::alert("Nothing to prune", &body);
+            }
+            let mut body = format!(
+                "Removes {} clean Project checkout{} no link uses:\n{}",
+                remove.len(),
+                if remove.len() == 1 { "" } else { "s" },
+                remove.join("\n")
+            );
+            if !keep.is_empty() {
+                body += &format!("\n\nKeeps, with uncommitted changes:\n{}", keep.join("\n"));
+            }
+            crate::changes_ops::confirm("Prune Project checkouts?", &body, "delete", "Remove", move || {
+                let w = ws.clone();
+                crate::worktrees::in_background(
+                    move || dispatch("project.prune", json!({"workspace": w})),
+                    |r| {
+                        if let Err(e) = r {
+                            crate::worktrees::alert("Could not prune", &e.message);
+                        }
+                    },
+                );
+            });
+        },
+    );
+}
+
 /// Remove Project… (R133.1): the plan first (`dry_run`), one confirmation.
 pub fn remove_dialog(key: &str) {
     let Some((_, p)) = lookup(key) else { return };
