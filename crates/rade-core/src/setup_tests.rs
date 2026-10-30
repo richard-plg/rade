@@ -661,3 +661,23 @@ fn statusline_of_another_type_is_left_alone_with_a_note() {
     assert_eq!(statusline_command(Some("")), STATUSLINE);
     assert_eq!(sh_quote("it's"), r"'it'\''s'");
 }
+
+#[test]
+fn r138_e_skill_names_every_schedule_command() {
+    let at = SKILL
+        .find("\n## Start an agent later or on a timetable: `rade schedule`")
+        .expect("a Schedules section");
+    let section = &SKILL[at..];
+    let section = &section[..section[4..].find("\n## ").map_or(section.len(), |i| i + 4)];
+    for sub in [
+        "add", "list", "show", "edit", "on", "off", "remove", "run", "runs", "resume", "next",
+    ] {
+        assert!(
+            section.contains(&format!("rade schedule {sub} ")),
+            "the Schedules section lacks `rade schedule {sub}`"
+        );
+    }
+    for outcome in ["started", "skipped", "missed", "failed"] {
+        assert!(section.contains(outcome), "{outcome}");
+    }
+}
