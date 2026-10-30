@@ -155,6 +155,22 @@ r=$(rade schedule resume keep 3 --json)
 check "R137-f open run focused" test "$(jq -r '.resumed' <<<"$r")" = false
 check "R138-d resume with no number = the newest started Run" test "$(rade schedule resume keep --json | jq -r .pane)" = "$(runs keep | jq -r '.runs[0].pane')"
 
+echo "== review fixes: an early run of an at Schedule, then on; remove + add keeps Panes apart; two runs at once"
+rade schedule add early --project api --at "$(date -d tomorrow +%F) 10:00" "hello" >/dev/null
+rade schedule run early >/dev/null
+check "R136-c an early run leaves it done and off" test "$(rade schedule show early --json | jq -c '[.done, .enabled]')" = '[true,false]'
+rade schedule on early >/dev/null
+check "R136-c on again: not done, its time next" test "$(rade schedule show early --json | jq -c '[.done, .enabled, (.next == .at)]')" = '[false,true,true]'
+rade schedule remove keep >/dev/null
+rade schedule add keep --project api --cron "@yearly" "hello" >/dev/null
+rade schedule run keep >/dev/null
+check "R137-7 a re-added Schedule opens its own Tab" eventually 5 bash -c "test \"\$(rade schedule show keep --json | jq -r .tab)\" != '$KT'"
+rade schedule add twice --project api --cron "@yearly" "spin" >/dev/null
+rade schedule run twice >/dev/null & bg=$!; rade schedule run twice >/dev/null; wait "$bg"
+check "R137-3 two runs at once: one started, one skipped" test "$(runs twice | jq -c '[.runs[].outcome] | sort')" = '["skipped","started"]'
+check "R137-2 the Pane's number is its Run's" test "$(pane_of "$(runs twice | jq -r '.runs[] | select(.outcome == "started") | .pane')" .name)" = "twice-$(runs twice | jq -r '.runs[] | select(.outcome == "started") | .n')"
+rade schedule off twice >/dev/null
+
 echo "== R138-d run now, runs --json"
 check "R138-d runs --limit 1" test "$(runs keep --limit 1 | jq '.runs | length')" = 1
 
@@ -263,8 +279,16 @@ ui '"arg": "form_submit"' >/dev/null
 check "R139-b Create wrote the Schedule" eventually 5 is "rade schedule show fromui --json | jq -r '[.project, .link, .cron, .agent, .prompt] | @tsv'" "$(printf 'ops\tops\t0 9 * * 1-5\tcodex\tsummarize yesterday')"
 check "R139-b the form closed, the new row selected" eventually 5 is "ui | jq -c '[(.form == null), .selected[1]]'" '[true,"fromui"]'
 ui '"arg": "edit", "name": "fromui"' >/dev/null
-check "R139-b Edit fills the form" eventually 5 is "ui | jq -r '.form.params | [.name, .cron, .agent] | @tsv'" "$(printf 'fromui\t0 9 * * 1-5\tcodex')"
+check "R139-b Edit fills the form" eventually 5 is "ui | jq -r '[.form.params.name, .form.cron, .form.params.agent] | @tsv'" "$(printf 'fromui\t0 9 * * 1-5\tcodex')"
 ui '"arg": "form_cancel"' >/dev/null
+rade schedule add oncedone --project ops --at "$(date -d tomorrow +%F) 10:00" "old prompt" >/dev/null
+rade schedule run oncedone >/dev/null
+ui '"arg": "edit", "name": "oncedone"' >/dev/null
+check "R136-c Edit opens the done Schedule" eventually 5 is "ui | jq -r .form.params.name" oncedone
+f=$(ui '"arg": "form_set", "field": "prompt", "value": "new prompt"' | jq .form)
+check "R136-c a done Schedule's prompt edit: Save enabled, no at sent" test "$(jq -c '[.create_enabled, (.params | has("at")), (.params | has("account"))]' <<<"$f")" = '[true,false,false]'
+ui '"arg": "form_submit"' >/dev/null
+check "R136-c saved: new prompt, still done" eventually 5 is "rade schedule show oncedone --json | jq -c '[.prompt, .done]'" '["new prompt",true]'
 
 echo "== R139-c Run now, then Resume of the older run"
 ui '"arg": "select", "workspace": "default", "name": "a1"' >/dev/null

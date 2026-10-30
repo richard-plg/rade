@@ -478,3 +478,32 @@ fn r136_texts() {
         "Jan 2 2027 14:00"
     );
 }
+
+#[test]
+fn r136_c_on_again_after_an_early_run() {
+    let tz = berlin();
+    let projects = vec![("solo".to_string(), vec!["one".to_string()])];
+    let presets = vec!["claude".to_string()];
+    let account = |_: &str, _: &str| -> Result<()> { Ok(()) };
+    let ctx = ctx_with(&tz, &projects, &presets, &[], &account);
+    let mut s = sched(&tz);
+    s.project = Some("solo".into());
+    s.link = Some("one".into());
+    s.cron = None;
+    s.at = Some(ctx.now + 3600);
+    // `schedule run` before its time: done and off.
+    let n = s.next_n();
+    s.record(Run::new(n, ctx.now, Outcome::Started, None));
+    assert!(s.done && !s.enabled);
+    let on = edit(
+        &s,
+        &Spec {
+            enabled: Some(true),
+            ..Default::default()
+        },
+        &ctx,
+    )
+    .unwrap();
+    assert!(on.enabled && !on.done);
+    assert_eq!(on.next(ctx.now, &tz), s.at);
+}

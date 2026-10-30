@@ -886,6 +886,9 @@ fn delete(ws: &str, name: &str) {
 
 // ---- the New / Edit Schedule form (R139.3) ----
 
+/// An edited Schedule's `(cron, at text, account)` as loaded.
+type Loaded = (Option<String>, Option<String>, Option<String>);
+
 struct Form {
     dialog: adw::Dialog,
     /// (workspace, name) when editing.
@@ -921,6 +924,9 @@ struct Form {
     accounts: RefCell<Vec<(String, String, bool)>>,
     /// The account names in the dropdown after `Default (…)`.
     account_names: RefCell<Vec<String>>,
+    /// An edited Schedule's `(cron, at text, account)` as loaded: only what
+    /// changed is sent, so a prompt edit keeps a passed `at` and `checked`.
+    loaded: RefCell<Option<Loaded>>,
 }
 
 fn strings(list: &[String]) -> gtk::StringList {
@@ -964,9 +970,11 @@ impl Form {
 
     /// The account dropdown for the chosen agent: `Default (…)` first.
     fn fill_accounts(&self, keep: Option<&str>) {
+        // Accounts are claude's or codex's; other agents run without one.
         let kind = match self.agent().as_str() {
             "codex" => "codex",
-            _ => "claude",
+            "claude" => "claude",
+            _ => "",
         };
         let accs = self.accounts.borrow();
         let mine: Vec<&(String, String, bool)> = accs.iter().filter(|a| a.0 == kind).collect();
@@ -1038,8 +1046,13 @@ impl Form {
             }
         } else {
             let text = format!("{} {}", self.date.text().trim(), self.clock.text().trim());
+            let unchanged = self
+                .loaded
+                .borrow()
+                .as_ref()
+                .is_some_and(|l| l.1.as_deref() == Some(text.as_str()));
             match rade_core::schedule::parse_at(&text, tz) {
-                Ok(t) if t > now() => {}
+                Ok(t) if t > now() || unchanged => {}
                 _ => ok = false,
             }
         }
@@ -1076,20 +1089,36 @@ impl Form {
         } else {
             p["dir"] = json!(self.folder.text().trim());
         }
+        let loaded = self.loaded.borrow().clone();
         if self.repeat.is_active() {
-            p["cron"] = json!(self.cron.text().trim());
+            let c = self.cron.text().trim().to_string();
+            if loaded
+                .as_ref()
+                .is_none_or(|l| l.0.as_deref() != Some(c.as_str()))
+            {
+                p["cron"] = json!(c);
+            }
         } else {
-            p["at"] = json!(format!(
-                "{} {}",
-                self.date.text().trim(),
-                self.clock.text().trim()
-            ));
+            let a = format!("{} {}", self.date.text().trim(), self.clock.text().trim());
+            if loaded
+                .as_ref()
+                .is_none_or(|l| l.1.as_deref() != Some(a.as_str()))
+            {
+                p["at"] = json!(a);
+            }
         }
         let pick = self.account.selected() as usize;
-        p["account"] = match pick {
-            0 => Value::Null,
-            i => json!(self.account_names.borrow().get(i - 1)),
+        let chosen = match pick {
+            0 => None,
+            i => self.account_names.borrow().get(i - 1).cloned(),
         };
+        // Before the account list arrives the dropdown says only Default:
+        // an edit then leaves the account alone.
+        let listed = !self.account_names.borrow().is_empty();
+        match &loaded {
+            Some((_, _, acct)) if *acct == chosen || (!listed && acct.is_some()) => {}
+            _ => p["account"] = json!(chosen),
+        }
         p
     }
 
@@ -1330,6 +1359,7 @@ pub fn new_form(editing: Option<(String, String)>) {
         presets,
         accounts: RefCell::new(Vec::new()),
         account_names: RefCell::new(Vec::new()),
+        loaded: RefCell::new(None),
     });
     form.fill_links();
     form.fill_accounts(None);
@@ -1396,8 +1426,14 @@ pub fn new_form(editing: Option<(String, String)>) {
             d.close();
         });
     }
-    dialog.connect_closed(|_| {
-        FORM.with(|f| f.borrow_mut().take());
+    // Closed after its animation: a form opened meanwhile stays the open one.
+    dialog.connect_closed(|d| {
+        FORM.with(|f| {
+            let mut f = f.borrow_mut();
+            if f.as_ref().is_some_and(|x| &x.dialog == d) {
+                f.take();
+            }
+        });
     });
 
     // The Workspace's accounts (off the main loop).
@@ -1489,6 +1525,9 @@ fn fill_from(f: &Rc<Form>, v: &Value) {
     f.prompt.buffer().set_text(s(&v["prompt"]));
     f.catch_up.set_active(s(&v["catch_up"]) == "once");
     f.keep.set_value(v["keep_runs"].as_f64().unwrap_or(3.0));
+    let at_text =
+        (f.once.is_active()).then(|| format!("{} {}", f.date.text().trim(), f.clock.text().trim()));
+    *f.loaded.borrow_mut() = Some((v["cron"].as_str().map(String::from), at_text, acct));
     f.validate();
 }
 
@@ -1519,6 +1558,7 @@ fn info() -> Value {
             "preview_error": f.preview.has_css_class("error"),
             "error": f.error.is_visible().then(|| f.error.label().to_string()),
             "params": f.params(),
+            "cron": f.cron.text().to_string(),
             "link_visible": f.link.is_visible(),
             "accounts": (0..f.account.model().map_or(0, |m| m.n_items())).map(|i| {
                 f.account.model().and_then(|m| m.item(i))
@@ -1584,6 +1624,13 @@ pub fn debug(p: &Value) -> Result<Value> {
         Some("new") => new_form(None),
         Some("edit") => new_form(Some(match (s_("workspace"), s_("name")) {
             (Some(w), Some(n)) => (w, n),
+            // A name alone: in the shown Workspace.
+            (None, Some(n)) => (
+                try_app()
+                    .map(|a| a.model.borrow().active_workspace().to_string())
+                    .unwrap_or_default(),
+                n,
+            ),
             _ => sel()?,
         })),
         Some("form_set") => {

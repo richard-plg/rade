@@ -819,6 +819,11 @@ fn apply(mut s: Schedule, spec: &Spec, ctx: &Ctx, new: bool) -> Result<Schedule>
         if e && !s.enabled {
             s.checked = ctx.now;
         }
+        // An `at` Schedule run early (`schedule run`) is done; switched on
+        // while its time is still ahead it runs then.
+        if e && s.done && s.at.is_some_and(|a| a > ctx.now) {
+            s.done = false;
+        }
         s.enabled = e;
     }
     check(&mut s, ctx)?;
@@ -986,6 +991,23 @@ impl crate::model::State {
         t.renamed = true;
         t.schedule = Some(r.schedule);
         Ok((tab, id))
+    }
+
+    /// A Schedule removed: its kept Tabs and Panes no longer belong to it,
+    /// so one re-added under the name starts a Tab of its own (R137.7).
+    pub fn forget_schedule(&mut self, ws: &str, name: &str) {
+        for (s, w, t) in self.schedule_tabs(ws, name) {
+            if let Ok(wt) = self.worktree_mut(&s, &w) {
+                if let Some(tab) = wt.tabs.iter_mut().find(|x| x.id == t) {
+                    tab.schedule = None;
+                    for id in tab.pane_ids() {
+                        if let Some(p) = tab.pane_mut(&id) {
+                            p.schedule = None;
+                        }
+                    }
+                }
+            }
+        }
     }
 
     /// A Schedule renamed: its Tabs and Panes follow (R137.2).

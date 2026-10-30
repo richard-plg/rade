@@ -26,6 +26,9 @@ static OFFSET: AtomicI64 = AtomicI64::new(0);
 static STARTED: AtomicBool = AtomicBool::new(false);
 /// One check at a time (the timer's and `debug.schedule tick`).
 static TICKING: Mutex<()> = Mutex::new(());
+/// One run at a time (a tick's, `schedule.run`'s): the busy check and the
+/// Pane a run makes can't interleave with another run's.
+static FIRING: Mutex<()> = Mutex::new(());
 
 fn test_mode() -> bool {
     crate::handlers::DEBUG_SOCKET
@@ -128,6 +131,8 @@ fn missed_text(count: u32) -> String {
 /// Copy each run Pane's Agent Status onto its Run; a closed Pane leaves
 /// `pane` null and keeps the last status (R137.4).
 fn refresh_runs(m: &mut State) {
+    // A session a hook reported (Codex) is kept before its Pane is gone.
+    fill_sessions(m);
     let status: Vec<(String, Option<Option<rade_core::AgentStatus>>)> = m
         .schedules
         .iter()
@@ -162,7 +167,9 @@ fn record(ws: &str, name: &str, mut run: Run) -> Result<Run> {
             let s = m
                 .schedule_mut(&ws, &name)
                 .ok_or_else(|| Error::not_found(format!("no schedule '{name}'")))?;
-            run.n = s.next_n();
+            if run.n == 0 {
+                run.n = s.next_n();
+            }
             s.record(run.clone());
             Ok::<_, Error>(run)
         })?;
@@ -240,28 +247,32 @@ fn target(s: &Schedule) -> Result<(String, PathBuf)> {
 
 /// Fire one run now (R137.2–R137.4); `missed` > 0 = a catch-up run.
 fn fire(ws: &str, name: &str, missed: u32) -> Result<Run> {
+    let _one = FIRING.lock().unwrap_or_else(|e| e.into_inner());
     let started = now();
     let (ws2, name2) = (ws.to_string(), name.to_string());
-    let s = on_main(move || {
+    // The Run number is taken now: the Pane's name and the Run agree.
+    let (s, n) = on_main(move || {
         let app = app();
         let mut m = app.model.borrow_mut();
         refresh_runs(&mut m);
-        m.schedule(&ws2, &name2)
-            .cloned()
-            .ok_or_else(|| Error::not_found(format!("no schedule '{name2}' in workspace '{ws2}'")))
+        let s = m.schedule_mut(&ws2, &name2).ok_or_else(|| {
+            Error::not_found(format!("no schedule '{name2}' in workspace '{ws2}'"))
+        })?;
+        let n = s.next_n();
+        Ok((s.clone(), n))
     })?;
     let skip = |reason: &str| {
         record(
             ws,
             name,
-            Run::new(0, started, Outcome::Skipped, Some(reason.into())),
+            Run::new(n, started, Outcome::Skipped, Some(reason.into())),
         )
     };
     let fail = |e: Error| {
         record(
             ws,
             name,
-            Run::new(0, started, Outcome::Failed, Some(e.message)),
+            Run::new(n, started, Outcome::Failed, Some(e.message)),
         )
     };
     // Busy previous run, paused Source: before any git (R137.3).
@@ -294,11 +305,6 @@ fn fire(ws: &str, name: &str, missed: u32) -> Result<Run> {
     let s2 = s.clone();
     let placed = on_main(move || {
         let app = app();
-        let n = app
-            .model
-            .borrow()
-            .schedule(&s2.workspace, &s2.name)
-            .map_or(1, |x| x.last_n + 1);
         let spawn = Spawn {
             source: Some(source.clone()),
             worktree: None,
@@ -339,7 +345,7 @@ fn fire(ws: &str, name: &str, missed: u32) -> Result<Run> {
         Ok(x) => x,
         Err(e) => return fail(e),
     };
-    let mut run = Run::new(0, started, Outcome::Started, None);
+    let mut run = Run::new(n, started, Outcome::Started, None);
     if missed > 0 {
         run.reason = Some(format!("catch-up for {}", missed_text(missed)));
         run.missed = Some(missed);
@@ -484,7 +490,12 @@ fn resume(ws: &str, name: &str, n: Option<u32>) -> Result<Value> {
             caller: None,
         };
         let at = (source.clone(), None);
-        let plan = plan_spawn(&app, &spawn, Some(&at))?;
+        let mut plan = plan_spawn(&app, &spawn, Some(&at))?;
+        // R137.6: the Run's own account; a Run that had none resumes with
+        // none, not today's default (another config dir has no such session).
+        if run.account.is_none() {
+            plan.account = None;
+        }
         let preset = app
             .config_for(&source, None)
             .presets()
@@ -714,8 +725,14 @@ fn project_id(m: &State, ws: &str, spec: &mut Spec) {
             spec.project = Some(p.id);
         }
     }
+    // Only the Workspace's own Sources: a name may repeat in another.
     if let Some(l) = spec.link.clone() {
-        if let Ok(s) = m.find_source(&l) {
+        let own = m
+            .sources
+            .iter()
+            .filter(|s| s.workspace == ws)
+            .find(|s| s.id == l || s.name == l);
+        if let Some(s) = own {
             spec.link = Some(s.id.clone());
         }
     }
@@ -859,7 +876,8 @@ fn remove(n: Named) -> Result<Value> {
         };
         app.update(|m| {
             m.schedules
-                .retain(|s| !(s.workspace == ws && s.name == n.name))
+                .retain(|s| !(s.workspace == ws && s.name == n.name));
+            m.forget_schedule(&ws, &n.name);
         });
         let mut closed = Vec::new();
         for p in panes {
