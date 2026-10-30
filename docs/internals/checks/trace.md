@@ -23,7 +23,7 @@ ACs: 295 (R97–R130), covered 295, missing 0, format errors 0
 | M47 | 14 | 14 | 0 | yes |
 | M48 | 16 | 16 | 0 | yes |
 | M49 | 14 | 14 | 0 | yes |
-| M50 | 6 | 6 | 0 | no |
+| M50 | 6 | 6 | 0 | yes |
 
 | AC | Milestone | Kind | Status | Tests |
 |---|---|---|---|---|
