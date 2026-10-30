@@ -236,10 +236,10 @@ pub fn word_at(line: &str, col: usize) -> Option<String> {
 
 /// The word under (`row`, `col`) of a block of screen rows, continued
 /// over rows a wrap split it across (R134): while the word ends its row
-/// at the right edge (within 2 columns of `cols`, or as far right as the
-/// rows next to it: a TUI wrapping at its own width), the next row's
-/// first word is appended; the same backwards. A URL takes only pieces
-/// that look like more of a URL. Of
+/// within 3 columns of the right edge (the terminal's soft wrap, or
+/// Claude Code / Codex breaking a long token at the width), the next
+/// row's first word is appended; the same backwards. A URL takes only
+/// pieces that look like more of a URL. Of
 /// those joins the longest that `resolves` (a URL, an existing path) wins,
 /// else the clicked row's word alone; `true` = it spans several rows.
 pub fn token_across(
@@ -257,15 +257,10 @@ pub fn token_across(
     let last = |r: &[char]| r.iter().rposition(|c| !c.is_whitespace());
     let first = |r: &[char]| r.iter().position(|c| !c.is_whitespace());
     let edge = |i: usize| {
-        let Some(l) = chars.get(i).and_then(|r| last(r)) else {
-            return false;
-        };
-        let near = [i.checked_sub(1), Some(i + 1)]
-            .into_iter()
-            .flatten()
-            .filter_map(|j| chars.get(j).and_then(|r| last(r)))
-            .max();
-        l + 3 >= cols || near.is_some_and(|n| l + 2 >= n)
+        chars
+            .get(i)
+            .and_then(|r| last(r))
+            .is_some_and(|l| l + 4 >= cols)
     };
     let start = line[..col]
         .iter()
@@ -312,6 +307,9 @@ pub fn token_across(
     before.reverse();
     // A URL goes on only with pieces that look like more of a URL.
     let urlish = |p: &str| p.contains(['/', '?', '=', '&', '%', '#', '.', '-', '_']);
+    if before.iter().any(|b| b.contains("://")) && !urlish(&word) {
+        before.clear();
+    }
     if word.contains("://") || before.iter().any(|b| b.contains("://")) {
         if let Some(i) = after.iter().position(|p| !urlish(p)) {
             after.truncate(i);
@@ -375,10 +373,10 @@ mod tests {
             token_across(&r, 1, 2, 20, &|t| t == "src/very/long/path/file.rs"),
             Some(("src/very/long/path/file.rs".into(), true))
         );
-        // A TUI's hard wrap at its own width (18 of 24), the next row indented.
+        // A TUI's hard wrap 2 columns short of the width, the next row indented.
         let r = rows(&["⏺ Open https://ex.am", "  ple.com/a/b/c then", "  check it"]);
         assert_eq!(
-            token_across(&r, 0, 9, 24, &any),
+            token_across(&r, 0, 9, 22, &any),
             Some(("https://ex.ample.com/a/b/c".into(), true))
         );
         // Three rows.
@@ -393,6 +391,27 @@ mod tests {
         assert_eq!(
             token_across(&r, 0, 18, 21, &|_| false),
             Some(("xxxx".into(), false))
+        );
+        // m4's case: a URL ending a short row above a plain word — no join.
+        let r = rows(&["web https://example.com/rade?q=1", "osc8-guide"]);
+        assert_eq!(
+            token_across(&r, 1, 2, 80, &any),
+            Some(("osc8-guide".into(), false))
+        );
+        let r = rows(&["see https://example.com/rad", "e?q=1"]);
+        assert_eq!(
+            token_across(&r, 1, 1, 27, &any),
+            Some(("https://example.com/rade?q=1".into(), true))
+        );
+        assert_eq!(
+            token_across(
+                &rows(&["see https://example.com/rad", "word"]),
+                1,
+                1,
+                27,
+                &any
+            ),
+            Some(("word".into(), false))
         );
         // Not at the edge (the next row is wider): never joined.
         let r = rows(&["short path.rs", "next/row.rs and a much longer row of text"]);

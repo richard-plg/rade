@@ -322,25 +322,36 @@ if part links; then
     check "R134-b soft wrap: a click on the 2nd row opens the whole path" eventually 5 is viewer_path "$X/$long"
     rade close "$(rade debug state | jq -r '[.. | objects | select(.kind?.type? == "viewer")][0].id')" >/dev/null 2>&1 || true
 
-    # A TUI that wraps at 60 columns itself, the next row indented.
+    # A TUI (Claude Code, Codex) breaking long tokens itself 2 columns short
+    # of the Terminal's width, each next row indented by 2.
     mkdir -p "$X/src/components/checkout" && echo x >"$X/src/components/checkout/ShippingAddressForm.tsx"
     url="https://example.com/orders/12345/items?expand=shipping&lang=vi"
-    cat >"$T/tui.txt" <<TUI
-⏺ I changed the checkout form and the order page so that a
-  guest can pay. The form is in src/components/checkout/Shipp
-  ingAddressForm.tsx and the API answer is at https://example.
-  com/orders/12345/items?expand=shipping&lang=vi for now.
-TUI
+    python3 - "$cols" "$url" >"$T/tui.txt" <<'PY'
+import sys
+cols, url = int(sys.argv[1]), sys.argv[2]
+w = cols - 2
+path = "src/components/checkout/ShippingAddressForm.tsx"
+def wrap(lead, token, tail):
+    head = lead + token
+    cut = w - len(lead)
+    return [head[:w], "  " + token[cut:] + tail]
+out = ["⏺ I changed the checkout form so that a guest can pay."]
+lead = "  The form is in " + "x" * max(0, w - 17 - 20) + " "
+out += wrap(lead, path, " and then")
+lead = "  the API answer is at " + "y" * max(0, w - 23 - 20) + " "
+out += wrap(lead, url, " for now.")
+print("\n".join(out))
+PY
     rade send "$a" "clear; cat $T/tui.txt" --enter
-    eventually 5 screen_has "$a" "ingAddressForm.tsx"
+    eventually 5 screen_has "$a" "for now."
     sleep 0.3
-    rade debug click "$a" "https://example." >/dev/null
+    rade debug click "$a" "https://exa" >/dev/null
     check "R134-b a hard-wrapped URL opens whole (not Ghostty's first-row part)" \
         eventually 5 bash -c "[[ \$(tail -1 '$BROWSER_LOG' 2>/dev/null) == '$url' ]]"
     : >"$BROWSER_LOG"
-    rade debug click "$a" "com/orders" >/dev/null
+    rade debug click "$a" "$(sed -n 5p "$T/tui.txt" | awk '{print $1}' | cut -c1-6)" >/dev/null
     check "R134-b …also from its 2nd row" eventually 5 bash -c "[[ \$(tail -1 '$BROWSER_LOG' 2>/dev/null) == '$url' ]]"
-    rade debug click "$a" "ingAddressForm" >/dev/null
+    rade debug click "$a" "$(sed -n 3p "$T/tui.txt" | awk '{print $1}' | cut -c1-8)" >/dev/null
     check "R134-b hard wrap with an indent: the 2nd row's part opens the whole path" \
         eventually 5 is viewer_path "$X/src/components/checkout/ShippingAddressForm.tsx"
     shot links-tui
@@ -358,29 +369,34 @@ if part viewer; then
     eventually 10 screen_has "$sink" 'SINK READY' || true
     pasted() { rade read "$1" --scrollback | tr -d '\n' | sed -n 's/.*\^\[\[200~\(.*\)\^\[\[201~.*/\1/p'; }
     paste_clip() { rade focus "$sink" >/dev/null; rade debug action paste >/dev/null; sleep 0.4; pasted "$sink"; }
-    vid() { rade debug state | jq -r '[.. | objects | select(.kind?.type? == "viewer")][0].id'; }
-    # Pixels of the Viewer's half that are the selection color over the page:
-    # view-sel (#4fe3c852) as WebKit and GtkSourceView draw it over bg0 in
-    # dark: (22, 58, 53) — bg0 itself is (7, 9, 11).
-    selpx() { python3 - "$1" <<'PY'
+    # The Viewer showing $1 (other parts may have left Viewers open).
+    vid() { rade debug state | jq -r --arg p "$1" '[.. | objects | select(.kind?.type? == "viewer" and .kind.path == $p)][0].id // ""'; }
+    # Pixels of the Viewer's half that turned clearly teal (the accent) from
+    # one shot to the next: a selection you can see. The old opaque term-sel
+    # was drawn (12, 25, 25) on (7, 9, 11): not counted.
+    selpx() { python3 - "$1" "$2" <<'PY'
 import sys
 from PIL import Image
-im = Image.open(sys.argv[1]).convert("RGB")
-w, h = im.size
-n = sum(1 for x in range(w // 2, w, 2) for y in range(60, h - 60, 2)
-        if all(abs(a - b) <= 14 for a, b in zip(im.getpixel((x, y)), (22, 58, 53))))
-print(n)
+a = Image.open(sys.argv[1]).convert("RGB")
+b = Image.open(sys.argv[2]).convert("RGB")
+w, h = b.size
+def teal(p):
+    r, g, bl = p
+    return g - r >= 25 and bl - r >= 20
+print(sum(1 for x in range(w // 2, w, 2) for y in range(60, h - 60, 2)
+          if teal(b.getpixel((x, y))) and not teal(a.getpixel((x, y)))))
 PY
     }
     rade debug action color_scheme_dark >/dev/null
     for f in a.md a.rs; do
         rade focus "$sink" >/dev/null
         rade open "$V/$f" >/dev/null
-        eventually 8 bash -c "[[ \$(rade debug state | jq -r '[.. | objects | select(.kind?.type? == \"viewer\")][0].kind.path') == '$V/$f' ]]"
-        v=$(vid)
+        export -f vid
+        eventually 8 bash -c "[[ -n \$(vid '$V/$f') ]]" || true
+        v=$(vid "$V/$f")
+        rade focus "$v" >/dev/null 2>&1 || true
         sleep 1.5
         shot "viewer-$f-before"
-        before=$(selpx "$OUT/viewer-$f-before.png")
         if [[ $f == a.md ]]; then
             rade debug viewer "$v" js "var r = document.createRange(); r.selectNodeContents(document.querySelectorAll('p')[0]); getSelection().removeAllRanges(); getSelection().addRange(r); getSelection().toString()" >/dev/null
             want="Alpha beta gamma delta epsilon."
@@ -390,8 +406,8 @@ PY
         fi
         sleep 0.6
         shot "viewer-$f-selected"
-        after=$(selpx "$OUT/viewer-$f-selected.png")
-        check "R135-a $f: the selection is visible ($before → $after selection pixels)" bash -c "(( $after > $before + 150 ))"
+        n=$(selpx "$OUT/viewer-$f-before.png" "$OUT/viewer-$f-selected.png")
+        check "R135-a $f: the selection is visible ($n pixels turned the selection's teal)" bash -c "(( $n > 150 ))"
         rade debug viewer "$v" copy >/dev/null
         sleep 0.3
         check "R135-a $f: Copy puts the selected text on the clipboard" eventually 3 is "paste_clip" "$want"
