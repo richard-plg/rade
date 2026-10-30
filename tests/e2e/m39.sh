@@ -504,6 +504,30 @@ eventually 5 loaded || true
 check "R110-d ↓ moves the selection (acme-work → acme-biz)" \
     bash -c "ui usage 'select claude acme-work acme' >/dev/null; sleep 0.5; ui usage 'key down' >/dev/null; sleep 0.8; [[ \$(usage | jq -r '[.rows[] | select(.selected) | .name][0]') == acme-biz ]]"
 
+echo "== R110-l the Usage page closes with its ✕ and with Esc (M51)"
+check "R110-l the header has a close button 'Close (Esc)'" is "usage | jq -r .header.close" "Close (Esc)"
+check "R110-l …a flat icon button at the header's right end" \
+    bash -c "geo usage-close | jq -e '(.classes | index(\"flat\")) and .label == null' >/dev/null"
+rade focus "$planner" >/dev/null
+ui usage open >/dev/null
+eventually 3 is "usage | jq -r .shown" true || true
+ui usage click_close >/dev/null
+check "R110-l ✕ closes it and the Tabs are back (breadcrumb not 'Agent usage')" \
+    eventually 3 bash -c "[[ \$(usage | jq -r .shown) == false && \$(chrome | jq -r .breadcrumb) != 'Agent usage' ]]"
+ui usage open >/dev/null
+eventually 3 is "usage | jq -r .shown" true || true
+sleep 0.3
+# Esc with the Add account dialog open is the dialog's, never the page's.
+rpc debug.ui '{"op":"click","widget":"usage-add"}' >/dev/null
+sleep 0.5
+check "R110-l Esc over the Add account dialog leaves the page open" \
+    bash -c "[[ \$(key escape | jq -r .handled) != rade ]] && sleep 0.3 && [[ \$(usage | jq -r .shown) == true ]]"
+ui usage close_dialog >/dev/null
+sleep 0.5
+key escape >"$OUT/usage-esc.json"
+check "R110-l Esc closes it" eventually 3 is "usage | jq -r .shown" false
+check "R110-l …and the keyboard is back in the Pane it came from" eventually 3 is "rpc debug.window '{}' | jq -r '.focus.pane'" "$planner"
+
 echo "== Goldens E and F (tests/e2e/golden/m39/)"
 GOLD=$HERE/golden/m39
 mkdir -p "$GOLD"

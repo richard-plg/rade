@@ -80,6 +80,22 @@ pub fn install(window: &adw::ApplicationWindow, config_path: &Path) -> gio::File
 /// The window's capture-phase key handling: a bound action, else RADE's
 /// chrome-only plain-Ctrl keys; everything else goes on to the focus.
 fn on_key(keyval: Key, state: ModifierType) -> glib::Propagation {
+    // Esc leaves the Usage page (M51): the Terminal behind it is hidden.
+    if keyval == Key::Escape
+        && state
+            .intersection(
+                ModifierType::CONTROL_MASK | ModifierType::SHIFT_MASK | ModifierType::ALT_MASK,
+            )
+            .is_empty()
+        && !crate::palette::is_open()
+        && !crate::project_dialogs::is_open()
+        && !crate::settings_view::is_open()
+        && crate::usage_view::shown_now()
+        && libadwaita::prelude::AdwApplicationWindowExt::visible_dialog(&app().window).is_none()
+    {
+        crate::usage_view::leave();
+        return glib::Propagation::Stop;
+    }
     // Agent Overview is modal (R117.1): its shortcut flips, other bound
     // keys go to its own handler (arrows, Enter) or its filter field.
     if crate::overview_view::is_open() {

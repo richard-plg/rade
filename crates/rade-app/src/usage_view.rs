@@ -166,7 +166,16 @@ pub fn close() {
     SHOWN.with(|s| s.borrow_mut().take());
 }
 
-fn shown_now() -> bool {
+/// The header's close button or Esc: back to the Pane that had the focus.
+pub(crate) fn leave() {
+    close();
+    if let Some(app) = try_app() {
+        app.sync();
+        app.restore_focus();
+    }
+}
+
+pub(crate) fn shown_now() -> bool {
     try_app().is_some_and(|a| is_shown(&a.model.borrow()))
 }
 
@@ -514,6 +523,14 @@ fn build(d: &Data) -> gtk::Widget {
     let ws_for_add = d.workspace.clone().unwrap_or(d.shown_workspace.clone());
     add.connect_clicked(move |_| add_account_dialog(&ws_for_add));
     header.append(&add);
+    let close_b = gtk::Button::from_icon_name("ph-x-symbolic");
+    close_b.add_css_class("dialog-close");
+    close_b.add_css_class("flat");
+    close_b.add_css_class("usage-close");
+    close_b.set_tooltip_text(Some("Close (Esc)"));
+    close_b.set_valign(gtk::Align::Center);
+    close_b.connect_clicked(|_| leave());
+    header.append(&close_b);
     if large {
         // Large text: the controls go under the title (no sideways scroll).
         let controls = gtk::Box::new(gtk::Orientation::Horizontal, 12);
@@ -1294,6 +1311,7 @@ fn info() -> Value {
             "title": "Agent usage",
             "sub": format!("{} account{} · limits from each CLI · tokens from local session logs", rows.len(), if rows.len() == 1 { "" } else { "s" }),
             "buttons": [filter_label(&d), "Add account"],
+            "close": "Close (Esc)",
             "period": ["Today", "7 days", "30 days"],
         },
         "columns": ["ACCOUNT", "PLAN", "TIGHTEST LIMIT", uv::tokens_head(period), "UPDATED"],
@@ -1304,7 +1322,7 @@ fn info() -> Value {
     })
 }
 
-/// `debug.ui {"op": "usage", "arg"?}`: `open`, `close`, `period
+/// `debug.ui {"op": "usage", "arg"?}`: `open`, `close`, `click_close`, `close_dialog`, `period
 /// today|7d|30d`, `filter <workspace>|all|shown`, `select <agent> <name>
 /// <workspace>`, `key up|down`; then what the page shows.
 pub fn debug(arg: Option<&str>) -> Result<Value> {
@@ -1332,6 +1350,36 @@ pub fn debug(arg: Option<&str>) -> Result<Value> {
         ["select", a, n, w] => {
             let k = (a.to_string(), n.to_string(), w.to_string());
             set_choice(|c| c.selected = Some(k));
+        }
+        // Close the dialog on screen (Add account), as its Cancel does.
+        ["close_dialog"] => {
+            if let Some(app) = try_app() {
+                if let Some(d) = adw::prelude::AdwApplicationWindowExt::visible_dialog(&app.window)
+                {
+                    adw::prelude::AdwDialogExt::close(&d);
+                }
+            }
+        }
+        // The header's close button, clicked (M51).
+        ["click_close"] => {
+            let root = ROOT
+                .with(|r| r.borrow().clone())
+                .ok_or_else(|| Error::usage("no Usage page"))?;
+            let mut stack: Vec<gtk::Widget> = vec![root.upcast()];
+            let mut hit = None;
+            while let Some(w) = stack.pop() {
+                if w.has_css_class("usage-close") {
+                    hit = w.downcast::<gtk::Button>().ok();
+                    break;
+                }
+                let mut c = w.first_child();
+                while let Some(x) = c {
+                    c = x.next_sibling();
+                    stack.push(x);
+                }
+            }
+            hit.ok_or_else(|| Error::usage("the Usage page is not shown"))?
+                .emit_clicked();
         }
         ["key", "down"] => step(true),
         ["key", "up"] => step(false),
