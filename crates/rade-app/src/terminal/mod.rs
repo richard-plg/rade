@@ -475,6 +475,12 @@ impl TerminalHandle {
         }
     }
 
+    /// Its surface exists or is being made (R130: a restored Terminal
+    /// still waiting in the queue is neither).
+    pub fn is_started(&self) -> bool {
+        self.surface_cell.borrow().is_some() || self.gl_area.is_realized()
+    }
+
     pub fn draw_count(&self) -> u64 {
         self.draw_count.get()
     }

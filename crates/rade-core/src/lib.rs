@@ -40,6 +40,7 @@ pub mod ports;
 pub mod preset;
 pub mod process;
 pub mod project;
+pub mod restore_queue;
 pub mod review;
 pub mod review_loop;
 pub mod rpc;

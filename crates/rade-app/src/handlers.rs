@@ -659,6 +659,7 @@ fn handle(method: &str, p: Value) -> Result<Value> {
             Ok(json!({}))
         }
         "debug.tabs" => crate::titles::debug(&p),
+        "debug.restore" => Ok(app.restore_debug()),
         "debug.ui" => crate::debug::ui(&app, &p),
         "debug.voice" => crate::voice::debug(&p),
         "debug.update" => crate::update::debug(&p),
@@ -1123,6 +1124,7 @@ fn wait(w: Wait) -> Result<Value> {
     let (id, idle_secs) = on_main(move || {
         let app = app();
         let id = app.model.borrow().resolve_pane(&pane, caller.as_deref())?;
+        app.start_now(&id); // R130.4
         let idle = app.config.borrow().idle_seconds;
         Ok((id, idle))
     })?;
@@ -1195,6 +1197,8 @@ pub(crate) fn terminal<'a>(
             )));
         }
     }
+    // A restored Terminal still in the queue starts now (R130.4).
+    app.start_now(&id);
     let terms = app.terminals.borrow();
     if !terms.contains_key(&id) {
         return Err(Error::internal(format!("pane {id} has no terminal")));
