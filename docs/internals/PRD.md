@@ -136,6 +136,8 @@ AC: Claude Code asks for permission → status `waiting` within 1 s and a Notifi
 
 ## R11 — Session Restore
 
+**1.4.1 amendment (R130):** R11.2: restored Terminals start in stages — the Pane on screen first, the others one at a time — so the window never stops answering at launch.
+
 **1.0.0 amendment (R108):** R11.2: a restored Pane keeps its recorded Agent Account; for a Pane with one, a recorded invocation whose `VAR=value` prefix sets that account's `CLAUDE_CONFIG_DIR` / `CODEX_HOME` to another directory is not run: the Pane comes back as a plain shell with the account's env and the `FORBIDDEN` message (R108.7). Panes without an account are restored as before.
 
 1. On quit/crash, state (Workspaces, Sources, Worktrees, Tabs, Layouts, per-Pane cwd, Agent Preset, agent session id) is saved to `~/.local/share/rade/state.json` (written atomically, at least every 5 s when changed).
@@ -1514,6 +1516,24 @@ AC:
 - R129-d [M49] (e2e): Given a fake Agent Pane, then none. When Insert Path in Agent runs on `src/a b.rs`. Then the Agent's input shows the quoted path and a space and no prompt was submitted; with no Agent Pane the item is disabled.
 - R129-e [M49] (e2e): Given file watches off (test mode). When a file is created, then Refresh, then Collapse All. Then the file appears only after Refresh with expanded folders kept, and only top-level rows remain.
 - R129-f [M49] (e2e): Given `src/` and a fake `org.freedesktop.FileManager1` on the private bus. When Open Terminal Here and Reveal in Files run. Then a new Tab's Pane has cwd `<repo>/src`, and `ShowItems` was called with the file's URI. Screenshots of the page and a menu, dark + light.
+
+## R130 — Staged Session Restore (M50, ADR-0050)
+
+The owner's report of 2026-10-30: after the update to 1.4.0 the window showed "Not Responding" at every launch. Their state held 62 Agent Panes in 7 Workspaces (12 more than 1.2.0 resumed, since R125's user accounts); Session Restore realized every Terminal in one main-loop callback, blocking the window for ~5.5 s on a headless run of that state (3.5 s for a single socket call) while 62 agents started at the same instant (4–5 min of CPU in 16–21 s, a 12–15 GB peak). Amends R11.2 and the "started even if never shown" rule (R2.8) for restored Panes only.
+
+1. **Waiting Panes.** Every Terminal Pane of a launch's restored state waits in a queue (in memory only: state.json, the socket and `rade list` are unchanged). A waiting Pane has its widget but no surface and no process; its model (Agent, session, invocation, account, status) is what R11.2 made it.
+2. **Order.** The focused Pane, the rest of the Tab on screen, the shown Worktree's other Tabs, the shown Workspace (its active Source first), then the other Workspaces in their order. Panes of paused Sources run nothing (R19.3) and are not queued; Viewer / Review / Diff / Browser Panes are built at once.
+3. **Pace.** The queue starts once the window is shown, one Terminal per main-loop turn at low priority (input, frames and the compositor's ping first), waiting `AGENT_GAP_MS` = 300 ms after each Agent; shells follow at once. Everything still runs in the background (R23: the other Workspaces keep running).
+4. **Out of turn.** A Pane that comes on screen (a Tab, Worktree or Workspace switch, a focus, the Overview) starts as GTK shows it; a socket call that targets a waiting Pane (`send`, `read`, `wait`, `focus`, and everything else that needs its Terminal) starts it first. A waiting Pane that is closed never runs; a quit keeps the waiting Panes' sessions for the next launch.
+5. **Panes made after launch** (spawn, split, new Tab, a paused Source resumed) start at once, as before.
+
+AC:
+- R130-a [M50] (unit): Given Workspaces `default` (Source `x`), `a` (`api`, `web`) and `b` (`ops`) with Agents, a shell Tab and a Viewer in `web`, Workspace `a` shown with `web`'s second Agent focused, then `api` paused. When `order` runs. Then it is the focused Agent, its Tab's other Agent, `web`'s shell Tab, `api`'s Agent, then `x`'s and `ops`'s; the Viewer is not in it; with `api` paused its Agent is not either.
+- R130-b [M50] (unit): Given a queue of 5 Panes, the third a shell. When `next` runs at 0, 100, 300, 600, 600 and 900 ms and the fourth is promoted at 150 ms. Then the first starts at 0, 100 waits 200 ms, the second starts at 300, the shell at 600 and the fifth right after it, then the queue is done; the promoted Pane leaves the queue once.
+- R130-c [M50] (e2e): Given 62 fake Claude Agents with a turn in 7 Workspaces (one Source paused), `w3` shown. When the app is relaunched while `tests/e2e/probe-latency.py` calls `pane.list` every 50 ms. Then after the first frame no call waits over 250 ms (a `perf_check`), the queued Agents of `w3` start before any other Workspace's, and every Agent of an unpaused Source runs `claude --resume <its session>` within 35 s.
+- R130-d [M50] (e2e): Given R130-c's relaunch with the queue still running. When `rade send` targets a waiting Pane of `w5` and `w4` is switched to with one of its Panes focused. Then the text reaches `w5`'s Agent and no Pane of the Tab shown in `w4` is still waiting a second later.
+- R130-e [M50] (e2e): Given a relaunch with 20 or more Agents still waiting after 1 s. When the app quits and starts again. Then state.json holds the same session ids as before, and each Agent that was waiting resumes.
+- R130-f [M50] (e2e): Given a paused Source and a waiting Pane closed right after launch. When the queue has run. Then neither the paused Source's Agents nor the closed Pane started a process.
 
 ## Non-goals (v1)
 
