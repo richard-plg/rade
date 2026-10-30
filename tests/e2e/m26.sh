@@ -102,17 +102,19 @@ check "a branch switch moves no row (ocr only gains a suggestion)" eventually 8 
 G -C "$ocr" checkout -q fix/ocr-llm-reasoning-effort-400
 G -C "$APP" checkout -q feat/atlas
 check "a main checkout's menu (the Source's) has no Move to Project" test "$(rade debug menu source globex-web --json | jq -r '[.items[].label | select(startswith("Move to Project"))] | length')" = 0
-check "agent-chat's menu: the Projects listing globex-web, No Project ✓" test "$(rade debug menu worktree globex-web/agent-chat --json | jq -r '[.items[].label | select(startswith("Move to Project"))] | join("|")')" = "Move to Project ▸ ATLAS|Move to Project ▸ BEACON|Move to Project ▸ Globex Web Main|Move to Project ▸ No Project ✓"
+check "agent-chat's menu: the Projects listing globex-web, Scratch ✓ (M51)" test "$(rade debug menu worktree globex-web/agent-chat --json | jq -r '[.items[].label | select(startswith("Move to Project"))] | join("|")')" = "Move to Project ▸ ATLAS|Move to Project ▸ BEACON|Move to Project ▸ Globex Web Main|Move to Project ▸ Scratch ✓"
 CHAT_ID=$(rade debug state | jq -r '.sources[] | select(.id=="globex-web") | .worktrees[] | select(.name=="agent-chat") | .id')
 ui suggest "$CHAT_ID" >/dev/null
+# M51 (R132.1): BEACON's base differs from the one agent-chat compares against: keep it.
+if eventually 3 bash -c "rade debug dialog --json | jq -e .open >/dev/null"; then rade debug dialog respond keep >/dev/null; fi
 check "→ BEACON? records project beacon" eventually 5 is "rade worktree list globex-web --json | jq -r '.worktrees[] | select(.worktree==\"agent-chat\") | .project'" beacon
 # agent-chat was made before beacon-dev (it predates the Projects), so it comes first.
 check "… the row moves under BEACON's globex-web (before beacon-dev)" eventually 5 bash -c "rows | grep -qF 'project:BEACON@0 link:globex-web@1 worktree:agent-chat@2 worktree:beacon-dev@2' && [[ \$(parent_of worktree agent-chat) == project:BEACON ]]"
 G -C "$chat" checkout -q -b tmp-elsewhere
 check "… and stays there on another branch" eventually 5 is "parent_of worktree agent-chat" project:BEACON
-rade debug menu worktree globex-web/agent-chat activate "Move to Project ▸ No Project" >/dev/null
+rade debug menu worktree globex-web/agent-chat activate "Move to Project ▸ Scratch" >/dev/null
 G -C "$chat" checkout -q feat/beacon-agent-chat
-check "No Project moves it back" eventually 8 is rows "$EXPECT"
+check "Scratch moves it back" eventually 8 is rows "$EXPECT"
 
 echo "== R30-b fold and unfold survive a restart"
 ui toggle_project globex-web-main >/dev/null # unfold the owner's fold
@@ -146,8 +148,9 @@ check "0.5.1 state has no sidebar_rule" test "$(jq -r '.sidebar_rule // "none"' 
 start_app
 check "legacy-dev (on BEACON's base branch) is recorded under BEACON" eventually 5 is "rade worktree list globex-web --json | jq -r '.worktrees[] | select(.worktree==\"legacy-dev\") | .project'" beacon
 check "… logged" grep -q 'globex-web/legacy-dev recorded under Project beacon' "$OUT/app.log"
-check "legacy-both (under two Projects by branch) stays in No Project" test "$(rade worktree list globex-api --json | jq -r '.worktrees[] | select(.worktree=="legacy-both") | .project // "none"')" = none
-check "… with a suggestion" eventually 5 is "ui sidebar | jq -r '.sidebar[] | select(.kind==\"worktree\" and .title==\"legacy-both\") | .suggest'" "→ x1?"
+check "legacy-both (under two Projects by branch) stays in Scratch" test "$(rade worktree list globex-api --json | jq -r '.worktrees[] | select(.worktree=="legacy-both") | .project // "none"')" = none
+# M51 (R132.2): x1 and x2 both match shared-x: no guess.
+check "… with no suggestion (two Projects match, R132.2)" eventually 5 is "ui sidebar | jq -r '.sidebar[] | select(.kind==\"worktree\" and .title==\"legacy-both\") | .suggest'" "null"
 check "main checkouts never get one" test "$(rade debug state | jq '[.sources[] | .worktrees[0].project // empty] | length')" = 0
 check "agent-chat / ocr (no base branch) stay unassigned" test "$(rade debug state | jq -r '[.sources[].worktrees[] | select(.name=="agent-chat" or .name=="ocr") | .project // "none"] | join(",")')" = "none,none"
 check "sidebar_rule: 2 saved" eventually 5 is "jq -r .sidebar_rule '$STATE'" 2

@@ -467,12 +467,7 @@ impl WorktreeView {
                 .as_deref()
                 .and_then(|g| agents.iter().find(|p| p.id == g))
                 .or(agents.first());
-            let lead = lead_pane.map(|p| {
-                p.name
-                    .clone()
-                    .or_else(|| p.agent_name().map(String::from))
-                    .unwrap_or_default()
-            });
+            let lead = lead_pane.and_then(|p| rade_core::chrome::lead_label(p));
             let mark = lead_pane.and_then(|p| p.mark());
             let special = rade_core::chrome::tab_special(&panes);
             let label = rade_core::chrome::tab_label(

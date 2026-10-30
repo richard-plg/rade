@@ -399,6 +399,7 @@ pub fn run(t: &Target) {
             "mark_all_read" => app.update(|m| m.mark_all_read()),
             "clear_notifications" => app.update(|m| m.clear_notifications()),
             "new_project" => crate::project_dialogs::new_project(),
+            "prune_project_checkouts" => crate::projects::prune_dialog(),
             id if id.starts_with(palette::LINK_ADD_PREFIX) => {
                 crate::project_dialogs::add_to_project(&id[palette::LINK_ADD_PREFIX.len()..])
             }

@@ -328,6 +328,15 @@ pub struct Added {
     pub base: Option<String>,
 }
 
+/// `git init -b <branch>` in `dir`, nothing else: no file added, no
+/// commit (R131.2).
+pub fn init(dir: &Path, branch: &str) -> Result<()> {
+    if branch.is_empty() || branch.starts_with('-') {
+        return Err(Error::usage(format!("invalid branch '{branch}'")));
+    }
+    run(dir, &["init", "-q", "-b", branch]).map(|_| ())
+}
+
 /// `git worktree add` (R12.1): a new branch `name` at `base` (default: the
 /// Source's main branch, else HEAD), or — when branch `name` exists — that
 /// branch checked out (passing `base` then is an error).
@@ -339,6 +348,19 @@ pub fn add_worktree(repo: &Path, dir: &Path, name: &str, base: Option<&str>) -> 
     }
     if dir.exists() {
         return Err(Error::usage(format!("{} already exists", dir.display())));
+    }
+    // A fresh `git init` (R131.3): nothing to cut a branch from.
+    if run(repo, &["rev-parse", "--verify", "--quiet", "HEAD"]).is_err()
+        && run(
+            repo,
+            &["for-each-ref", "--count=1", "refs/heads", "refs/remotes"],
+        )
+        .is_ok_and(|o| o.trim().is_empty())
+    {
+        return Err(Error::usage(format!(
+            "{} has no commits yet: commit once, then try again",
+            repo.display()
+        )));
     }
     let d = dir.to_string_lossy();
     if has_branch(repo, name) {

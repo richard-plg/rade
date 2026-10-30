@@ -415,6 +415,7 @@ entry.review-filter { min-height: 24px; padding-top: 0; padding-bottom: 0; }
 .link-plan .link-plan-kind { color: @fg2; font-weight: 500; }
 .link-plan .link-plan-detail { line-height: 1.18; }
 .link-plan .link-plan-detail.refused { color: @err; }
+.link-init { min-height: 24px; padding: 0 10px; margin-left: 8px; border-radius: 5px; font-size: 11.5px; }
 .link-base { min-width: 190px; }
 .link-base > button { min-height: 24px; border-radius: 5px; border: 1px solid @line2; background: @bg0; padding: 0 8px;
   font-family: "JetBrains Mono", monospace; font-feature-settings: "tnum"; font-size: 12px; color: @fg; box-shadow: none; }

@@ -374,6 +374,8 @@ fn build(gtk_app: &adw::Application) {
         app_paths,
     ));
     app::install(app.clone());
+    // Restored Terminals start in stages once the window is up (R130).
+    app.plan_restore();
     *app.session_recovery.borrow_mut() = recovery;
     app.show_session_feedback();
     // Persist the sidebar migration and restore changes through the guarded save.
@@ -425,6 +427,7 @@ fn build(gtk_app: &adw::Application) {
     sysmon_view::watch(&window);
     agent_glyph::watch();
     window.present();
+    app.start_restore();
     // Worktrees made outside RADE show up in the sidebar (R12).
     worktrees::import_all();
     fanout::watch_verdicts();

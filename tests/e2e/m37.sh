@@ -334,7 +334,7 @@ check "R105-d a notice names the new folder" \
     eventually 3 bash -c "chrome | jq -r '.notes[]' | grep -qF 'Created the Project checkout $PC'"
 check "R105-d the main checkout is still on main" test "$(git -C "$UI" branch --show-current)" = main
 
-echo "== R104-j/l a Terminal on a Project checkout selects its link; Remove from Scratch"
+echo "== R104-j/l a Terminal on a Project checkout selects its link; Close Panes in Scratch (R132.4)"
 rade focus "$np" >/dev/null
 check "R104-j focused Terminal in Shop's shared-ui Project checkout: that link row is selected, no Scratch row is" \
     eventually 4 bash -c "[[ \$(row link shared-ui 0 | jq -r .selected) == true && \$(nav | jq '[.[] | select(.selected and .kind == \"scratch\")] | length') == 0 ]]"
@@ -357,16 +357,16 @@ check "R104-j the breadcrumb and Statusline name Shop (the selected link's Proje
 sh=$(rade spawn --source shared-ui --tab new --json | id)
 check "R104-l a shell in shared-ui's main checkout (no link uses it) adds a Scratch row" \
     eventually 4 bash -c "[[ \$(row scratch shared-ui | jq -r .meta) == 1 ]]"
-check "R104-l its menu starts with Remove from Scratch…" \
-    test "$(rade debug menu scratch shared-ui --json | jq -r '.items[0].label')" = "Remove from Scratch…"
-check "R104-l the root's Scratch row offers no Remove from Scratch…" \
-    bash -c "! rade debug menu scratch general@acme --json | jq -r '.items[].label' | grep -qx 'Remove from Scratch…'"
-rade debug menu scratch shared-ui activate "Remove from Scratch" >/dev/null
+check "R104-l R132-d its menu starts with Close Panes in Scratch…" \
+    test "$(rade debug menu scratch shared-ui --json | jq -r '.items[0].label')" = "Close Panes in Scratch…"
+check "R104-l the root's Scratch row offers no Close Panes in Scratch…" \
+    bash -c "! rade debug menu scratch general@acme --json | jq -r '.items[].label' | grep -qx 'Close Panes in Scratch…'"
+rade debug menu scratch shared-ui activate "Close Panes in Scratch" >/dev/null
 eventually 3 bash -c "rade debug dialog --json | jq -e '.open' >/dev/null"
 rade debug dialog --json >"$OUT/scratch-remove-dialog.json"
 shot scratch-remove-dialog
-check "R104-l the dialog names the Source and the 1 Pane it closes" \
-    bash -c "jq -r '.heading' '$OUT/scratch-remove-dialog.json' | grep -qF 'Remove “shared-ui” from Scratch?' && jq -r '.body' '$OUT/scratch-remove-dialog.json' | grep -qF 'Closes its 1 Pane in $UI'"
+check "R104-l R132-d the dialog names the Source and the 1 Pane it closes" \
+    bash -c "jq -r '.heading' '$OUT/scratch-remove-dialog.json' | grep -qF 'Close 1 Pane of “shared-ui”?' && jq -r '.body' '$OUT/scratch-remove-dialog.json' | grep -qF 'Closes its 1 Pane in $UI'"
 rade debug dialog respond remove >/dev/null
 check "R104-l after Close Panes: the shell is gone, the link's Terminal stays, no shared-ui Scratch row" \
     eventually 5 bash -c "! panes | tr ' ' '\n' | grep -qx '$sh' && panes | tr ' ' '\n' | grep -qx '$np' && [[ \$(row scratch shared-ui) == null ]]"

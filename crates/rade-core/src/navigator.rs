@@ -574,7 +574,7 @@ fn unclaimed<'s>(
         .collect()
 }
 
-/// The Panes "Remove from Scratch…" closes on Source `s`'s Scratch row
+/// The Panes "Close Panes in Scratch…" closes on Source `s`'s Scratch row
 /// (R104.5): a linked Source's main-checkout Panes no link claims (closed,
 /// the row goes away). None for the Workspace root, a Source no Project
 /// links (its row stays: Remove Source…) or a link on the main checkout.

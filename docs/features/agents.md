@@ -88,6 +88,11 @@ with the session id RADE gave it, the others with the id their hooks reported), 
 command line it was started with. Processes themselves don't survive a restart; an Agent that was
 mid-turn comes back **interrupted** — send it "continue".
 
+With many Agents, RADE brings them back in stages so the window keeps answering: the Pane on
+screen and its Tab first, then the rest of the Workspace you're looking at, then the other
+Workspaces, one Agent every 0.3 s. A Pane you switch to, or one a `rade` command targets, starts at
+once.
+
 A Pane belongs to one Agent. When that Agent runs another one itself — a skill that calls
 `codex exec` to make an image, a `claude -p` helper — the helper's hooks don't take the Pane over:
 its glyph, session and restart command stay the Agent's, and Activity says

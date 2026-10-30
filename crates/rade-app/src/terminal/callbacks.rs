@@ -236,6 +236,10 @@ pub(super) unsafe extern "C" fn ghostty_action_cb(
                     let bytes =
                         unsafe { std::slice::from_raw_parts(open.url.cast::<u8>(), open.len) };
                     let url = String::from_utf8_lossy(bytes).into_owned();
+                    // During a click: the release decides (a wrapped link, R134).
+                    let Some(url) = super::links::hold(url) else {
+                        return true;
+                    };
                     glib::idle_add_local_once(move || {
                         SURFACE_MAP.with(|map| {
                             if let Some(cb) = map

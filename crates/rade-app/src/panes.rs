@@ -143,6 +143,11 @@ pub fn create(
                 glib::idle_add_local_once(move || open_link(&id, &url));
             }
         }),
+        // Which join of a wrapped Ctrl+click token opens something (R134).
+        link_resolves: Box::new({
+            let id = id.clone();
+            move |t| link_target(&id, t).is_some()
+        }),
         // A right-click the program did not take (R19.6).
         on_context_menu: Box::new({
             let id = id.clone();

@@ -180,7 +180,7 @@ check "spawning still works" test "$(spawn --source backend --worktree d1 --cmd 
 rm -r "$V/.rade/projects/broken"
 
 echo "== R30.3 Project menu"
-check "items" test "$(rade debug menu project beacon --json | jq -r '[.items[].label] | join("|")')" = "Project settings…|Add source…|New Worktree…|Open project.toml|Customize Project…"
+check "items" test "$(rade debug menu project beacon --json | jq -r '[.items[].label] | join("|")')" = "Project settings…|Add source…|New Worktree…|Open project.toml|Customize Project…|Remove Project…"
 rade debug menu project beacon activate "New Worktree…" >/dev/null
 check "dialog: New Worktree in BEACON" eventually 3 is "dialog '{}' | jq -r .heading" "New Worktree in BEACON"
 check "… a Source dropdown, no Base dropdown (one base per link, R97)" test "$(dialog '{}' | jq -c '[.fields.source, .fields.base]')" = '["backend",null]'
@@ -345,8 +345,10 @@ check "beacon: only its own Worktree; the rest under Scratch, whatever their bra
 SHARED=$(rows)
 check "… with suggestions by branch" test "$(ui sidebar | jq -r '[.sidebar[] | select(.kind=="worktree" and .suggest) | "\(.title)\(.suggest)"] | join(",")')" = "agent-chat→ beacon?,dev-wt→ beacon?,hotfix→ globex-web-main?"
 echo "== R30.4 Move to Project ▸ (persisted)"
-check "Worktree menu lists both Projects and No Project" test "$(rade debug menu worktree globex-web/agent-chat --json | jq -r '[.items[].label | select(startswith("Move to Project"))] | join("|")')" = "Move to Project ▸ beacon|Move to Project ▸ globex-web-main|Move to Project ▸ No Project ✓"
+check "Worktree menu lists both Projects and Scratch (M51: not No Project)" test "$(rade debug menu worktree globex-web/agent-chat --json | jq -r '[.items[].label | select(startswith("Move to Project"))] | join("|")')" = "Move to Project ▸ beacon|Move to Project ▸ globex-web-main|Move to Project ▸ Scratch ✓"
 rade debug menu worktree globex-web/agent-chat activate "Move to Project ▸ beacon" >/dev/null
+# M51 (R132.1): beacon's base differs from the one agent-chat compares against: keep it.
+if eventually 3 bash -c "rade debug dialog --json | jq -e .open >/dev/null"; then rade debug dialog respond keep >/dev/null; fi
 check "agent-chat now under beacon" eventually 5 is "parent_of worktree agent-chat" project:beacon
 check "…recorded (worktree list)" test "$(rade worktree list globex-web --json | jq -r '.worktrees[] | select(.worktree=="agent-chat") | .project')" = beacon
 check "…saved in state.json" eventually 5 is "jq -r '[.sources[].worktrees[] | select(.name==\"agent-chat\") | .project] | .[0]' '$STATE'" beacon
@@ -359,8 +361,8 @@ rade debug action color_scheme_dark >/dev/null
 sleep 0.5
 shot shared-sources-dark
 rade debug action color_scheme_light >/dev/null
-rade debug menu worktree globex-web/agent-chat activate "Move to Project ▸ No Project" >/dev/null
-check "No Project → back under Scratch" eventually 5 is rows "$SHARED"
+rade debug menu worktree globex-web/agent-chat activate "Move to Project ▸ Scratch" >/dev/null
+check "Scratch → back under Scratch" eventually 5 is rows "$SHARED"
 G -C "$devw" checkout -q -b tmp-x
 check "a branch switch moves no row (only its suggestion goes)" eventually 8 bash -c "in_scratch dev-wt && [[ \$(ui sidebar | jq -r '.sidebar[] | select(.kind==\"worktree\" and .title==\"dev-wt\") | .suggest') == null ]]"
 check "… rows unchanged" test "$(rows)" = "$SHARED"

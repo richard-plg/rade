@@ -83,24 +83,30 @@ fn same_branch(b: &str, branch: &str) -> bool {
     b == branch || b.strip_prefix("origin/") == Some(branch)
 }
 
-/// The Project a No Project Worktree on `branch` is likely for (R30.1): the
-/// first listing its Source whose Named Base branch starts the branch, or
-/// one of whose `/`-separated parts starts with the Project id. A hint
-/// only: never applied by RADE.
+/// The Project a Scratch Worktree on `branch` is likely for (R30.1,
+/// R132.2): the one listing its Source whose base is the branch, or one of whose `/`-separated parts is the
+/// Project id, alone or before `-` / `_` / `.`. Two Projects match → no
+/// guess. A hint only: never applied by RADE.
 pub fn suggest(source: &str, branch: &str, projects: &[Project], br: &Branches) -> Option<String> {
     let lower = branch.to_lowercase();
-    projects
+    let names_id = |id: &str| {
+        let id = id.to_lowercase();
+        lower.split('/').any(|part| {
+            part.strip_prefix(id.as_str())
+                .is_some_and(|rest| rest.is_empty() || rest.starts_with(['-', '_', '.']))
+        })
+    };
+    let mut hits = projects
         .iter()
         .filter(|p| p.lists(source) && p.error.is_none())
-        .find(|p| {
+        .filter(|p| {
             base_branches(p, source, br).iter().any(|b| {
                 let b = b.strip_prefix("origin/").unwrap_or(b);
-                !b.is_empty() && branch.starts_with(b)
-            }) || lower
-                .split('/')
-                .any(|part| part.starts_with(&p.id.to_lowercase()))
-        })
-        .map(|p| p.id.clone())
+                !b.is_empty() && branch == b
+            }) || names_id(&p.id)
+        });
+    let first = hits.next()?;
+    hits.next().is_none().then(|| first.id.clone())
 }
 
 impl AgentStatus {
@@ -962,6 +968,21 @@ mod tests {
             s("globex-api", "master").as_deref(),
             Some("globex-web-main")
         );
+    }
+
+    #[test]
+    fn r132_a_suggestions_need_a_real_match() {
+        let (_, projects, br) = owner();
+        let s = |src: &str, b: &str| suggest(src, b, &projects, &br);
+        // A base is a whole branch name, not a prefix.
+        assert_eq!(s("globex-api", "masterclass"), None);
+        assert_eq!(s("globex-api", "master-old"), None);
+        // A Project id is a whole part, or a part's word before `-` / `_` / `.`.
+        assert_eq!(s("globex-web", "feat/beaconing"), None);
+        assert_eq!(s("globex-web", "beacon").as_deref(), Some("beacon"));
+        assert_eq!(s("globex-web", "feat/beacon_x").as_deref(), Some("beacon"));
+        // Two Projects match: no guess.
+        assert_eq!(s("globex-web", "beacon/atlas-x"), None);
     }
 
     #[test]

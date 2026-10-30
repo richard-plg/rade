@@ -40,6 +40,25 @@ pub enum ProjectCmd {
     /// Add, remove or rebase one Source link, or put its checkout back on its base.
     #[command(subcommand)]
     Link(LinkCmd),
+    /// Delete a Project: its folder and project.toml, its unused clean Project
+    /// checkouts; its Worktrees go to Scratch (R133.1).
+    Remove {
+        project: String,
+        /// Only print what would happen.
+        #[arg(long)]
+        dry_run: bool,
+        /// Leave its Project checkouts on disk.
+        #[arg(long)]
+        keep_checkouts: bool,
+    },
+    /// Remove the clean Project checkouts no link uses any more (R133.2).
+    Prune {
+        #[arg(long)]
+        workspace: Option<String>,
+        /// Only list them.
+        #[arg(long)]
+        dry_run: bool,
+    },
     /// Set one key of project.toml, keeping the rest of the file (R97.3):
     /// name, source.<id>.base, source.<id>.checkout; no value removes it.
     Set {
@@ -106,6 +125,18 @@ pub fn request(c: &ProjectCmd) -> Result<(&'static str, Value), Error> {
             ("project.list", json!({"workspace": workspace, "all": all}))
         }
         ProjectCmd::Show { project } => ("project.show", json!({"project": project})),
+        ProjectCmd::Remove {
+            project,
+            dry_run,
+            keep_checkouts,
+        } => (
+            "project.remove",
+            json!({"project": project, "dry_run": dry_run, "keep_checkouts": keep_checkouts}),
+        ),
+        ProjectCmd::Prune { workspace, dry_run } => (
+            "project.prune",
+            json!({"workspace": workspace, "dry_run": dry_run}),
+        ),
         ProjectCmd::Plan {
             name,
             workspace,
@@ -253,6 +284,41 @@ pub fn print(c: &ProjectCmd, r: &Value) {
             }
         }
         ProjectCmd::Add { .. } => println!("{}", s(&r["file"])),
+        ProjectCmd::Remove { .. } | ProjectCmd::Prune { .. } => {
+            let dry = r["dry_run"] == true;
+            if r["file"].is_string() {
+                println!(
+                    "{} {}",
+                    if dry { "would delete" } else { "deleted" },
+                    s(&r["file"])
+                );
+            }
+            let list = |k: &str| r[k].as_array().cloned().unwrap_or_default();
+            for o in list(if dry { "remove" } else { "removed" }) {
+                println!(
+                    "{} {}",
+                    if dry { "would remove" } else { "removed" },
+                    s(&o["path"])
+                );
+            }
+            for o in list(if dry { "keep" } else { "kept" }) {
+                let why = o["why"]
+                    .as_str()
+                    .map(String::from)
+                    .unwrap_or_else(|| format!("{} uncommitted changes", o["dirty"]));
+                println!("kept {} ({why})", s(&o["path"]));
+            }
+            for p in list("panes") {
+                println!(
+                    "{} Pane {}",
+                    if dry { "would close" } else { "closed" },
+                    s(&p["name"])
+                );
+            }
+            for w in list("worktrees") {
+                println!("{}/{} → Scratch", s(&w["source"]), s(&w["worktree"]));
+            }
+        }
         ProjectCmd::Plan { .. } => {
             for l in r["links"].as_array().into_iter().flatten() {
                 println!("{}  {}", s(&l["source"]), s(&l["text"]));
@@ -267,7 +333,15 @@ pub fn print(c: &ProjectCmd, r: &Value) {
                 "(not drifted: nothing to do)"
             }
         ),
-        ProjectCmd::Link(_) => println!("{}", s(&r["file"])),
+        ProjectCmd::Link(_) => {
+            println!("{}", s(&r["file"]));
+            for o in r["unused"].as_array().into_iter().flatten() {
+                println!(
+                    "1 Project checkout no longer used: {} (rade project prune)",
+                    s(&o["path"])
+                );
+            }
+        }
     }
 }
 

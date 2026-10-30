@@ -364,6 +364,7 @@ pub const ACTIONS: &[(&str, &str)] = &[
     ("resume_source", "Resume Source"),
     ("add_source", "Add Source…"),
     ("new_project", "New Project…"),
+    ("prune_project_checkouts", "Prune Unused Project Checkouts…"),
     ("create_workspace", "Create Workspace…"),
     ("jump_unread", "Open Newest Unread Notification"),
     ("toggle_file_tree", "Toggle Right Panel"),

@@ -341,9 +341,57 @@ fn toggle_key(key: &str, folded: bool) {
 
 /// Record (or clear) a Worktree's Project: Move to Project ▸ and a
 /// suggestion click.
+/// Move to Project (R132.1): when the Project's link has another base
+/// than the one the Worktree compares against, ask which to keep.
 fn move_to_project(source: &str, wt: &str, project: Option<String>) {
-    if let Some(app) = try_app() {
-        let _ = app.update(|m| m.set_worktree_project(source, wt, project));
+    let Some(app) = try_app() else { return };
+    let (now, then, name, pname) = {
+        let m = app.model.borrow();
+        let now = crate::worktrees::comparison_base(&m, source, wt, None);
+        let then = project
+            .as_deref()
+            .and_then(|p| crate::worktrees::comparison_base(&m, source, wt, Some(p)));
+        let name = m
+            .worktree(source, wt)
+            .map(|w| w.name.clone())
+            .unwrap_or_default();
+        let pname = project.as_deref().and_then(|p| {
+            projects(&m)
+                .iter()
+                .find(|x| x.id == p)
+                .map(|x| x.name.clone())
+        });
+        (now, then, name, pname)
+    };
+    let run = |rebase: bool, source: &str, wt: &str, project: Option<String>| {
+        if let Err(e) = crate::worktrees::move_to(source, wt, project, rebase) {
+            crate::worktrees::alert("Could not move the Worktree", &e.message);
+        }
+    };
+    match (now, then, pname) {
+        (Some(now), Some(then), Some(pname)) if now != then => {
+            let d = adw::AlertDialog::new(
+                Some(&format!("Move “{name}” to {pname}?")),
+                Some(&format!(
+                    "{pname} links this Source at {then}; the Worktree compares against {now}. \
+                     Its commits are not changed either way."
+                )),
+            );
+            d.add_response("cancel", "Cancel");
+            d.add_response("keep", &format!("Keep comparing against {now}"));
+            d.add_response("rebase", &format!("Compare against {then}"));
+            d.set_response_appearance("keep", adw::ResponseAppearance::Suggested);
+            d.set_default_response(Some("keep"));
+            d.set_close_response("cancel");
+            let (s, w) = (source.to_string(), wt.to_string());
+            d.connect_response(None, move |_, r| match r {
+                "keep" => run(false, &s, &w, project.clone()),
+                "rebase" => run(true, &s, &w, project.clone()),
+                _ => {}
+            });
+            crate::menus::present(d, &["cancel", "keep", "rebase"]);
+        }
+        _ => run(false, source, wt, project),
     }
 }
 
@@ -929,7 +977,7 @@ pub fn worktree_menu(m: &State, p: &str, w: &str) -> gio::Menu {
         let mark = if current.is_none() { " ✓" } else { "" };
         item(
             &sub,
-            &format!("No Project{mark}"),
+            &format!("Scratch{mark}"),
             "move-to-project",
             format!("{p}\u{1f}{w}\u{1f}"),
         );
@@ -938,14 +986,14 @@ pub fn worktree_menu(m: &State, p: &str, w: &str) -> gio::Menu {
     menu
 }
 
-/// A Scratch row's menu: "Remove from Scratch…" when it has Panes to
+/// A Scratch row's menu: "Close Panes in Scratch…" (R132.4) when it has Panes to
 /// close (R104.5), then the Source's menu.
 pub fn scratch_menu(m: &State, s: &rade_core::Source) -> gio::Menu {
     let menu = gio::Menu::new();
     let links = crate::navdata::links(m);
     if !navigator::scratch_panes(s, &links, &crate::projects::canon).is_empty() {
         let remove = gio::Menu::new();
-        let i = gio::MenuItem::new(Some("Remove from Scratch…"), None);
+        let i = gio::MenuItem::new(Some("Close Panes in Scratch…"), None);
         i.set_action_and_target_value(
             Some("sb.scratch-remove"),
             Some(&format!("{}\u{1f}", s.id).to_variant()),
@@ -957,7 +1005,7 @@ pub fn scratch_menu(m: &State, s: &rade_core::Source) -> gio::Menu {
     menu
 }
 
-/// Remove from Scratch (R104.5): close the Panes of a linked Source's main
+/// Close Panes in Scratch (R104.5, R132.4): close the Panes of a linked Source's main
 /// checkout that no link claims, after one confirmation; the Source and
 /// its Projects stay.
 fn remove_from_scratch_dialog(source: &str) {
@@ -996,7 +1044,11 @@ fn remove_from_scratch_dialog(source: &str) {
         }
     }
     body += "\n\nThe Source and its Projects stay; no files are deleted.";
-    let d = adw::AlertDialog::new(Some(&format!("Remove “{name}” from Scratch?")), Some(&body));
+    let heading = format!(
+        "Close {n} Pane{} of “{name}”?",
+        if n == 1 { "" } else { "s" }
+    );
+    let d = adw::AlertDialog::new(Some(&heading), Some(&body));
     d.add_response("cancel", "Cancel");
     d.add_response("remove", "Close Panes");
     d.set_response_appearance("remove", adw::ResponseAppearance::Destructive);
@@ -1048,6 +1100,7 @@ fn install_menu(list: &gtk::ListBox, rows: Rc<RefCell<Vec<Row>>>) {
         crate::home_view::open_terminal(p, s);
     });
     act("project-customize", |k, _| crate::projects::customize(k));
+    act("project-remove", |k, _| crate::projects::remove_dialog(k));
     act("scratch-remove", |p, _| remove_from_scratch_dialog(p));
     act("remove-worktree", |p, w| {
         crate::worktrees::remove_dialog(p, w)

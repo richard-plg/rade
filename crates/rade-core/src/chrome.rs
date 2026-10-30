@@ -61,8 +61,26 @@ pub fn breadcrumb(
     }
 }
 
-/// A Tab's label (R103.2): the name the user gave, else its (lead) Agent's
-/// name, else what a Pane-type Tab shows (`Review`, a Browser's host),
+/// The longest session title a Tab label shows (R103.2, M51); the
+/// tooltip keeps the whole title.
+pub const TAB_TITLE_MAX: usize = 24;
+
+/// The lead Agent Pane's part of its Tab's label (R103.2, M51): the name
+/// the user gave the Pane, else the Agent's session title (R104.7) cut to
+/// [`TAB_TITLE_MAX`], else its Preset.
+pub fn lead_label(p: &Pane) -> Option<String> {
+    p.name
+        .clone()
+        .filter(|n| !n.trim().is_empty())
+        .or_else(|| {
+            p.session_title()
+                .map(|t| crate::title::ellipsize(&t, TAB_TITLE_MAX))
+        })
+        .or_else(|| p.agent_name().map(String::from))
+}
+
+/// A Tab's label (R103.2): the name the user gave, else its lead Agent's
+/// ([`lead_label`]), else what a Pane-type Tab shows (`Review`, a Browser's host),
 /// else its Worktree's name. Never `Tab <n>`; the Agent count is a widget
 /// of its own ([`tab_count`]).
 pub fn tab_label(
@@ -797,6 +815,39 @@ mod tests {
             breadcrumb(None, "api", Some("fix"), None, Some(4)).text(),
             "api / fix"
         );
+    }
+
+    #[test]
+    fn r103_l_tab_label_is_the_lead_session_title() {
+        let mut p = Pane::new("p_1".into(), "/w".into(), None, None);
+        p.agent = Some("claude".into());
+        p.title = Some("Tính năng projects trên SCRATCH".into());
+        assert_eq!(lead_label(&p).as_deref(), Some("Tính năng projects trên…"));
+        assert_eq!(
+            tab_label(None, lead_label(&p).as_deref(), None, "main"),
+            "Tính năng projects trên…"
+        );
+        p.title = Some("Fix login".into());
+        assert_eq!(lead_label(&p).as_deref(), Some("Fix login"));
+        // A product name is not a session title: the Preset.
+        p.title = Some("Claude Code".into());
+        assert_eq!(lead_label(&p).as_deref(), Some("claude"));
+        p.title = None;
+        assert_eq!(lead_label(&p).as_deref(), Some("claude"));
+        // A Pane name the user gave wins, and a Tab rename over all.
+        p.title = Some("Fix login".into());
+        p.name = Some("planner".into());
+        assert_eq!(lead_label(&p).as_deref(), Some("planner"));
+        assert_eq!(
+            tab_label(Some("api"), lead_label(&p).as_deref(), None, "main"),
+            "api"
+        );
+        // 24 characters at most, the last an ellipsis.
+        p.name = None;
+        p.title = Some("a".repeat(40));
+        let l = lead_label(&p).unwrap();
+        assert_eq!(l.chars().count(), 24);
+        assert!(l.ends_with('…'));
     }
 
     #[test]

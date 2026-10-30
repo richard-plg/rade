@@ -18,6 +18,9 @@ use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use std::time::Duration;
 
+/// The refusal of a link on a folder that is not a git repository.
+const NOT_GIT: &str = ": not a git repository";
+
 /// Which dialog the body is.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Kind {
@@ -72,6 +75,8 @@ struct RowWidgets {
     branches: gtk::StringList,
     plan_kind: gtk::Label,
     plan: gtk::Label,
+    /// `Initialize` on a folder that is not a git repository (R131.2).
+    init: gtk::Button,
 }
 
 struct Dialog {
@@ -91,6 +96,11 @@ struct Dialog {
     planning: Cell<bool>,
     /// Existing Project names (New Project refuses one).
     taken: Vec<String>,
+    /// Sources this dialog registered (a folder, `owner/repo`): forgotten
+    /// again unless a saved link uses them (R131.1).
+    added: RefCell<Vec<String>>,
+    /// The primary's writes succeeded.
+    saved: Cell<bool>,
 }
 
 thread_local! {
@@ -408,6 +418,8 @@ fn open(kind: Kind) {
             .filter(|p| Some(p.id.as_str()) != kind.project())
             .flat_map(|p| [p.name.to_lowercase(), p.id.clone()])
             .collect(),
+        added: RefCell::default(),
+        saved: Cell::new(false),
     });
     // The Project's links as rows.
     if let Some(p) = &project {
@@ -526,9 +538,10 @@ fn sync_primaries() {
 
 /// Close the open dialog (Cancel, Esc, the `x`, after the primary).
 pub fn close() {
-    let Some(_d) = OPEN.with(|o| o.borrow_mut().take()) else {
+    let Some(d) = OPEN.with(|o| o.borrow_mut().take()) else {
         return;
     };
+    d.forget_added();
     if let Some(s) = SCRIM.with(|s| s.borrow().clone()) {
         s.set_visible(false);
         while let Some(c) = s.first_child() {
@@ -723,6 +736,20 @@ impl Dialog {
                 d.remove_row(&s);
             }
         });
+        // A folder that is not a git repository (R131.2).
+        let init = gtk::Button::with_label("Initialize");
+        init.add_css_class("link-init");
+        init.add_css_class("link-editor-cell");
+        init.set_valign(gtk::Align::Center);
+        init.set_visible(false);
+        let w = Rc::downgrade(self);
+        let s = source.clone();
+        init.connect_clicked(move |_| {
+            if let Some(d) = w.upgrade() {
+                d.ask_init(&s);
+            }
+        });
+        plan.append(&init);
         line.append(&rm);
         if large {
             root.set_orientation(gtk::Orientation::Vertical);
@@ -752,6 +779,7 @@ impl Dialog {
             branches,
             plan_kind,
             plan: plan_text,
+            init,
         }
     }
 
@@ -812,7 +840,19 @@ impl Dialog {
             w.base.set_sensitive(
                 r.include && !(r.existing && matches!(self.kind, Kind::AddSource { .. })),
             );
+            w.init.set_visible(
+                r.include
+                    && r.refused
+                        .as_deref()
+                        .is_some_and(|why| why.contains(NOT_GIT)),
+            );
             match &r.refused {
+                Some(why) if why.contains(NOT_GIT) => {
+                    w.plan_kind.set_label("");
+                    w.plan_kind.set_visible(false);
+                    w.plan.set_label("Not a git repository");
+                    w.plan.add_css_class("refused");
+                }
                 Some(why) => {
                     w.plan_kind.set_label("");
                     w.plan_kind.set_visible(false);
@@ -1051,6 +1091,7 @@ impl Dialog {
         match r {
             Ok(id) => {
                 app.save_now();
+                self.added.borrow_mut().push(id.clone());
                 let _ = self.add_source_row(&id, None);
             }
             Err(e) => crate::worktrees::alert("Could not add the folder", &e.message),
@@ -1088,6 +1129,7 @@ impl Dialog {
                             .or(v["name"].as_str())
                             .unwrap_or_default()
                             .to_string();
+                        d.added.borrow_mut().push(id.clone());
                         let _ = d.add_source_row(&id, None);
                     }
                     Ok(o) => crate::worktrees::alert(
@@ -1186,6 +1228,9 @@ impl Dialog {
             },
             move |r| match r {
                 Ok(_) => {
+                    if let Some(d) = w.upgrade() {
+                        d.saved.set(true);
+                    }
                     let opened = w.upgrade().map(|d| d.kind.clone());
                     close();
                     crate::navdata::refresh();
@@ -1204,6 +1249,83 @@ impl Dialog {
         );
     }
 
+    /// Forget the Sources this dialog registered that no saved link uses
+    /// (Cancel, or a row removed before Create; R131.1).
+    fn forget_added(&self) {
+        let added = self.added.take();
+        if added.is_empty() {
+            return;
+        }
+        let kept: Vec<String> = if self.saved.get() {
+            self.rows
+                .borrow()
+                .iter()
+                .filter(|r| r.include && !r.removed)
+                .map(|r| r.source.clone())
+                .collect()
+        } else {
+            Vec::new()
+        };
+        let Some(app) = try_app() else { return };
+        for id in added.iter().filter(|id| !kept.contains(id)) {
+            let _ = app.update(|m| m.remove_source(id).map(|_| ()));
+        }
+        app.save_now();
+    }
+
+    /// `Initialize`: one confirmation, then `git init -b <base>` only — no
+    /// `git add`, no commit (R131.2).
+    fn ask_init(self: &Rc<Self>, source: &str) {
+        let Some((path, base)) = self.init_target(source) else {
+            return;
+        };
+        let w = Rc::downgrade(self);
+        let s = source.to_string();
+        crate::changes_ops::confirm(
+            "Initialize a git repository?",
+            &format!(
+                "Runs git init -b {base} in {}.\nNo file is added or committed.",
+                path.display()
+            ),
+            "init",
+            "Initialize",
+            move || {
+                if let Some(d) = w.upgrade() {
+                    d.init(&s);
+                }
+            },
+        );
+    }
+
+    fn init_target(&self, source: &str) -> Option<(std::path::PathBuf, String)> {
+        let base = self
+            .rows
+            .borrow()
+            .iter()
+            .find(|r| r.source == source)?
+            .base
+            .clone();
+        let path = app().model.borrow().source(source)?.path.clone();
+        Some((path, base))
+    }
+
+    fn init(self: &Rc<Self>, source: &str) {
+        let Some((path, base)) = self.init_target(source) else {
+            return;
+        };
+        let w = Rc::downgrade(self);
+        crate::worktrees::in_background(
+            move || rade_core::git::init(&path, &base),
+            move |r| {
+                let Some(d) = w.upgrade() else { return };
+                match r {
+                    Ok(()) => d.schedule_plan(),
+                    Err(e) => crate::worktrees::alert("Could not initialize", &e.message),
+                }
+            },
+        );
+    }
+
     /// `debug.ui dialog`: what the dialog shows.
     fn info(&self) -> Value {
         let rows: Vec<Value> = self
@@ -1216,7 +1338,9 @@ impl Dialog {
                        "include": r.include, "existing": r.existing,
                        "checkout": r.checkout, "plan": r.plan, "plan_kind": r.plan_kind,
                        "plan_markup": plan_markup(&r.plan, &r.plan_kind),
-                       "refused": r.refused})
+                       "refused": r.refused,
+                       "init": r.include
+                           && r.refused.as_deref().is_some_and(|w| w.contains(NOT_GIT))})
             })
             .collect();
         let focus = try_app()
@@ -1372,6 +1496,16 @@ pub fn debug(p: &Value) -> Result<Value> {
             d.primary.emit_clicked();
         }
         "dialog_cancel" => close(),
+        "dialog_folder" => open_dialog()?.add_folder(std::path::Path::new(s("path"))),
+        "dialog_init" => {
+            let d = open_dialog()?;
+            let id = app()
+                .model
+                .borrow()
+                .find_source(s("source"))
+                .map(|x| x.id.clone())?;
+            d.ask_init(&id);
+        }
         op => return Err(Error::usage(format!("unknown debug.ui op '{op}'"))),
     }
     let v = OPEN

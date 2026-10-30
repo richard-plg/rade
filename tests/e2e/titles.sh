@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Pane captions and Tab tooltips follow terminal titles (R1, docs/internals/checks/M12-titles.md;
-# since 1.0.0 the Tab label is the user's, Agent's or Worktree's name, R103.2):
+# since 1.0.0 the Tab label is the user's, Agent's or Worktree's name, R103.2; since
+# M51 an Agent Tab shows its lead session's title):
 # OSC 0/2 sanitized (spinner glyphs stripped), `rade list --json` title,
 # rename sticks over new titles and survives a relaunch, an Agent Grid
 # Parent's title drives its Tab, throttled spinner. Headless Weston (ADR-0006).
@@ -95,6 +96,21 @@ check "grid Tab label = Parent's name 'lead' while kid is focused, Agent count 2
 check "…the Parent's title 'Lead plan' in the tooltip" tip_has "$tl" "Lead plan"
 shot titles
 rpc debug.tabs | jq -c '.tabs[] | [.tab, .label]' > "$OUT/labels-before.txt"
+
+echo "== R103-m: an Agent Tab is labelled by its lead session's title (M51)"
+a1=$(rade spawn --agent lead --tab new --json | jq -r .pane)
+a2=$(rade spawn --agent lead --tab new --json | jq -r .pane)
+ta1=$(info "$a1" tab) ta2=$(info "$a2" tab)
+eventually 10 screen_has "$a2" '$' || true
+check "R103-m before a title: the Preset 'lead'" eventually 5 is "label $ta1" "lead"
+rade send "$a1" "printf '\\e]2;✳ Fix login\\a'; exec sleep 600" --enter
+rade send "$a2" "printf '\\e]2;Tính năng projects trên SCRATCH\\a'; exec sleep 600" --enter
+check "R103-m Tab 1 = 'Fix login'" eventually 5 is "label $ta1" "Fix login"
+check "R103-m Tab 2 = the title cut to 24 characters" eventually 5 is "label $ta2" "Tính năng projects trên…"
+check "R103-m …the whole title in its tooltip" tip_has "$ta2" "Tính năng projects trên SCRATCH"
+rade focus "$a2" >/dev/null
+shot tabs-session
+rade close "$a1" >/dev/null; rade close "$a2" >/dev/null
 
 echo "== relaunch: custom name restored, titles kept until programs set new ones"
 stop_app

@@ -52,6 +52,7 @@ static EMPTY_CLIPBOARD_TEXT: [u8; 1] = [0];
 
 type TitleChangedCallback = dyn Fn(&str);
 type PwdChangedCallback = dyn Fn(&str);
+pub(crate) type LinkResolves = dyn Fn(&str) -> bool;
 type DesktopNotificationCallback = dyn Fn(&str, &str, bool);
 type BellCallback = dyn Fn(bool);
 type VoidCallback = dyn Fn();
@@ -85,6 +86,7 @@ struct SurfaceEntry {
     on_close: Option<Box<VoidCallback>>,
     on_child_exited: Option<Box<ChildExitedCallback>>,
     on_open_url: Option<Box<PwdChangedCallback>>,
+    link_resolves: Option<Box<LinkResolves>>,
     on_command_finished: Option<Box<VoidCallback>>,
     /// RADE (R19.5): the search bar Ghostty's search actions drive.
     search: SearchBar,
@@ -473,6 +475,12 @@ impl TerminalHandle {
         if self.gl_area.root().is_some_and(|r| r.is_realized()) {
             self.gl_area.realize();
         }
+    }
+
+    /// Its surface exists or is being made (R130: a restored Terminal
+    /// still waiting in the queue is neither).
+    pub fn is_started(&self) -> bool {
+        self.surface_cell.borrow().is_some() || self.gl_area.is_realized()
     }
 
     pub fn draw_count(&self) -> u64 {

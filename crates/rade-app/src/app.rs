@@ -158,6 +158,11 @@ pub struct App {
     save_error: RefCell<Option<String>>,
     pub config_monitor: RefCell<Option<gio::FileMonitor>>,
     pub desktop: crate::notifications::Desktop,
+    /// Restored Terminals not started yet, in start order (R130).
+    restore: RefCell<rade_core::restore_queue::Queue>,
+    /// When the queue started (ms on the monotonic clock) and each Pane's
+    /// start time since then, for `debug.restore`.
+    restore_log: RefCell<(i64, Vec<(String, u64)>)>,
 }
 
 impl App {
@@ -199,6 +204,8 @@ impl App {
             save_error: RefCell::default(),
             config_monitor: RefCell::default(),
             desktop,
+            restore: RefCell::default(),
+            restore_log: RefCell::default(),
         }
     }
 
@@ -524,14 +531,97 @@ impl App {
         self.syncing.set(false);
         crate::home_view::refresh();
 
-        // Realize Terminals in hidden Tabs so their processes start now.
+        // Realize Terminals in hidden Tabs so their processes start now;
+        // restored ones wait for their turn in the queue (R130).
         glib::idle_add_local_once(|| {
             if let Some(app) = try_app() {
-                for t in app.terminals.borrow().values() {
-                    t.handle.ensure_started();
+                let queue = app.restore.borrow();
+                for (id, t) in app.terminals.borrow().iter() {
+                    if !queue.contains(id) {
+                        t.handle.ensure_started();
+                    }
                 }
             }
         });
+    }
+
+    /// Queue every restored Terminal (R130): call before the first sync,
+    /// then [`Self::start_restore`] once the window is shown.
+    pub fn plan_restore(&self) {
+        let order = rade_core::restore_queue::order(&self.model.borrow());
+        *self.restore.borrow_mut() = rade_core::restore_queue::Queue::new(order);
+    }
+
+    /// Start the queued Terminals one per main-loop turn at low priority,
+    /// [`rade_core::restore_queue::AGENT_GAP_MS`] after each Agent (R130.3).
+    pub fn start_restore(&self) {
+        self.restore_log.borrow_mut().0 = glib::monotonic_time();
+        fn pump() -> glib::ControlFlow {
+            let Some(app) = try_app() else {
+                return glib::ControlFlow::Break;
+            };
+            let now = ((glib::monotonic_time() - app.restore_log.borrow().0) / 1000) as u64;
+            let step = {
+                let model = app.model.borrow();
+                let terms = app.terminals.borrow();
+                let mut q = app.restore.borrow_mut();
+                // Shown (GTK realized it), started by a socket call, or
+                // closed: no longer waiting, and no gap for it.
+                let gone: Vec<String> = q
+                    .pending()
+                    .filter(|p| terms.get(*p).is_none_or(|t| t.handle.is_started()))
+                    .map(String::from)
+                    .collect();
+                gone.iter().for_each(|p| {
+                    q.promote(p);
+                });
+                q.next(now, |p| model.pane(p).is_some_and(|p| p.agent.is_some()))
+            };
+            use rade_core::restore_queue::Step;
+            match step {
+                Step::Start(id) => {
+                    if let Some(t) = app.terminals.borrow().get(&id) {
+                        t.handle.ensure_started();
+                    }
+                    app.restore_log.borrow_mut().1.push((id, now));
+                    glib::idle_add_local_full(glib::Priority::LOW, pump);
+                }
+                Step::Wait(ms) => {
+                    glib::timeout_add_local_full(
+                        Duration::from_millis(ms),
+                        glib::Priority::LOW,
+                        pump,
+                    );
+                }
+                Step::Done => {}
+            }
+            glib::ControlFlow::Break
+        }
+        glib::idle_add_local_full(glib::Priority::LOW, pump);
+    }
+
+    /// Pane `id` is needed now (R130.4: a socket call targets it): take it
+    /// out of the restore queue and start its Terminal.
+    pub fn start_now(&self, id: &str) {
+        if self.restore.borrow_mut().promote(id) {
+            if let Some(t) = self.terminals.borrow().get(id) {
+                t.handle.ensure_started();
+            }
+            let now = ((glib::monotonic_time() - self.restore_log.borrow().0) / 1000) as u64;
+            self.restore_log.borrow_mut().1.push((id.to_string(), now));
+        }
+    }
+
+    /// `debug.restore` (test mode): the Panes still queued and when each
+    /// queued Pane started (ms after the queue began).
+    pub fn restore_debug(&self) -> serde_json::Value {
+        let log = self.restore_log.borrow();
+        let since = (glib::monotonic_time() - log.0) / 1000;
+        serde_json::json!({
+            "since_ms": since,
+            "pending": self.restore.borrow().pending().collect::<Vec<_>>(),
+            "started": log.1.iter().map(|(p, t)| serde_json::json!({"pane": p, "ms": t})).collect::<Vec<_>>(),
+        })
     }
 
     /// Keyboard focus back to the focused Pane of the Tab on screen, e.g.

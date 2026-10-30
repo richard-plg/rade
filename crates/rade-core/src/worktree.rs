@@ -128,6 +128,28 @@ impl State {
         Ok(())
     }
 
+    /// Move a Worktree to a Project (`None` = Scratch), re-recording its
+    /// base only when `base` is given (R132.1): commits are never rebased.
+    pub fn move_worktree(
+        &mut self,
+        source: &str,
+        worktree: &str,
+        project: Option<String>,
+        base: Option<String>,
+    ) -> Result<()> {
+        if self.is_main_worktree(source, worktree) {
+            return Err(Error::usage(
+                "a main checkout belongs to no Project; only a linked Worktree moves",
+            ));
+        }
+        let w = self.worktree_mut(source, worktree)?;
+        w.project = project;
+        if base.is_some() {
+            w.base = base;
+        }
+        Ok(())
+    }
+
     /// (source id, worktree id) of a Worktree by id or name; `worktree`
     /// `None` = the Source's active one.
     pub fn find_worktree(&self, source: &str, worktree: Option<&str>) -> Result<(String, String)> {

@@ -31,6 +31,7 @@ fn repo(source: &str, branch: &str, dirty: usize, local: &[&str], remote: &[&str
             .iter()
             .map(|b| (b.to_string(), format!("origin/{b}")))
             .collect(),
+        unborn: None,
     }
 }
 
@@ -485,7 +486,10 @@ fn r98_p_non_git_source_refuses_only_its_link() {
         &[],
     );
     let n = by(&out, "shop", "notes");
-    assert_eq!(n.error().unwrap().message, "/w/notes: not a git repository");
+    assert_eq!(
+        n.error().unwrap().message,
+        "/w/notes: not a git repository (run: git init -b main)"
+    );
     assert!(n.commands.is_empty() && n.record.is_none());
     assert_eq!(by(&out, "shop", "shop-web").kind, Some(Kind::Main));
 }
@@ -1269,4 +1273,110 @@ fn r105_b_vs_base_counts_against_the_bases_upstream_when_it_has_one() {
     assert_eq!((f.ahead, f.behind), (Some(0), Some(0)));
     let _ = std::fs::remove_dir_all(&remote);
     let _ = std::fs::remove_dir_all(&main);
+}
+
+#[test]
+fn r131_a_plain_folder_and_unborn_repository() {
+    use crate::git::tests::sh;
+    let base = std::env::temp_dir().join(format!("rade-r131a-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&base);
+    let plain = base.join("plain");
+    let fresh = base.join("fresh");
+    std::fs::create_dir_all(&plain).unwrap();
+    std::fs::create_dir_all(&fresh).unwrap();
+    sh(&fresh, &["init", "-q", "-b", "main"]);
+    std::fs::write(fresh.join("a.txt"), "untracked\n").unwrap();
+
+    let repos = observe(&[
+        ("plain".to_string(), plain.clone()),
+        ("fresh".to_string(), fresh.clone()),
+    ]);
+    assert!(!repos["plain"].git);
+    assert!(repos["fresh"].git);
+    assert_eq!(repos["fresh"].unborn.as_deref(), Some("main"));
+
+    let canon = |p: &Path| p.canonicalize().unwrap_or_else(|_| p.to_path_buf());
+    let ex = |p: &Path| p.exists();
+    let world = World {
+        repos,
+        folder: base.join(".worktrees"),
+        home: base.clone(),
+        canon: &canon,
+        exists: &ex,
+    };
+    let out = resolve_checkout(
+        &[
+            link("a", "plain", "main"),
+            link("a", "fresh", "main"),
+            link("b", "fresh", "develop"),
+        ],
+        &world,
+        &[],
+    );
+    let p = by(&out, "a", "plain");
+    assert_eq!(
+        p.error().unwrap().message,
+        format!(
+            "{}: not a git repository (run: git init -b main)",
+            canon(&plain).display()
+        )
+    );
+    assert!(p.commands.is_empty());
+    // The unborn branch is the base: the main checkout, nothing to run.
+    let f = by(&out, "a", "fresh");
+    assert_eq!(f.kind, Some(Kind::Main), "{f:?}");
+    assert!(f.commands.is_empty() && f.refused.is_none());
+    // Another base needs a Project checkout, which needs a commit.
+    let d = by(&out, "b", "fresh");
+    assert!(d.commands.is_empty());
+    assert_eq!(
+        d.error().unwrap().message,
+        format!(
+            "{} has no commits yet: commit once, then try again",
+            canon(&fresh).display()
+        )
+    );
+    let _ = std::fs::remove_dir_all(&base);
+}
+
+#[test]
+fn r133_a_orphans_are_project_checkouts_no_link_uses() {
+    let mut web = repo("shop-web", "develop", 0, &["main"], &[]);
+    web.checkouts.push(co(
+        "/w/.worktrees/.projects/shop24/shop-web",
+        "release/2.4",
+        0,
+    ));
+    web.checkouts
+        .push(co("/w/.worktrees/.projects/old/shop-web", "main", 2));
+    // An ordinary Worktree is never a Project checkout.
+    web.checkouts
+        .push(co("/w/.worktrees/shop-web/feature", "feature", 0));
+    let mut ui = repo("shared-ui", "main", 0, &[], &[]);
+    ui.checkouts
+        .push(co("/w/.worktrees/.projects/shop/shared-ui", "develop", 0));
+    let repos: BTreeMap<String, Repo> =
+        [("shop-web".to_string(), web), ("shared-ui".to_string(), ui)]
+            .into_iter()
+            .collect();
+    // Shop24 is gone; Shop still uses shared-ui's checkout.
+    let used = [PathBuf::from("/w/.worktrees/.projects/shop/shared-ui")];
+    let found = orphans(&repos, Path::new(FOLDER), &used, &id);
+    assert_eq!(
+        found,
+        vec![
+            Orphan {
+                source: "shop-web".into(),
+                path: "/w/.worktrees/.projects/old/shop-web".into(),
+                branch: Some("main".into()),
+                dirty: 2,
+            },
+            Orphan {
+                source: "shop-web".into(),
+                path: "/w/.worktrees/.projects/shop24/shop-web".into(),
+                branch: Some("release/2.4".into()),
+                dirty: 0,
+            },
+        ]
+    );
 }

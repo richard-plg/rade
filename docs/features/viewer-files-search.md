@@ -24,6 +24,9 @@ Open a file by `Ctrl+click`ing its path in a terminal, from the Files tree, Sear
 - **PDF**: pages, zoom, search, text selection.
 - **Images**: fitted, with zoom.
 
+Select text with the mouse (double click a word, triple click a line) and copy it with `Ctrl+C`
+or the right-click menu, in code, Markdown and HTML alike.
+
 Viewers are ordinary Panes: split, resize, zoom (`Ctrl+Shift+Z`), several per Tab, restored on
 restart. Content zooms with `Ctrl+scroll`, `Ctrl++` / `Ctrl+−`, `Ctrl+0`. `Esc` closes.
 `Ctrl+Shift+click` (or *Open to the Side*) opens a second Viewer instead of replacing the file.

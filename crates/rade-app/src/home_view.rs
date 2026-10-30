@@ -77,6 +77,56 @@ thread_local! {
     /// The KPI row and whether the page was built for large text (R111).
     static KPIS: RefCell<Option<gtk::Box>> = const { RefCell::new(None) };
     static BUILT_LARGE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    /// Project id → the link Open terminal used last (R132.5).
+    static LAST_LINK: RefCell<std::collections::HashMap<String, String>> = RefCell::default();
+    /// Open terminal's menu while it is up (`debug.ui home`).
+    static OPEN_POP: RefCell<Option<gtk::Popover>> = const { RefCell::new(None) };
+}
+
+/// Open terminal's choices for the shown page (R132.5).
+fn open_menu(v: &View) -> Vec<(String, String)> {
+    let links: Vec<(String, String, String)> = v
+        .links
+        .iter()
+        .map(|l| (l.source.clone(), l.name.clone(), l.base.clone()))
+        .collect();
+    let last = LAST_LINK.with(|l| l.borrow().get(&v.project).cloned());
+    rade_core::home::open_terminal_menu(&links, last.as_deref())
+}
+
+/// Open terminal clicked: one link opens at once; more show a menu of
+/// them, the one used last first (R132.5).
+fn open_clicked(b: &gtk::Button, v: &View) {
+    let menu = open_menu(v);
+    if let [(src, _)] = menu.as_slice() {
+        return open_terminal(&v.project, src);
+    }
+    let pop = gtk::Popover::new();
+    pop.add_css_class("menu");
+    pop.add_css_class("home-open-menu");
+    let list = gtk::Box::new(gtk::Orientation::Vertical, 0);
+    for (src, name) in menu {
+        let row = gtk::Button::with_label(&name);
+        row.add_css_class("flat");
+        if let Some(l) = row.child().and_downcast::<gtk::Label>() {
+            l.set_xalign(0.0);
+        }
+        let (p, pop2) = (v.project.clone(), pop.clone());
+        row.connect_clicked(move |_| {
+            pop2.popdown();
+            open_terminal(&p, &src);
+        });
+        list.append(&row);
+    }
+    pop.set_child(Some(&list));
+    pop.set_parent(b);
+    pop.set_position(gtk::PositionType::Bottom);
+    pop.connect_closed(|p| {
+        OPEN_POP.with(|o| o.borrow_mut().take());
+        p.unparent();
+    });
+    OPEN_POP.with(|o| *o.borrow_mut() = Some(pop.clone()));
+    pop.popup();
 }
 
 /// The page's padding left and right (spec B.4: 28 px each side).
@@ -381,12 +431,11 @@ fn build(v: &View) -> gtk::Widget {
     }
     open.add_css_class("home-open-terminal");
     PRIMARY.with(|p| *p.borrow_mut() = Some(open.clone()));
-    match v.links.first() {
-        Some(first) => {
-            let (p, s) = (v.project.clone(), first.source.clone());
-            open.connect_clicked(move |_| open_terminal(&p, &s));
-        }
-        None => open.set_sensitive(false),
+    if v.links.is_empty() {
+        open.set_sensitive(false);
+    } else {
+        let v2 = v.clone();
+        open.connect_clicked(move |b| open_clicked(b, &v2));
     }
     actions.append(&open);
     header.append(&actions);
@@ -712,6 +761,10 @@ fn off_thread(
 /// Open terminal on a link (R105.3): its checkout, created first when the
 /// plan says so (`open_on_link`, R98.3).
 pub fn open_terminal(project: &str, source: &str) {
+    LAST_LINK.with(|l| {
+        l.borrow_mut()
+            .insert(project.to_string(), source.to_string())
+    });
     close();
     let (p, s) = (project.to_string(), source.to_string());
     off_thread("Could not open a terminal", move || {
@@ -801,7 +854,7 @@ pub fn move_to_worktree(project: &str, source: &str) {
     crate::menus::present(dlg, &["cancel", "move"]);
 }
 
-/// `debug.ui home` (`arg`: `open <project>`, `worktree <name>`,
+/// `debug.ui home` (`arg`: `open <project>`, `worktree <name>`, `click_open`,
 /// `terminal <source>`, `action <source> <keep|back_to_base|move_to_worktree>`):
 /// the page as shown.
 pub fn debug(arg: Option<&str>) -> rade_core::rpc::Result<Value> {
@@ -832,6 +885,13 @@ pub fn debug(arg: Option<&str>) -> rade_core::rpc::Result<Value> {
                     })?;
                 select_worktree(&w.source, &w.worktree);
             }
+            // Open terminal clicked (R132.5): one link opens, more show the menu.
+            "click_open" => {
+                let b = PRIMARY
+                    .with(|p| p.borrow().clone())
+                    .ok_or_else(|| rade_core::Error::usage("no Project home shown"))?;
+                b.emit_clicked();
+            }
             "terminal" | "action" => {
                 let p = project.ok_or_else(|| rade_core::Error::usage("no Project home shown"))?;
                 let (src, act) = rest.split_once(' ').unwrap_or((rest, ""));
@@ -857,6 +917,12 @@ pub fn debug(arg: Option<&str>) -> rade_core::rpc::Result<Value> {
                 j["activity_empty"] = json!("No activity since RADE started");
             }
             j["columns"] = json!(COLUMNS);
+            j["open_terminal_menu"] = json!(open_menu(&v)
+                .into_iter()
+                .map(|(_, n)| n)
+                .collect::<Vec<_>>());
+            j["open_terminal_menu_up"] =
+                json!(OPEN_POP.with(|o| o.borrow().as_ref().is_some_and(|p| p.is_visible())));
             j
         }
         _ => json!({"shown": false}),

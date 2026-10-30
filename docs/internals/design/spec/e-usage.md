@@ -18,6 +18,7 @@ Opened from the Statusline usage cell, the titlebar `gauge` button, or palette `
 | E.4 | Period control | three segments `Today`, `7 days`, `30 days`; height 26 px, 1 px `line2`, radius 6 px, JetBrains Mono 11.5 px `fg2`, segment padding 0 10 px, dividers 1 px `line` | ±1 px; exact text | `geometry usage-period → height, border, radius, font`; `geometry usage-period-seg → padding` |
 | E.5 | Active period (`7 days`) | `acc-dim` fill, `acc` text | exact | `class usage-period-seg nth=1 has active`; colors |
 | E.6 | Workspace filter / Add account | secondary buttons (A.15 style): `circles-four` `All workspaces` `caret-down` 11 px; `plus` `Add account` | exact text | `debug.ui usage` → header buttons |
+| E.6b | Close (M51) | `x` flat icon button at the header's right end, tooltip `Close (Esc)`; `Esc` closes the page too | exact | `debug.ui usage` → `header.close`; `geometry usage-close` |
 | E.7 | No primary button | `count .suggested-action = 0` on screen E | exact | `count .suggested-action = 0` |
 | E.8 | List–detail grid | list 668 px, gap 16 px, detail 440 px, 16 px below the header, tops aligned | ±1 px | `geometry usage-accounts → width, y`; `geometry usage-detail → width, x, y` |
 | E.9 | Account table card | 1 px `line`, radius 8 px, `bg1` | exact | `geometry usage-accounts-card → border, radius, background` |

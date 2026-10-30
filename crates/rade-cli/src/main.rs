@@ -337,6 +337,21 @@ enum WorktreeCmd {
     },
     /// List a Source's Worktrees (default: the caller's / the one on screen).
     List { source: Option<String> },
+    /// Move a Worktree to another Project linking its Source, or to Scratch.
+    Move {
+        source: String,
+        name: String,
+        /// The Project it is for.
+        #[arg(long, conflicts_with = "scratch", required_unless_present = "scratch")]
+        project: Option<String>,
+        /// Belongs to no Project.
+        #[arg(long)]
+        scratch: bool,
+        /// Compare against the new link's base from now on (default: keep the
+        /// base it compares against; commits are never changed).
+        #[arg(long, requires = "project")]
+        rebase_to_link: bool,
+    },
 }
 
 /// Worktree selection shared by `rade review …` (default: the caller's
@@ -666,6 +681,16 @@ fn request(cmd: &Cmd) -> Result<(&'static str, Value), Error> {
             json!({"source": source, "name": name, "force": force, "delete_branch": delete_branch}),
         ),
         Cmd::Worktree(WorktreeCmd::List { source }) => ("worktree.list", json!({"source": source})),
+        Cmd::Worktree(WorktreeCmd::Move {
+            source,
+            name,
+            project,
+            scratch: _,
+            rebase_to_link,
+        }) => (
+            "worktree.move",
+            json!({"source": source, "worktree": name, "project": project, "rebase": rebase_to_link}),
+        ),
         Cmd::Review(ReviewCmd::List { at }) => ("review.list", at.json()),
         Cmd::Review(ReviewCmd::Open { at }) => ("review.open", at.json()),
         Cmd::Review(ReviewCmd::Status { at }) => ("review.status", at.json()),

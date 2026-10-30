@@ -77,6 +77,8 @@ pub struct Repo {
     pub local: BTreeSet<String>,
     /// Remote-only candidates: branch → `<remote>/<branch>`.
     pub remote: BTreeMap<String, String>,
+    /// The branch of a repository with no commit yet (`git init`, R131).
+    pub unborn: Option<String>,
 }
 
 impl Repo {
@@ -324,7 +326,11 @@ pub fn resolve_checkout(links: &[Link], world: &World, records: &[LinkCheckout])
                 "source '{}' is not a Source of this Workspace",
                 l.source
             )),
-            Some(r) if !r.git => Err(format!("{}: not a git repository", r.main.display())),
+            Some(r) if !r.git => Err(format!(
+                "{}: not a git repository (run: git init -b {})",
+                r.main.display(),
+                l.base
+            )),
             Some(r) => Ok(r),
         }
     };
@@ -529,6 +535,15 @@ pub fn resolve_checkout(links: &[Link], world: &World, records: &[LinkCheckout])
             done[i] = true;
             continue;
         }
+        // `git worktree add` needs a commit to start from (R131.3).
+        if repo.unborn.is_some() && repo.local.is_empty() && repo.remote.is_empty() {
+            out[i].refused = Some(format!(
+                "{} has no commits yet: commit once, then try again",
+                repo.main.display()
+            ));
+            done[i] = true;
+            continue;
+        }
         let track = if repo.local.contains(&l.base) {
             None
         } else if let Some(r) = repo.remote.get(&l.base) {
@@ -649,6 +664,12 @@ fn observe_one(path: &Path) -> Repo {
         return repo;
     };
     repo.git = true;
+    if crate::git::run(path, &["rev-parse", "--verify", "--quiet", "HEAD"]).is_err() {
+        repo.unborn = crate::git::run(path, &["symbolic-ref", "--short", "HEAD"])
+            .ok()
+            .map(|b| b.trim().to_string())
+            .filter(|b| !b.is_empty());
+    }
     for w in list.into_iter().filter(|w| !w.bare && !w.prunable) {
         let dirty = crate::git::dirty(&w.path).map_or(0, |d| d.len());
         repo.checkouts.push(Co {
@@ -802,6 +823,44 @@ pub fn is_project_checkout(
 ) -> bool {
     let p = canon(path);
     p.starts_with(canon(&folder.join(PROJECTS))) || records.iter().any(|r| canon(&r.path) == p)
+}
+
+/// A Project checkout that no link of the Workspace uses any more (R133.2).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Orphan {
+    pub source: String,
+    pub path: PathBuf,
+    pub branch: Option<String>,
+    /// Changed or untracked files: a dirty orphan is never removed.
+    pub dirty: usize,
+}
+
+/// The git worktrees under `<folder>/.projects` that are none of `used`
+/// (the paths the Workspace's links resolve to now), by path.
+pub fn orphans(
+    repos: &BTreeMap<String, Repo>,
+    folder: &Path,
+    used: &[PathBuf],
+    canon: &dyn Fn(&Path) -> PathBuf,
+) -> Vec<Orphan> {
+    let dir = canon(&folder.join(PROJECTS));
+    let used: Vec<PathBuf> = used.iter().map(|p| canon(p)).collect();
+    let mut out: Vec<Orphan> = repos
+        .iter()
+        .flat_map(|(source, r)| r.checkouts.iter().map(move |c| (source, c)))
+        .filter(|(_, c)| {
+            let p = canon(&c.path);
+            p.starts_with(&dir) && !used.contains(&p)
+        })
+        .map(|(source, c)| Orphan {
+            source: source.clone(),
+            path: c.path.clone(),
+            branch: c.branch.clone(),
+            dirty: c.dirty,
+        })
+        .collect();
+    out.sort_by(|a, b| a.path.cmp(&b.path));
+    out
 }
 
 /// What git says about a link's checkout (`project.show`).
