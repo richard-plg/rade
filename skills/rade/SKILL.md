@@ -1,6 +1,6 @@
 ---
 name: rade
-description: Spawn and drive other coding agents (Claude Code, Codex, Antigravity, OpenCode) in RADE terminal panes - delegate a task or a review to a subagent, wait for it, read its answer, send follow-ups, check web pages in a RADE Browser Pane (open a dev server URL, snapshot, click, fill, console errors, screenshot), and trace code with `rade code` (callers, references, definition through the language server). Use when $RADE_SOCKET is set and the user wants to delegate, parallelize, get a second opinion, have another agent (e.g. codex) review work, verify a web change in the browser, or find who calls a function before changing it.
+description: Spawn and drive other coding agents (Claude Code, Codex, Antigravity, OpenCode) in RADE terminal panes - delegate a task or a review to a subagent, wait for it, read its answer, send follow-ups, check web pages in a RADE Browser Pane (open a dev server URL, snapshot, click, fill, console errors, screenshot), and trace code with `rade code` (callers, references, definition through the language server). Use when $RADE_SOCKET is set and the user wants to delegate, parallelize, get a second opinion, have another agent (e.g. codex) review work, verify a web change in the browser, find who calls a function before changing it, or start an agent later or on a schedule (`rade schedule`: cron or a given time, in a Project or a folder).
 ---
 
 # Driving other agents with `rade`
@@ -85,6 +85,26 @@ rade browser --engine chromium close          # quit it (also quits after 30 idl
 
 ### The user's Browser Annotations
 The user can switch on annotate mode (the Browser header's pencil, `Ctrl+Shift+A`; the toolbar in a headed Chromium), click an element or drag a region and comment. Send to Agent pastes them to you as one prompt: per annotation the page URL, a CSS selector, a ref, the element's text, its box, a cropped screenshot path (open it and look) and the page's console errors. Find the element by the selector in the code, fix it, check it in the browser, and say what you changed per annotation. `rade browser annotations` shows pending ones; `rade browser annotate on` turns the mode on when you ask the user to point at something.
+
+## Start an agent later or on a timetable: `rade schedule`
+A Schedule starts an Agent with a prompt at cron times (repeating) or once at a given time, in a Project link's checkout (`--project`) or a folder (`--dir`, runs in Scratch). RADE runs it only while the app is open; each run is a new Pane `<name>-<n>` in the Tab `⏱ <name>`. Use it when the user asks for something recurring ("every weekday at 9 check the dependency updates") or deferred ("tonight at 23:00 run the full suite and report").
+```sh
+rade schedule next "0 9 * * 1-5" --count 3                      # check an expression first (local time, no app needed)
+rade schedule add deps --project shop --cron "0 9 * * 1-5" "Check outdated dependencies and open a short report"
+rade schedule add nightly --dir ~/notes --at "2026-11-02 23:00" --agent codex --prompt-file prompt.md
+rade schedule list [--all] [--project shop | --scratch] [--json] # on/off, when, agent (account), next time, last Run
+rade schedule show deps [--json]                                 # every field, the next 5 times, the newest Runs
+rade schedule edit deps --cron "30 8 * * *" [--account acme-work | --default-account] [--rename new] ["new prompt"]
+rade schedule on deps · rade schedule off deps                   # off keeps its Panes
+rade schedule run deps                                           # one run now
+rade schedule runs deps [--limit 20] [--json]                    # n, time, outcome, status, pane, session
+rade schedule resume deps [<n>]                                  # its open Pane is focused, else its session is resumed
+rade schedule remove deps [--close-panes]
+```
+- Cron: 5 fields `minute hour day-of-month month day-of-week` or `@hourly` `@daily` `@weekly` `@monthly`, local time. `--at "YYYY-MM-DD HH:MM"` runs once, then the Schedule is `done` (a new future `--at` switches it on again).
+- `--agent` is a Preset (default `claude`); without `--account` each run uses the Workspace's default account at that time. `--project` with several links needs `--link <source>`.
+- Run outcomes: `started`; `skipped` (the previous run is still running / waiting, or the Source is paused); `missed` (the app was closed at that time: not run later unless `--catch-up once`); `failed` (the reason says why). Only a `started` Run has a session to resume.
+- The run Panes carry `RADE_SCHEDULE=<name>`; after a run starts, finished run Panes past `--keep-runs` (default 3) are closed.
 
 ## Example: Claude asks Codex for a review
 ```sh

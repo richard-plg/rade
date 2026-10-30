@@ -165,6 +165,7 @@ fn kind_str(k: Kind) -> &'static str {
         Kind::Limit => "limit",
         Kind::Update => "update",
         Kind::Ignored => "ignored",
+        Kind::Schedule => "schedule",
     }
 }
 
@@ -187,6 +188,7 @@ pub fn mark(k: Kind) -> gtk::Widget {
         Kind::Limit => icon("ph-gauge-symbolic", "activity-limit"),
         Kind::Update => icon("ph-arrow-circle-up-symbolic", "activity-update"),
         Kind::Ignored => icon("ph-robot-bold-symbolic", "activity-ignored"),
+        Kind::Schedule => icon("ph-clock-symbolic", "activity-schedule"),
     }
 }
 

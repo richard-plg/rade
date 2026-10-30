@@ -96,6 +96,22 @@ fn on_key(keyval: Key, state: ModifierType) -> glib::Propagation {
         crate::usage_view::leave();
         return glib::Propagation::Stop;
     }
+    // …and the Schedules page (R139.1).
+    if keyval == Key::Escape
+        && state
+            .intersection(
+                ModifierType::CONTROL_MASK | ModifierType::SHIFT_MASK | ModifierType::ALT_MASK,
+            )
+            .is_empty()
+        && !crate::palette::is_open()
+        && !crate::project_dialogs::is_open()
+        && !crate::settings_view::is_open()
+        && crate::schedules_view::shown_now()
+        && libadwaita::prelude::AdwApplicationWindowExt::visible_dialog(&app().window).is_none()
+    {
+        crate::schedules_view::leave();
+        return glib::Propagation::Stop;
+    }
     // Agent Overview is modal (R117.1): its shortcut flips, other bound
     // keys go to its own handler (arrows, Enter) or its filter field.
     if crate::overview_view::is_open() {
@@ -397,6 +413,8 @@ pub fn run_action(action: &str) {
         }
         "toggle_status_bar" => app.chrome.toggle_status_bar(&app),
         "open_usage" => crate::usage_view::open(),
+        "open_schedules" => crate::schedules_view::open(None),
+        "new_schedule" => crate::schedules_view::new_form(None),
         "open_settings" => crate::settings_view::toggle(),
         "about" => crate::settings_view::open_at("Updates"),
         "check_updates" => crate::update::check_now(),

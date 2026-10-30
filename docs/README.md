@@ -23,6 +23,7 @@
 | [Code navigation](features/code-navigation.md) | Definition, references, callers, hover, Impact, `rade code` |
 | [Changes and PRs](features/changes-and-prs.md) | Stage, commit, push, Create PR, Generate drafts |
 | [Fan-out](features/fan-out.md) | One prompt to several Agents, Judge, Winner |
+| [Schedules](features/schedules.md) | Start an Agent on a cron expression or once at a time |
 | [Review](features/review.md) | The Review Pane: Viewed, inline comments, rounds, Approve |
 | [Settings and config](features/settings-and-config.md) | Settings page, `config.toml`, layered config, trust |
 | [Updates](features/updates.md) | A newer release in the Statusline, Install from the app, restart when it suits, `rade version` |

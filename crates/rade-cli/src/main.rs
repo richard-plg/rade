@@ -8,6 +8,7 @@ mod code;
 mod fanout;
 mod local;
 mod project;
+mod schedule;
 mod version;
 mod workspace;
 
@@ -184,6 +185,9 @@ enum Cmd {
     /// Agent Accounts: a login per Agent (claude, codex) declared per Workspace.
     #[command(subcommand)]
     Account(account::AccountCmd),
+    /// Schedules: start an Agent with a prompt on a cron expression or once at a time, per Workspace.
+    #[command(subcommand)]
+    Schedule(schedule::ScheduleCmd),
     /// Projects: Source links with one base each (`<root>/.rade/projects/<id>/project.toml`).
     #[command(subcommand)]
     Project(project::ProjectCmd),
@@ -726,6 +730,7 @@ fn request(cmd: &Cmd) -> Result<(&'static str, Value), Error> {
         Cmd::Fanout(a) => fanout::request(a),
         Cmd::Project(c) => project::request(c)?,
         Cmd::Account(c) => account::request(c).map_err(Error::usage)?,
+        Cmd::Schedule(c) => schedule::request(c).map_err(Error::usage)?,
         Cmd::Config(c) => project::config_request(c),
         Cmd::Code(c) => code::request(c)?,
         Cmd::Browser(a) => browser::request(a)?,
@@ -1034,6 +1039,7 @@ fn print_human(cmd: &Cmd, r: &Value) {
         Cmd::Worktree(WorktreeCmd::Add { .. }) => println!("{}", s(&r["path"])),
         Cmd::Project(c) => project::print(c, r),
         Cmd::Account(c) => account::print(c, r),
+        Cmd::Schedule(c) => schedule::print(c, r),
         Cmd::Config(c) => project::print_config(c, r),
         Cmd::Code(c) => code::print(c, r),
         Cmd::Worktree(WorktreeCmd::Remove { .. }) => {
@@ -1166,6 +1172,7 @@ fn main() {
             ..
         } => local::hook(state, session_id, agent, payload),
         Cmd::Setup { agent, dry_run } => local::setup(agent, *dry_run),
+        Cmd::Schedule(schedule::ScheduleCmd::Next { cron, count }) => schedule::next(cron, *count),
         Cmd::Version { check } => version::run(*check, cli.json),
         Cmd::Workspace(WorkspaceCmd::Local(c)) => workspace::run(c, cli.json),
         Cmd::Source(SourceCmd::Add {

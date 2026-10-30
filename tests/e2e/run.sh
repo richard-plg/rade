@@ -134,7 +134,7 @@ check "state.json has version" test "$(jq .version "$STATE")" = 3
 check "cwd tracked via OSC 7" test "$(jq -r --arg p "$xa" '.. | objects | select(.id?==$p) | .kind.cwd' "$STATE")" = "$X/sub"
 start_app
 post=$(rade debug state | norm)
-check "restored model identical" test "$pre" = "$post"
+check "restored model identical" test "$pre" = "$post" || diff <(echo "$pre") <(echo "$post") | head -40
 eventually 10 screen_has "$xa" '$' || true
 rade send "$xa" 'pwd' --enter
 check "restored Terminal starts in saved cwd" eventually 5 screen_has "$xa" "$X/sub"

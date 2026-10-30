@@ -22,6 +22,8 @@ pub enum Kind {
     Update,
     /// A hook report dropped because another Agent sent it (R128).
     Ignored,
+    /// A Schedule Run started, skipped, missed or failed (R139.4).
+    Schedule,
 }
 
 /// One event. A row reads `<actor> <text>` (`tests asked which
@@ -113,6 +115,29 @@ impl Event {
             pane,
             format!("ignored a {agent} session (started by its Agent)"),
         )
+    }
+
+    /// `⏱ nightly run 3 started` / `⏱ nightly run 4 skipped · source paused`
+    /// (R139.4).
+    pub fn schedule(name: &str, run: &crate::schedule::Run) -> Event {
+        let what = match run.outcome {
+            crate::schedule::Outcome::Started => "started",
+            crate::schedule::Outcome::Skipped => "skipped",
+            crate::schedule::Outcome::Missed => "missed",
+            crate::schedule::Outcome::Failed => "failed",
+        };
+        let text = match &run.reason {
+            Some(r) => format!("run {} {what} · {r}", run.n),
+            None => format!("run {} {what}", run.n),
+        };
+        let mut e = Event::new(
+            Kind::Schedule,
+            run.at.max(0) as u64,
+            &format!("⏱ {name}"),
+            text,
+        );
+        e.pane = run.pane.clone();
+        e
     }
 
     pub fn limit(account: &str, text: &str, at: u64) -> Event {

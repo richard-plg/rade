@@ -547,6 +547,78 @@ toast > button.circular image { -gtk-icon-size: 16px; }
 .led-done { background: @ok; border-color: @ok; }
 .led-error { background: @err; border-color: @err; }
 .led-interrupted { background: @wt; border-color: @wt; }
+/* Schedules (R139): on = armed (accent), off = the hollow LED. */
+.led-sched-on { background: @acc; border-color: @acc; }
+.nav-schedule { -gtk-icon-size: 12px; color: @fg3; }
+/* ---- Schedules page (R139): the Usage page's list-detail, the New Project dialog's form ---- */
+.sched-mono { font-family: "JetBrains Mono", monospace; font-feature-settings: "tnum"; font-size: 12px; color: @fg2; }
+.sched-dim, .sched-mono.sched-dim { color: @fg3; }
+.sched-group { padding: 5px 10px 5px 12px; background: @bg2; border-bottom: 1px solid @line; }
+.sched-group-icon { -gtk-icon-size: 12px; color: @fg3; }
+.sched-group-title { font-family: "Inter", sans-serif; font-size: 12px; font-weight: 600; color: @fg2; }
+.sched-group-count { font-family: "JetBrains Mono", monospace; font-feature-settings: "tnum"; font-size: 10.5px; color: @fg3; }
+.sched-row-off .sched-name, .sched-row-off .sched-when, .sched-row-off .sched-account { color: @fg3; }
+.sched-account { font-family: "Inter", sans-serif; font-size: 12px; color: @fg2; }
+.sched-next.soon { color: @acc; }
+.sched-last-failed { color: @err; }
+.sched-last-skipped, .sched-last-missed { color: @fg3; }
+.sched-switch { margin-left: 4px; min-height: 0; padding: 2px; border-radius: 99px; }
+.sched-switch slider { min-width: 14px; min-height: 14px; margin: 0; }
+.sched-more { min-width: 0; padding: 0 6px; }
+.sched-menu-danger { color: @err; }
+.sched-status { margin-top: 12px; padding: 8px 10px; border-radius: 6px; border: 1px solid @line; background: @bg2; }
+.sched-status-on { background: @acc-dim; border-color: @acc-line; }
+.sched-status-failed { background: alpha(@err, 0.10); border-color: alpha(@err, 0.35); }
+.sched-status-text { font-family: "Inter", sans-serif; font-size: 12.5px; color: @fg; }
+.sched-status-failed .sched-status-text { color: @err; }
+.sched-status-sub { margin-top: 4px; font-family: "JetBrains Mono", monospace; font-feature-settings: "tnum"; font-size: 11px; color: @fg3; }
+.sched-actions { margin-top: 10px; }
+.sched-kv { min-height: 24px; }
+.sched-kv-name { font-family: "Inter", sans-serif; font-size: 12px; color: @fg3; padding-top: 3px; }
+.sched-kv-value { font-family: "Inter", sans-serif; font-size: 12px; color: @fg; padding-top: 3px; }
+.chip.sched-cron-chip { color: @fg2; border-color: @line2; }
+.sched-prompt { padding: 8px 10px; border: 1px solid @line; border-radius: 6px; background: @bg0;
+  font-family: "JetBrains Mono", monospace; font-size: 11.5px; color: @fg; }
+.sched-up-row { min-height: 22px; }
+.sched-runs { margin-bottom: 4px; }
+.sched-run-row { min-height: 32px; border-bottom: 1px solid @line; }
+.sched-run-row:last-child { border-bottom: none; }
+.sched-run-why { font-family: "Inter", sans-serif; font-size: 11.5px; color: @fg3; }
+.secondary-button.sched-show, .secondary-button.sched-resume { min-height: 22px; padding: 0 8px; font-size: 12px; }
+.secondary-button.sched-resume { color: @acc; border-color: @acc-line; }
+.secondary-button.sched-resume .btn-icon { color: @acc; }
+.sched-no-runs { margin-top: 2px; margin-bottom: 6px; }
+.sched-empty { padding: 44px 24px; }
+.sched-empty-icon { -gtk-icon-size: 32px; color: @acc; }
+.sched-empty-title { margin-top: 6px; font-family: "Inter", sans-serif; font-size: 15px; font-weight: 600; color: @fg; }
+.sched-empty-hint { font-family: "Inter", sans-serif; font-size: 12.5px; color: @fg3; margin-bottom: 8px; }
+.usage-period-seg:checked { background: @acc-dim; color: @acc; }
+/* The form */
+.sched-form-shell { background: @bg2; }
+.sched-form-body entry, .sched-form-prompt-box { border-radius: 6px; border: 1px solid @line2; background: @bg0; box-shadow: none; outline: none; }
+.sched-form-body entry { min-height: 28px; padding: 0 10px; font-family: "Inter", sans-serif; font-size: 13px; color: @fg; }
+.sched-form-body entry:hover, .sched-form-prompt-box:hover { border-color: @acc-line; }
+.sched-form-body entry:focus-within, .sched-form-prompt-box:focus-within { border-color: transparent; box-shadow: 0 0 0 1px @acc-line, 0 0 18px @glow; }
+.sched-form-body entry.sched-form-cron, .sched-form-body entry.sched-form-date, .sched-form-body entry.sched-form-time {
+  font-family: "JetBrains Mono", monospace; font-feature-settings: "tnum"; font-size: 12.5px; }
+.sched-drop > button { min-height: 28px; border-radius: 6px; border: 1px solid @line2; background: @bg0; padding: 0 10px;
+  font-family: "Inter", sans-serif; font-size: 12.5px; color: @fg; box-shadow: none; }
+.sched-drop > button:hover { border-color: @acc-line; }
+.sched-field-head .field-label { margin-bottom: 0; }
+.sched-field-head { margin-bottom: 6px; }
+.sched-presets { margin-top: 8px; }
+.sched-form-preset { min-height: 22px; padding: 0 9px; border-radius: 99px; border: 1px solid @line2; background: none;
+  box-shadow: none; font-family: "Inter", sans-serif; font-size: 11.5px; font-weight: normal; color: @fg2; }
+.sched-form-preset:hover { border-color: @acc-line; color: @acc; }
+.sched-form-preview { margin-top: 8px; font-family: "JetBrains Mono", monospace; font-feature-settings: "tnum"; font-size: 11.5px; color: @fg3; }
+.sched-form-preview.error { color: @err; }
+.sched-form-hint { margin-top: 6px; margin-bottom: 0; }
+.sched-form-prompt { background: @bg0; font-family: "Inter", sans-serif; font-size: 12.5px; color: @fg; }
+.sched-form-prompt text { background: @bg0; }
+.sched-form-options { padding: 8px 12px; border: 1px solid @line; border-radius: 6px; }
+.sched-form-text, .sched-form-catchup label { font-family: "Inter", sans-serif; font-size: 12.5px; color: @fg2; }
+.sched-form-keep { min-height: 26px; font-family: "JetBrains Mono", monospace; font-feature-settings: "tnum"; }
+.sched-form-error { margin-top: 10px; }
 /* Agent glyphs (R115, ADR-0038): the LED's colours on each agent's own icon. */
 .agent-glyph { -gtk-icon-size: 14px; min-width: 14px; min-height: 14px; color: @fg3; }
 .agent-glyph.glyph-running { color: @run; animation: led-pulse 1.6s ease-in-out infinite; }

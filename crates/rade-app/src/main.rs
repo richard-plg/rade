@@ -61,6 +61,8 @@ mod projects;
 mod quick_diff;
 mod review;
 mod review_view;
+mod schedules;
+mod schedules_view;
 mod search_view;
 mod settings_accounts;
 mod settings_view;
@@ -272,6 +274,7 @@ fn build(gtk_app: &adw::Application) {
     accounts::install();
     stack.add_named(&home_view::install(), Some(home_view::PAGE));
     stack.add_named(&usage_view::install(), Some(usage_view::PAGE));
+    stack.add_named(&schedules_view::install(), Some(schedules_view::PAGE));
     // Code navigation results open in a popover on the Pane (R85).
     code_results::install();
     let files_split = adw::OverlaySplitView::new();

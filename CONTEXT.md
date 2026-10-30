@@ -266,6 +266,16 @@ _Avoid_: Iteration, pass, review cycle
 A file of a Review the owner marked as read; it is unread again when its diff changes.
 _Avoid_: Seen, read (those are for Notifications)
 
+### Schedules
+
+**Schedule**:
+A named rule of one Workspace: at a cron expression's times (repeating) or at one given time, start an Agent of a Preset under an Agent Account (none = the Workspace's default when it runs) with a prompt, in a Project link's checkout or in a folder (Scratch); on or off. Run by the app only: nothing runs while it is closed. Its runs go to a Tab `⏱ <name>` there.
+_Avoid_: Cron job, routine, timer, task, scheduler (the 0.7.1 Batch scheduler, retired)
+
+**Schedule Run**:
+One firing of a Schedule, numbered: `started` (with its Pane, session and account, so it can be resumed), `skipped` (its previous run still running, or a paused Source), `missed` (the app was closed or asleep at that time) or `failed`.
+_Avoid_: Job, execution, instance
+
 ### Retired terms
 
 Retired in 1.0.0 (ADR-0033, ADR-0034): Named Base, Task, Task template v2, Definition of Ready, Task Run, Task Agent, Verify command, Verified Run, Confirmed verify command, Plan gate, Agent Profile, Free Tab, Live Task, Tasks page, Task Detail, Description (of a Task), To do / Needs info, Run dialog, Preset (of the Run dialog), Start here, Brainstorm, Event Journal, Digest, Flow metrics, Lessons, Report, Report Version, Report Style, Batch, Batch Policy, Orchestrator, Reviewer (of a Batch), Integration Branch, Initiative, Initiative Agent, Milestone (of an Initiative), Acceptance Agent, Initiative Branch, Code page, Attention Ring (ADR-0036), No Project, General (now Scratch), Right Panel (now Inspector), Status Bar (now Statusline), sidebar (now Navigator).
