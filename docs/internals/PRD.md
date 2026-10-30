@@ -1077,6 +1077,10 @@ AC:
 - R110-i [M39] (e2e): Given scene F. When the `+` menu opens. Then rows F.8–F.10 of the Measurements table of `docs/internals/design/spec/f-new-agent.md` show `5h 62% · wk 41%`, `5h 8% · wk 12%` and Spark 5-hour 81 % in the `wait` color with its icon.
 - R110-j [M39] (e2e): Given scene E's store. When `rade account usage` and `rade account usage acme-work --json` run. Then the first prints one line per account of the caller's Workspace with its Tightest limit and next reset, and the second lists every limit of `acme-work` grouped as spec E.30.
 
+**M51 amendment (R110.2):** the Usage page closes from a `✕` at the right end of its header (flat icon button, tooltip `Close (Esc)`) and with `Esc`, back to the Pane that had the keyboard; `Esc` over a dialog of the page (Add account) stays the dialog's.
+
+- R110-l [M51] (e2e): Given the Usage page open from `planner`. When the header is read, `✕` clicked, the page opened again, Add account opened and `Esc` pressed, the dialog closed and `Esc` pressed again. Then the header has the `Close (Esc)` button, `✕` closes the page, the first `Esc` leaves it open, the second closes it and the keyboard is back in `planner`.
+
 ## R111 — Hardening (M40)
 
 1. **1280 px**: every screen at 1280 × 800 follows the `1280 px` section of its spec sheet; no horizontal scroll anywhere.

@@ -161,7 +161,8 @@ RADE reads limits and tokens from what the agent CLIs already write — nothing 
 The **Usage page** — from the Statusline's usage cell, the titlebar gauge or `> usage` in the
 palette — shows every account sorted by its **tightest limit** (the one closest to 100 %),
 **Next resets** with forecasts (`hits 100% in ~40m`, `97% at reset`), and the selected account's
-limits and tokens per day, per Project and per model. Filter by period and Workspace.
+limits and tokens per day, per Project and per model. Filter by period and Workspace. Close it
+with the `✕` in its header or `Esc`.
 
 The **Statusline** shows the focused Agent's account: `claude 5h ▰▰▱ 62% · wk 41%`.
 
