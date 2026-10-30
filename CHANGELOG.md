@@ -10,6 +10,19 @@ the 0.x sections were written by hand. Requirement IDs (R…) refer to [docs/int
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-10-30
+
+### Added
+
+- A Tab shows every kind of Agent it holds
+- Files Refresh, Collapse All and the root path
+- Copy, insert, reveal and terminal-here from the Files tree
+- Drag a file into a Terminal, copy-path keys
+
+### Fixed
+
+- A Claude Pane whose Agent runs `codex exec` (or `claude -p`) keeps its glyph, session and restart command; Panes an older RADE recorded that way come back as a shell instead of re-running the Codex job
+
 ## [1.3.0] - 2026-10-29
 
 Upgrading with shell aliases such as `cl` / `clw`: declare them once in `~/.config/rade/accounts.toml` (or Settings → Accounts), and if `config.toml` starts the agent with `CLAUDE_CONFIG_DIR=…` in `[agents.claude] command`, remove that prefix — the account chooses the login now ([guide](docs/features/accounts-and-usage.md#moving-from-aliases-or-a-command-prefix)).
@@ -1141,7 +1154,8 @@ Initial release: everything built in milestones M0–M12.
   releases with the `.deb` and `SHA256SUMS`, `rade-app --version`, this
   changelog (ADR-0012).
 
-[Unreleased]: https://github.com/richard-plg/rade/compare/v1.3.0...HEAD
+[Unreleased]: https://github.com/richard-plg/rade/compare/v1.4.0...HEAD
+[1.4.0]: https://github.com/richard-plg/rade/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/richard-plg/rade/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/richard-plg/rade/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/richard-plg/rade/compare/v1.0.1...v1.1.0
