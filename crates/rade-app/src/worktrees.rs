@@ -34,6 +34,17 @@ struct RemoveParams {
 }
 
 #[derive(Deserialize)]
+struct MoveParams {
+    source: String,
+    worktree: String,
+    /// `None` = Scratch.
+    project: Option<String>,
+    /// Compare against the new link's base from now on.
+    #[serde(default)]
+    rebase: bool,
+}
+
+#[derive(Deserialize)]
 struct ListParams {
     source: Option<String>,
     caller: Option<String>,
@@ -60,6 +71,10 @@ pub fn dispatch(method: &str, p: Value) -> Result<Value> {
         "worktree.remove" => {
             let r: RemoveParams = params(p)?;
             remove(&r.source, &r.name, r.force, r.delete_branch)
+        }
+        "worktree.move" => {
+            let a: MoveParams = params(p)?;
+            on_main(move || move_to(&a.source, &a.worktree, a.project, a.rebase))
         }
         "worktree.list" => {
             let l: ListParams = params(p)?;
@@ -94,6 +109,71 @@ fn infer_project(source: &str) -> Result<Option<String>> {
         };
         rade_core::project::infer(&rade_core::project::list(&ws.root), &s.id)
     })
+}
+
+/// The base a Worktree of `source` compares against (R99.2): its recorded
+/// one, else its Project link's, else the Source's main branch; with
+/// `project` given, the base that Project's link would give it.
+pub(crate) fn comparison_base(
+    m: &rade_core::State,
+    source: &str,
+    worktree: &str,
+    project: Option<&str>,
+) -> Option<String> {
+    let s = m.source(source)?;
+    let w = s.worktrees.iter().find(|w| w.id == worktree)?;
+    let ws = m.workspace(&s.workspace)?;
+    let projects = rade_core::project::list(&ws.root);
+    let link_base = |p: &str| {
+        projects
+            .iter()
+            .find(|x| x.id == p)
+            .and_then(|x| x.source(&s.id))
+            .map(|l| l.base.clone())
+    };
+    let main = || git::default_branch(&s.path);
+    match project {
+        Some(p) => link_base(p)?.or_else(main),
+        None => w
+            .base
+            .clone()
+            .or_else(|| w.project.as_deref().and_then(link_base).flatten())
+            .or_else(main),
+    }
+}
+
+/// `worktree.move` (R132.1): a Worktree to a Project linking its Source
+/// (`None` = Scratch); `rebase` re-records its base as the new link's.
+pub fn move_to(source: &str, worktree: &str, project: Option<String>, rebase: bool) -> Result<Value> {
+    let app = app();
+    let (sid, wid, base) = {
+        let m = app.model.borrow();
+        let (sid, wid) = m.find_worktree(source, Some(worktree))?;
+        if let Some(p) = &project {
+            let ws = &m.source(&sid).unwrap().workspace;
+            let root = m.workspace(ws).map(|w| w.root.clone()).unwrap_or_default();
+            let listed = rade_core::project::list(&root)
+                .iter()
+                .any(|x| x.id == *p && x.lists(&sid));
+            if !listed {
+                return Err(Error::usage(format!(
+                    "project '{p}' doesn't link source '{sid}'"
+                )));
+            }
+        }
+        let base = match (&project, rebase) {
+            (Some(p), true) => Some(
+                comparison_base(&m, &sid, &wid, Some(p))
+                    .ok_or_else(|| Error::usage(format!("no base for '{sid}' in '{p}'")))?,
+            ),
+            _ => None,
+        };
+        (sid, wid, base)
+    };
+    app.update(|m| m.move_worktree(&sid, &wid, project.clone(), base))?;
+    let m = app.model.borrow();
+    let w = m.worktree(&sid, &wid).unwrap();
+    Ok(json!({"source": sid, "worktree": w.name, "project": w.project, "base": w.base}))
 }
 
 /// A Terminal on a Project's Source link (R98.1): resolve the link's

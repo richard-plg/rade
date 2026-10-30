@@ -7,7 +7,9 @@
 #   `rade task|batch|initiative|digest|report|flow|lessons`, Event Journal,
 #   Start here, RADE_TASK, RADE_INITIATIVE, Verified Run, Agent Profile
 # and, in CSS, class names `rade-(task|batch|initiative|report|digest|
-# start-here|journal|verify|plan)…`. Words are matched case-sensitively, so
+# start-here|journal|verify|plan)…`; and, as a Rust string literal in code
+# (not a comment or a *_tests.rs file), the retired UI word "No Project"
+# (now Scratch, R132.3). Words are matched case-sensitively, so
 # lowercase English ("the task every Agent gets", a Markdown task list)
 # is fine. "Named Base" is allowed until M36 (decision log, M34).
 #
@@ -46,6 +48,7 @@ done
 root=$(cd "$root" && pwd)
 bin=${bin:-$root/target/release/rade}
 WORDS='\b(Tasks?|Batch(es)?|Initiatives?|Reports?|Digests?)\b|plan_gate|rade (task|batch|initiative|digest|report|flow|lessons)\b|Event Journal|Start here|RADE_TASK|RADE_INITIATIVE|Verified Run|Agent Profile'
+UI_WORDS='"No Project([^s]|$)'
 CSS='rade-(task|batch|initiative|report|digest|start-here|journal|verify|plan)'
 found=0
 excluded() { local e; for e in "${EXCEPTIONS[@]}"; do [[ $1 == "$e" ]] && return 0; done; return 1; }
@@ -58,6 +61,12 @@ while IFS= read -r -d '' f; do
         echo "$rel:$hit"
         found=1
     done < <(grep -nE -- "$pat" "$f" || true)
+    if [[ $f == *.rs && $f != *_tests.rs ]]; then
+        while IFS= read -r hit; do
+            echo "$rel:$hit"
+            found=1
+        done < <(grep -nE -- "$UI_WORDS" "$f" | grep -vE '^[0-9]+:\s*//' || true)
+    fi
 done < <(find "$root/crates" "$root/skills" -name target -type d -prune -o -type f -print0 2>/dev/null)
 if ((help)); then
     [[ -x $bin ]] || { echo "check-removed.sh: no rade binary at $bin (build it, pass --bin, or --no-help)" >&2; exit 2; }

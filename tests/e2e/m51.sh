@@ -5,13 +5,16 @@
 # R131 (git): a folder without git in New Project — Cancel forgets it,
 # Initialize runs `git init` only, an unborn base links on its main checkout,
 # a Worktree waits for the first commit, the CLI's hint.
+# R132 (move): Move to Project asks about the base (Keep / Compare against),
+# `rade worktree move`, Scratch in the submenu, suggestions only on a real
+# match. (Close Panes in Scratch…, R132.4: tests/e2e/m37.sh R104-l.)
 # (Tab labels, R103.2 amendment: tests/e2e/titles.sh.)
 # Usage: tests/e2e/m51.sh   (PARTS="git …", NO_BUILD=1, KEEP=1)
 set -euo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
 OUT=$(cd "$HERE/../.." && pwd)/target/e2e-m51
 source "$HERE/lib.sh"
-PARTS=${PARTS:-git}
+PARTS=${PARTS:-git move}
 part() { [[ " $PARTS " == *" $1 "* ]]; }
 
 mkdir -p "$XDG_CONFIG_HOME/rade"
@@ -30,6 +33,7 @@ A=$HOME/workspaces/acme
 WEB=$A/shop-web
 mkdir -p "$WEB" && G -C "$WEB" init -q -b main
 echo base >"$WEB/README.md" && G -C "$WEB" add -A && G -C "$WEB" commit -qm init
+G -C "$WEB" branch develop && G -C "$WEB" branch release/2.4
 mkdir -p "$A/.rade"
 echo 'name = "acme"' >"$A/.rade/workspace.toml"
 
@@ -101,6 +105,57 @@ if part git; then
     check "R131-e project plan on a plain folder names the fix (exit $rc)" \
         grep -q 'not a git repository (run: git init -b main)' "$OUT/plan-plain.txt"
     check "R131-e …no file written" test ! -e "$PROJ/pad"
+fi
+
+if part move; then
+    echo "== R132 Worktree ↔ Project moves"
+    rade project add Shop --workspace acme --source shop-web:develop >/dev/null
+    rade project add Shop24 --workspace acme --source shop-web:release/2.4 >/dev/null
+    rade worktree add shop-web checkout-v2 --project shop >/dev/null
+    wt() { rade worktree list shop-web --json | jq -r --arg w "$1" '.worktrees[] | select(.worktree == $w) | "\(.project)@\(.base)"'; }
+    export -f wt
+    check "R132 checkout-v2 is Shop's, cut from develop" eventually 5 is "wt checkout-v2" "shop@develop"
+    rade debug menu worktree shop-web/checkout-v2 --json >"$OUT/move-menu.json"
+    check "R132-c the submenu lists Shop ✓, Shop24 and Scratch, no No Project" \
+        bash -c "jq -r '[.items[].label | select(startswith(\"Move to Project\"))] | join(\"|\")' '$OUT/move-menu.json' | grep -qx 'Move to Project ▸ Shop ✓|Move to Project ▸ Shop24|Move to Project ▸ Scratch'"
+
+    echo "-- R132-b the base differs: one question, Keep or Compare against"
+    rade debug menu worktree shop-web/checkout-v2 activate "Move to Project ▸ Shop24" >/dev/null
+    check "R132-b the dialog names both bases" \
+        eventually 3 bash -c "rade debug dialog | jq -e '(.heading == \"Move “checkout-v2” to Shop24?\") and (.body | test(\"links this Source at release/2.4; the Worktree compares against develop\"))' >/dev/null"
+    rade debug dialog >"$OUT/move-dialog.json"
+    check "R132-b buttons: Cancel, Keep comparing against develop, Compare against release/2.4" \
+        test "$(jq -r '.responses | join("|")' "$OUT/move-dialog.json")" = "cancel|keep|rebase"
+    shot move-dialog
+    respond cancel
+    check "R132-b Cancel moves nothing" eventually 3 is "wt checkout-v2" "shop@develop"
+    rade debug menu worktree shop-web/checkout-v2 activate "Move to Project ▸ Shop24" >/dev/null
+    eventually 3 bash -c "rade debug dialog | jq -e .open >/dev/null" || true
+    respond rebase
+    check "R132-b Compare against → Shop24 at release/2.4" eventually 3 is "wt checkout-v2" "shop24@release/2.4"
+    rc=$(code rade worktree move shop-web checkout-v2 --project shop)
+    check "R132-b CLI move back without --rebase-to-link keeps release/2.4 (exit $rc)" eventually 3 is "wt checkout-v2" "shop@release/2.4"
+    rc=$(code rade worktree move shop-web checkout-v2 --project shop --rebase-to-link)
+    check "R132-b --rebase-to-link → develop" eventually 3 is "wt checkout-v2" "shop@develop"
+    rade debug menu worktree shop-web/checkout-v2 activate "Move to Project ▸ Scratch" >/dev/null
+    check "R132-b to Scratch: no question, base kept" eventually 3 is "wt checkout-v2" "null@develop"
+    rc=$(code rade worktree move shop-web checkout-v2 --project billing)
+    check "R132-b a Project not linking the Source is refused (exit $rc)" \
+        bash -c "[[ $rc == 2 ]] && grep -q \"project 'billing' doesn't link source\" '$T/err'"
+    rc=$(code rade worktree move shop-web main --project shop)
+    check "R132-b the main checkout never moves (exit $rc)" bash -c "[[ $rc == 2 ]]"
+
+    echo "-- R132-a suggestions only on a real match"
+    G -C "$WEB" worktree add -q "$A/.worktrees-dev/shop-web/shopping-cart" -b shopping-cart develop
+    G -C "$WEB" worktree add -q "$A/.worktrees-dev/shop-web/rel-fix" -b shop24/fix release/2.4
+    rade worktree list shop-web >/dev/null
+    sug() { rpc debug.ui '{"op":"sidebar"}' | jq -r --arg t "$1" '[.sidebar[] | select(.title == $t) | .suggest // "none"] | first'; }
+    export -f sug
+    check "R132-a shop24/fix → Shop24?" eventually 8 is "sug shop24/fix" "→ Shop24?"
+    check "R132-a shopping-cart: no guess (not 'shop')" is "sug shopping-cart" "none"
+    check "R132-a checkout-v2 on develop's line but named nothing: no guess" is "sug checkout-v2" "none"
+    rpc debug.ui '{"op":"sidebar"}' >"$OUT/move-sidebar.json"
+    shot move-scratch
 fi
 
 echo
