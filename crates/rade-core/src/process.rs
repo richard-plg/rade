@@ -218,6 +218,41 @@ pub fn nested_agent(proc: &Path, start: u32, binaries: &[&str], pane: &[String])
     agents - usize::from(outer_shell) >= 2
 }
 
+/// The Agent a hook at `start` runs under (R128): the nearest ancestor in
+/// the Pane (its environment holds every `pane` entry) running one of
+/// `binaries` (matched as [`program_at`]), as that binary and its argv from
+/// the program on. Nearest first, so an Agent whose parent has gone is
+/// still found; a process outside the Pane ends the walk.
+pub fn nearest_agent(
+    proc: &Path,
+    start: u32,
+    binaries: &[&str],
+    pane: &[String],
+) -> Option<(String, Vec<String>)> {
+    let mut pid = start;
+    for _ in 0..MAX_ANCESTORS {
+        if pid <= 1 {
+            return None;
+        }
+        let dir = proc.join(pid.to_string());
+        let env = nul_split(&std::fs::read(dir.join("environ")).unwrap_or_default());
+        if !pane.iter().all(|kv| env.contains(kv)) {
+            return None;
+        }
+        let argv = nul_split(&std::fs::read(dir.join("cmdline")).ok()?);
+        // A shell is never the reporting Agent (a `bash` Preset, `sh -c` hooks).
+        if let Some((b, at)) = binaries
+            .iter()
+            .filter(|b| !SHELLS.contains(b))
+            .find_map(|b| program_at(&argv, b).map(|at| (b, at)))
+        {
+            return Some((b.to_string(), argv[at..].to_vec()));
+        }
+        pid = parent_of(proc, pid)?;
+    }
+    None
+}
+
 /// The argv of the program in the foreground of shell `shell`'s terminal
 /// (R115.4): its `tpgid`'s leader; `None` while the shell itself is in
 /// the foreground, without a terminal, or when unreadable.
@@ -372,6 +407,50 @@ mod tests {
         assert!(!nested_agent(&root, 62, &agents, &pane));
         // Gone or unreadable: not nested.
         assert!(!nested_agent(&root, 999, &agents, &pane));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn r128_the_nearest_agent_even_when_its_parent_has_gone() {
+        let root = std::env::temp_dir().join(format!("rade-near-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let agents = ["claude", "codex", "bash", "sh"];
+        let e = ["RADE_PANE_ID=p_1", "RADE_SOCKET=/r.sock"];
+        let hook = ["/bin/sh", "-c", "rade status --agent codex --hook"];
+        fake(&root, 20, 1, &["/usr/bin/zsh"], &e);
+        fake(&root, 30, 20, &["claude", "--resume", "S"], &e);
+        fake(&root, 31, 30, &hook, &e);
+        let pane = ["RADE_PANE_ID=p_1".to_string()];
+        assert_eq!(
+            nearest_agent(&root, 31, &agents, &pane),
+            Some((
+                "claude".into(),
+                vec!["claude".into(), "--resume".into(), "S".into()]
+            ))
+        );
+        // `setsid -f codex exec …` from Claude's Bash tool: reparented to init.
+        fake(
+            &root,
+            41,
+            1,
+            &["/opt/codex/bin/codex", "--no-daemon", "exec", "draw"],
+            &e,
+        );
+        fake(&root, 42, 41, &hook, &e);
+        let (b, argv) = nearest_agent(&root, 42, &agents, &pane).unwrap();
+        assert_eq!((b.as_str(), argv[2].as_str()), ("codex", "exec"));
+        assert!(!nested_agent(
+            &root,
+            42,
+            &agents[..2],
+            &["RADE_PANE_ID=p_1".into()]
+        ));
+        // A hook run by hand outside any Agent, itself under an Agent outside the Pane.
+        fake(&root, 5, 1, &["claude"], &[]);
+        fake(&root, 50, 5, &["bash"], &[]);
+        fake(&root, 51, 50, &hook, &e);
+        assert_eq!(nearest_agent(&root, 51, &agents, &pane), None);
+        assert_eq!(nearest_agent(&root, 999, &agents, &pane), None);
         let _ = std::fs::remove_dir_all(&root);
     }
 

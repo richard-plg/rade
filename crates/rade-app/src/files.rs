@@ -12,7 +12,9 @@ use gtk::prelude::*;
 use gtk::{gio, glib};
 use gtk4 as gtk;
 use libadwaita as adw;
-use rade_core::filetree::{git_status, list_dir, Entry, GitState, Icons};
+use rade_core::filetree::{
+    git_status, insert_text, list_dir, relative_path, Entry, GitState, Icons,
+};
 use serde_json::{json, Value};
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
@@ -113,6 +115,9 @@ struct State {
 pub struct Inner {
     pub root: gtk::Box,
     title: gtk::Label,
+    actions: gio::SimpleActionGroup,
+    refresh: gtk::Button,
+    collapse: gtk::Button,
     list: gtk::ListView,
     scroll: gtk::ScrolledWindow,
     /// An empty folder's empty state (R103.6).
@@ -169,7 +174,16 @@ impl FileTree {
         show_ignored.set_icon_name("view-reveal-symbolic");
         show_ignored.set_tooltip_text(Some("Show files ignored by .gitignore"));
         show_ignored.add_css_class("flat");
+        // R129.1: right to left — Show ignored, Refresh, Collapse All.
+        let refresh = gtk::Button::from_icon_name("view-refresh-symbolic");
+        refresh.set_tooltip_text(Some("Refresh"));
+        refresh.add_css_class("flat");
+        let collapse = gtk::Button::from_icon_name("ph-arrows-in-line-vertical-symbolic");
+        collapse.set_tooltip_text(Some("Collapse All"));
+        collapse.add_css_class("flat");
         header.append(&title);
+        header.append(&collapse);
+        header.append(&refresh);
         header.append(&show_ignored);
 
         let list = gtk::ListView::new(None::<gtk::NoSelection>, None::<gtk::ListItemFactory>);
@@ -188,6 +202,9 @@ impl FileTree {
         let tree = Self(Rc::new(Inner {
             root,
             title,
+            actions: actions(),
+            refresh,
+            collapse,
             list,
             scroll,
             empty,
@@ -199,6 +216,9 @@ impl FileTree {
             generation: Cell::new(0),
         }));
         tree.0.list.set_factory(Some(&tree.factory()));
+        tree.0
+            .root
+            .insert_action_group("files", Some(&tree.0.actions));
         let weak = Rc::downgrade(&tree.0);
         adw::StyleManager::default().connect_dark_notify(move |_| {
             let Some(inner) = weak.upgrade() else { return };
@@ -220,7 +240,91 @@ impl FileTree {
                 FileTree(inner).rebuild();
             }
         });
+        let weak = Rc::downgrade(&tree.0);
+        tree.0.refresh.connect_clicked(move |_| {
+            if let Some(inner) = weak.upgrade() {
+                FileTree(inner).refresh();
+            }
+        });
+        let weak = Rc::downgrade(&tree.0);
+        tree.0.collapse.connect_clicked(move |_| {
+            if let Some(inner) = weak.upgrade() {
+                FileTree(inner).collapse_all();
+            }
+        });
+        // R129.2: the title copies the full root path.
+        let click = gtk::GestureClick::new();
+        let weak = Rc::downgrade(&tree.0);
+        click.connect_released(move |_, _, _, _| {
+            if let Some(inner) = weak.upgrade() {
+                FileTree(inner).copy_root();
+            }
+        });
+        tree.0.title.add_controller(click);
+        tree.0.title.set_cursor_from_name(Some("pointer"));
         tree
+    }
+
+    /// R129.2: copy the root's full path and say so.
+    fn copy_root(&self) {
+        let Some(root) = self.0.state.borrow().root.clone() else {
+            return;
+        };
+        let text = root.display().to_string();
+        self.0.root.display().clipboard().set_text(&text);
+        toast(&format!("Copied {}", glib::markup_escape_text(&text)));
+    }
+
+    /// R129.1: relist every listed folder and the git status; expanded
+    /// folders and the scroll position stay (no rebuild).
+    fn refresh(&self) {
+        if self.0.tree.borrow().is_none() {
+            return self.rebuild();
+        }
+        {
+            let mut st = self.0.state.borrow_mut();
+            let all: Vec<PathBuf> = st.stores.keys().cloned().collect();
+            st.dirty.extend(all);
+        }
+        self.relist();
+        self.queue_git();
+    }
+
+    /// R129.1: fold every expanded folder.
+    fn collapse_all(&self) {
+        let Some(tree) = self.0.tree.borrow().clone() else {
+            return;
+        };
+        let rows: Vec<gtk::TreeListRow> = (0..tree.n_items())
+            .filter_map(|i| tree.item(i).and_downcast::<gtk::TreeListRow>())
+            .filter(|r| r.depth() == 0 && r.is_expanded())
+            .collect();
+        for r in rows {
+            r.set_expanded(false);
+        }
+    }
+
+    fn root_path(&self) -> Option<PathBuf> {
+        self.0.state.borrow().root.clone()
+    }
+
+    /// The menu of `path` for `debug.menu files <path>` (R129): the menu,
+    /// the widget it hangs on and where.
+    pub fn debug_menu(
+        &self,
+        path: &Path,
+    ) -> Result<(gio::Menu, gtk::Widget, gtk::gdk::Rectangle), String> {
+        let root = self.root_path().ok_or("no root")?;
+        if relative_path(&root, path).is_none() || !path.exists() {
+            return Err(format!("'{}' is not under the tree", path.display()));
+        }
+        sync_insert_enabled(&self.0.actions);
+        let at = gtk::gdk::Rectangle::new(24, 60, 1, 1);
+        Ok((
+            row_menu(path, path.is_dir()),
+            self.0.root.clone().upcast(),
+            at,
+        ))
     }
 
     fn show_empty(&self, empty: bool) {
@@ -267,22 +371,38 @@ impl FileTree {
                 else {
                     return;
                 };
-                if path.is_dir() {
-                    return;
-                }
                 match g.current_button() {
-                    2 => {
+                    2 if !path.is_dir() => {
                         g.set_state(gtk::EventSequenceState::Claimed);
                         open_side(&path);
                     }
                     3 => {
                         g.set_state(gtk::EventSequenceState::Claimed);
-                        file_menu(&at, &path, x, y);
+                        row_menu_popup(&at, &path, x, y);
                     }
                     _ => {}
                 }
             });
             expander.add_controller(click);
+            // R129.4: drag a row onto a Terminal = the R5 drop (uri-list →
+            // quoted path); offers the file list and its path as text.
+            let drag = gtk::DragSource::new();
+            drag.set_actions(gtk::gdk::DragAction::COPY);
+            let li = item.downgrade();
+            drag.connect_prepare(move |_, _, _| {
+                let li = li.upgrade()?;
+                let path = li
+                    .item()
+                    .and_downcast::<gtk::TreeListRow>()
+                    .and_then(|r| r.item())
+                    .map(|o| path_of(&o))?;
+                let files = gtk::gdk::FileList::from_array(&[gio::File::for_path(&path)]);
+                Some(gtk::gdk::ContentProvider::new_union(&[
+                    gtk::gdk::ContentProvider::for_value(&files.to_value()),
+                    gtk::gdk::ContentProvider::for_value(&path.display().to_string().to_value()),
+                ]))
+            });
+            expander.add_controller(drag);
         });
         let weak = Rc::downgrade(&self.0);
         f.connect_bind(move |_, item| {
@@ -353,6 +473,9 @@ impl FileTree {
             .to_string_lossy()
             .into_owned();
         self.0.title.set_label(&name);
+        self.0
+            .title
+            .set_tooltip_text(Some(&root.display().to_string()));
         let same = self.0.state.borrow().root.as_deref() == Some(root.as_path());
         if !same {
             self.0.state.borrow_mut().root = Some(root);
@@ -430,6 +553,10 @@ impl FileTree {
     /// ponytail: one inotify watch per listed folder, dropped only on
     /// rebuild; prune on collapse if huge trees ever hit the watch limit.
     fn watch(&self, dir: &Path, relist: bool) {
+        // Test only (R129-e): as if inotify watches were exhausted.
+        if no_watch() {
+            return;
+        }
         let Ok(m) = gio::File::for_path(dir)
             .monitor_directory(gio::FileMonitorFlags::WATCH_MOVES, gio::Cancellable::NONE)
         else {
@@ -559,6 +686,64 @@ impl FileTree {
         })
     }
 
+    /// R129.5 on the focused row: Ctrl+Alt+C Copy Path, Ctrl+Shift+Alt+C Copy
+    /// Relative Path; F5 Refresh while focus is in the Files page. True when
+    /// the key was taken.
+    fn handle_key(&self, key: gtk::gdk::Key, state: gtk::gdk::ModifierType) -> bool {
+        use gtk::gdk::{Key, ModifierType as M};
+        let Some(app) = try_app() else { return false };
+        let Some(focus) = gtk::prelude::GtkWindowExt::focus(&app.window) else {
+            return false;
+        };
+        if focus != *self.0.root.upcast_ref::<gtk::Widget>() && !focus.is_ancestor(&self.0.root) {
+            return false;
+        }
+        let mods = state & (M::CONTROL_MASK | M::SHIFT_MASK | M::ALT_MASK | M::SUPER_MASK);
+        if key == Key::F5 && mods.is_empty() {
+            self.refresh();
+            return true;
+        }
+        let relative = mods == M::CONTROL_MASK | M::SHIFT_MASK | M::ALT_MASK;
+        if key.to_lower() != Key::c || !(relative || mods == M::CONTROL_MASK | M::ALT_MASK) {
+            return false;
+        }
+        let Some(path) = expander_path(&focus) else {
+            return false;
+        };
+        if relative {
+            copy_relative(&path);
+        } else {
+            copy_path(&path);
+        }
+        true
+    }
+
+    /// `debug.ui files [arg]` (R129): the header — title, its tooltip, the
+    /// buttons right to left as shown — after `arg` = refresh | collapse |
+    /// title | ignored pressed it.
+    pub fn debug_header(&self, arg: Option<&str>) -> Value {
+        match arg {
+            Some("refresh") => self.0.refresh.emit_clicked(),
+            Some("collapse") => self.0.collapse.emit_clicked(),
+            Some("title") => self.copy_root(),
+            Some("ignored") => self
+                .0
+                .show_ignored
+                .set_active(!self.0.show_ignored.is_active()),
+            _ => {}
+        }
+        let b = |name: &str, w: &gtk::Widget, icon: Option<glib::GString>| {
+            json!({"name": name, "tooltip": w.tooltip_text().map(|t| t.to_string()),
+                   "icon": icon.map(|i| i.to_string()), "visible": w.is_visible()})
+        };
+        let (r, c, i) = (&self.0.refresh, &self.0.collapse, &self.0.show_ignored);
+        json!({"title": self.0.title.label().to_string(),
+               "title_tooltip": self.0.title.tooltip_text().map(|t| t.to_string()),
+               "buttons": [b("ignored", i.upcast_ref(), i.icon_name()),
+                           b("refresh", r.upcast_ref(), r.icon_name()),
+                           b("collapse", c.upcast_ref(), c.icon_name())]})
+    }
+
     /// `rade debug tree <op> [path]`: rows | expand | collapse | activate |
     /// activate_side | toggle_ignored.
     pub fn debug(&self, op: &str, path: Option<&Path>) -> Result<Value, String> {
@@ -567,6 +752,21 @@ impl FileTree {
             "rows" => {}
             "expand" | "collapse" => self.row_at(pos()?).unwrap().set_expanded(op == "expand"),
             "activate" => self.activate_at(pos()?),
+            // Keyboard focus on a row (R129.5).
+            "focus" => {
+                let at = pos()?;
+                self.0.list.scroll_to(at, gtk::ListScrollFlags::FOCUS, None);
+                let row = self
+                    .0
+                    .state
+                    .borrow()
+                    .bound
+                    .get(path.unwrap())
+                    .map(|b| b.icon.clone());
+                if let Some(e) = row.and_then(|i| i.ancestor(gtk::TreeExpander::static_type())) {
+                    e.parent().unwrap_or(e).grab_focus();
+                }
+            }
             // A middle-click on a file row (R113.2).
             "activate_side" => {
                 pos()?;
@@ -595,6 +795,21 @@ impl FileTree {
     }
 }
 
+/// `RADE_FILES_NO_WATCH=1` turns the tree's watches off, in test mode only.
+fn no_watch() -> bool {
+    crate::handlers::DEBUG_SOCKET
+        .get()
+        .copied()
+        .unwrap_or(false)
+        && std::env::var_os("RADE_FILES_NO_WATCH").is_some_and(|v| v == "1")
+}
+
+fn toast(markup: &str) {
+    if let Some(app) = try_app() {
+        app.chrome.toast(markup, None);
+    }
+}
+
 fn style(name: &gtk::Label, mark: &gtk::Label, git: Option<GitState>) {
     for c in GIT_CLASSES {
         name.remove_css_class(c);
@@ -608,28 +823,101 @@ fn style(name: &gtk::Label, mark: &gtk::Label, git: Option<GitState>) {
     }
 }
 
-/// A file row's right-click menu: Open, Open to the Side (R113.2).
-fn file_menu(at: &impl IsA<gtk::Widget>, path: &Path, x: f64, y: f64) {
-    let menu = gio::Menu::new();
+/// A row's menu (R129.3): files and folders; `Insert Path in Agent` is
+/// greyed (its action disabled) when no Agent Pane can take it.
+fn row_menu(path: &Path, dir: bool) -> gio::Menu {
     let target = path.display().to_string().to_variant();
-    for (label, action) in [
-        ("Open", "files.open"),
-        ("Open to the Side", "files.open-side"),
-    ] {
-        let i = gio::MenuItem::new(Some(label), None);
-        i.set_action_and_target_value(Some(action), Some(&target));
-        menu.append_item(&i);
+    let section = |items: &[(&str, &str)]| {
+        let m = gio::Menu::new();
+        for (label, action) in items {
+            let i = gio::MenuItem::new(Some(label), None);
+            i.set_action_and_target_value(Some(action), Some(&target));
+            // R129.5: shown, not bound (the tree's own key handler acts).
+            match *action {
+                "files.copy-path" => {
+                    i.set_attribute_value("accel", Some(&"<Control><Alt>c".to_variant()))
+                }
+                "files.copy-relative" => {
+                    i.set_attribute_value("accel", Some(&"<Control><Shift><Alt>c".to_variant()))
+                }
+                _ => {}
+            }
+            m.append_item(&i);
+        }
+        m
+    };
+    let menu = gio::Menu::new();
+    if !dir {
+        menu.append_section(
+            None,
+            &section(&[
+                ("Open", "files.open"),
+                ("Open to the Side", "files.open-side"),
+            ]),
+        );
     }
+    menu.append_section(
+        None,
+        &section(&[
+            ("Copy Path", "files.copy-path"),
+            ("Copy Relative Path", "files.copy-relative"),
+            ("Insert Path in Agent", "files.insert"),
+        ]),
+    );
+    menu.append_section(
+        None,
+        &section(&[
+            ("Reveal in Files", "files.reveal"),
+            ("Open Terminal Here", "files.terminal"),
+        ]),
+    );
+    menu
+}
+
+/// Whether menu action `action` (`files.…`) is enabled now.
+pub fn action_enabled(action: &str) -> bool {
+    let Some(app) = try_app() else { return true };
+    app.files
+        .0
+        .actions
+        .is_action_enabled(action.strip_prefix("files.").unwrap_or(action))
+        || !action.starts_with("files.")
+}
+
+fn sync_insert_enabled(actions: &gio::SimpleActionGroup) {
+    if let Some(a) = actions
+        .lookup_action("insert")
+        .and_downcast::<gio::SimpleAction>()
+    {
+        a.set_enabled(insert_target().is_some());
+    }
+}
+
+fn actions() -> gio::SimpleActionGroup {
     let group = gio::SimpleActionGroup::new();
-    for (name, side) in [("open", false), ("open-side", true)] {
+    let add = |name: &str, f: fn(&Path)| {
         let a = gio::SimpleAction::new(name, Some(glib::VariantTy::STRING));
         a.connect_activate(move |_, v| {
             let p: String = v.and_then(|v| v.get()).unwrap_or_default();
-            glib::idle_add_local_once(move || open_at(Path::new(&p), side));
+            glib::idle_add_local_once(move || f(Path::new(&p)));
         });
         group.add_action(&a);
+    };
+    add("open", |p| open_at(p, false));
+    add("open-side", |p| open_at(p, true));
+    add("copy-path", copy_path);
+    add("copy-relative", copy_relative);
+    add("insert", insert_path);
+    add("reveal", reveal);
+    add("terminal", terminal_here);
+    group
+}
+
+fn row_menu_popup(at: &impl IsA<gtk::Widget>, path: &Path, x: f64, y: f64) {
+    if let Some(app) = try_app() {
+        sync_insert_enabled(&app.files.0.actions);
     }
-    at.insert_action_group("files", Some(&group));
+    let menu = row_menu(path, path.is_dir());
     let pop = gtk::PopoverMenu::from_model(Some(&menu));
     pop.set_parent(at);
     pop.set_has_arrow(false);
@@ -639,6 +927,95 @@ fn file_menu(at: &impl IsA<gtk::Widget>, path: &Path, x: f64, y: f64) {
         glib::idle_add_local_once(move || p.unparent());
     });
     pop.popup();
+}
+
+fn copy_text(text: &str) {
+    if let Some(d) = gtk::gdk::Display::default() {
+        d.clipboard().set_text(text);
+    }
+}
+
+fn copy_path(path: &Path) {
+    copy_text(&path.display().to_string());
+}
+
+fn copy_relative(path: &Path) {
+    let Some(root) = try_app().and_then(|a| a.files.root_path()) else {
+        return;
+    };
+    if let Some(rel) = relative_path(&root, path) {
+        copy_text(&rel);
+    }
+}
+
+/// The Agent Pane Insert Path in Agent types into (R129.3): the focused
+/// Pane of the active Tab when it is an Agent, else that Tab's first Agent
+/// Pane, else the active Worktree's newest Agent Pane.
+fn insert_target() -> Option<String> {
+    let app = try_app()?;
+    let m = app.model.borrow();
+    let (p, w) = m.active();
+    let agents = m.agent_panes(&p.id, &w.id);
+    if let Some(tab) = m.active_tab() {
+        if let Some(a) = agents.iter().find(|a| a.id == tab.focused) {
+            return Some(a.id.clone());
+        }
+        if let Some(a) = agents
+            .iter()
+            .find(|a| m.locate(&a.id).is_some_and(|l| l.tab == tab.id))
+        {
+            return Some(a.id.clone());
+        }
+    }
+    agents.last().map(|a| a.id.clone())
+}
+
+fn insert_path(path: &Path) {
+    let Some(app) = try_app() else { return };
+    let (Some(root), Some(id)) = (app.files.root_path(), insert_target()) else {
+        return;
+    };
+    let Some(text) = insert_text(&root, path) else {
+        return;
+    };
+    if let Err(e) = crate::handlers::send_text(&app, &id, &text, false, false) {
+        toast(&glib::markup_escape_text(&e.to_string()));
+    }
+}
+
+fn reveal(path: &Path) {
+    let Some(app) = try_app() else { return };
+    gtk::FileLauncher::new(Some(&gio::File::for_path(path))).open_containing_folder(
+        Some(&app.window),
+        gio::Cancellable::NONE,
+        |r| {
+            if r.is_err() {
+                toast("Couldn't open the file manager");
+            }
+        },
+    );
+}
+
+/// A new Tab in the active Worktree whose Terminal starts in `path` (its
+/// folder for a file).
+fn terminal_here(path: &Path) {
+    let Some(app) = try_app() else { return };
+    let dir = if path.is_dir() {
+        path.to_path_buf()
+    } else {
+        path.parent().map(Path::to_path_buf).unwrap_or_default()
+    };
+    let r = app.update(|m| {
+        let (p, w) = m.active();
+        let (p, w) = (p.id.clone(), w.id.clone());
+        let (tab, pane) = m.new_tab(&p, &w, None, None)?;
+        m.set_pane_cwd(&pane, &dir);
+        m.move_after_active(&p, &w, &tab);
+        m.select_tab(&tab)
+    });
+    if let Err(e) = r {
+        toast(&glib::markup_escape_text(&e.to_string()));
+    }
 }
 
 /// Open to the Side from the tree (middle-click, its menu).
@@ -662,4 +1039,35 @@ fn open_at(path: &Path, side: bool) {
     if let Err(e) = app.update(|m| m.open_viewer_at(&p, &w, &path, None, true, side)) {
         eprintln!("rade: open {}: {e}", path.display());
     }
+}
+
+/// The window key handling (keys.rs): the Files page own keys (R129.5).
+pub(crate) fn key(key: gtk::gdk::Key, state: gtk::gdk::ModifierType) -> bool {
+    try_app().is_some_and(|a| a.files.handle_key(key, state))
+}
+
+/// The path of the row `w` is (the focus is a row's list item; its
+/// TreeExpander is a child) or sits in.
+fn expander_path(w: &gtk::Widget) -> Option<PathBuf> {
+    let of = |x: &gtk::Widget| {
+        x.downcast_ref::<gtk::TreeExpander>()
+            .and_then(|e| e.list_row())
+            .and_then(|r| r.item())
+            .map(|o| path_of(&o))
+    };
+    let mut up = Some(w.clone());
+    while let Some(x) = up {
+        if let Some(p) = of(&x) {
+            return Some(p);
+        }
+        up = x.parent();
+    }
+    let mut down = w.first_child();
+    while let Some(x) = down {
+        if let Some(p) = of(&x) {
+            return Some(p);
+        }
+        down = x.first_child();
+    }
+    None
 }

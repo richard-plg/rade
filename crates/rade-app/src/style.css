@@ -553,6 +553,7 @@ toast > button.circular image { -gtk-icon-size: 16px; }
 .agent-glyph.glyph-done { color: @ok; }
 .agent-glyph.glyph-error { color: @err; }
 .agent-glyph.glyph-interrupted { color: @wt; }
+.agent-glyph.tab-glyph-extra { -gtk-icon-size: 12px; min-width: 12px; min-height: 12px; }
 .agent-glyph.glyph-plain { color: @fg2; }
 /* A Preset's own icon (R115.5): its colours; the status as a small LED. */
 .glyph-dot { min-width: 5px; min-height: 5px; margin: -1px; border-radius: 2px; }

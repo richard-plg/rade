@@ -24,6 +24,8 @@ struct TabWidget {
     bar: gtk::Box,
     /// The lead Agent's glyph in the Tab's status colour (R115).
     glyph: crate::agent_glyph::Glyph,
+    /// The other kinds' glyphs (R115.3), 12 px, shown from the 2nd kind.
+    extra: [crate::agent_glyph::Glyph; 2],
     icon: gtk::Image,
     label: gtk::Label,
     count: gtk::Label,
@@ -47,6 +49,7 @@ struct Shown {
     status: Option<AgentStatus>,
     led: Option<&'static str>,
     mark: Option<rade_core::design::AgentMark>,
+    marks: Vec<&'static str>,
     count: Option<usize>,
     kind: &'static str,
 }
@@ -133,6 +136,7 @@ pub fn debug_pages() -> Vec<serde_json::Value> {
                 "icon": s.status.filter(|s| *s != AgentStatus::Running).map(|s| s.as_str()),
                 "led": s.led,
                 "glyph": s.mark.map(|m| m.as_str()),
+                "marks": s.marks,
                 "count": s.count,
                 "kind": s.kind,
             })
@@ -222,7 +226,18 @@ fn tab_widget(id: &str, strip: &gtk::Box) -> TabWidget {
         let id = id.to_string();
         close.connect_clicked(move |_| close_tab(&id));
     }
-    tab.append(&glyph.root);
+    let extra = [0, 1].map(|_| {
+        let g = crate::agent_glyph::Glyph::new(rade_core::design::AgentMark::Other, None);
+        g.add_css_class("tab-glyph-extra");
+        g.root.set_visible(false);
+        g
+    });
+    let marks = gtk::Box::new(gtk::Orientation::Horizontal, 2);
+    marks.append(&glyph.root);
+    for g in &extra {
+        marks.append(&g.root);
+    }
+    tab.append(&marks);
     tab.append(&icon);
     tab.append(&label);
     tab.append(&count);
@@ -297,6 +312,7 @@ fn tab_widget(id: &str, strip: &gtk::Box) -> TabWidget {
         tab,
         bar,
         glyph,
+        extra,
         icon,
         label,
         count,
@@ -496,6 +512,23 @@ impl WorktreeView {
                 let icon = crate::agent_glyph::icon_of(lead_pane.and_then(|p| p.agent_name()));
                 e.widget.glyph.set(m, icon.as_deref(), status);
             }
+            // R115.3: the other kinds' glyphs, each in its worst status.
+            let marks = rade_core::chrome::tab_marks(&panes, tab.grid.as_deref());
+            for (i, g) in e.widget.extra.iter().enumerate() {
+                match marks.get(i + 1) {
+                    Some((m, st)) if kind == "agent" => {
+                        g.set(*m, None, *st);
+                        g.root.set_visible(true);
+                    }
+                    _ => g.root.set_visible(false),
+                }
+            }
+            if marks.len() > 1 {
+                if let Some((m, st)) = marks.first() {
+                    let icon = crate::agent_glyph::icon_of(lead_pane.and_then(|p| p.agent_name()));
+                    e.widget.glyph.set(*m, icon.as_deref(), *st);
+                }
+            }
             let icon = match kind {
                 "review" | "diff" => Some("ph-git-diff-symbolic"),
                 "browser" => Some("ph-globe-simple-symbolic"),
@@ -510,6 +543,7 @@ impl WorktreeView {
                 status,
                 led,
                 mark,
+                marks: marks.iter().map(|(m, _)| m.as_str()).collect(),
                 count,
                 kind,
             };
@@ -519,6 +553,21 @@ impl WorktreeView {
             if n > 0 {
                 let line = format!("{n} unread");
                 tip = Some(tip.map_or(line.clone(), |t| format!("{t}\n{line}")));
+            }
+            if marks.len() > 1 {
+                let roster = agents
+                    .iter()
+                    .map(|p| {
+                        format!(
+                            "{} · {} · {}",
+                            p.name.as_deref().unwrap_or(&p.id),
+                            p.agent_name().unwrap_or_default(),
+                            p.status.map_or("no status yet", |s| s.as_str())
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                tip = Some(tip.map_or(roster.clone(), |t| format!("{t}\n{roster}")));
             }
             if tab.zoomed.is_some() {
                 let line = "Zoomed (Ctrl+Shift+Z to restore)".to_string();

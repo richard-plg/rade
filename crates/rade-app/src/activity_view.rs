@@ -164,6 +164,7 @@ fn kind_str(k: Kind) -> &'static str {
         Kind::Commit => "commit",
         Kind::Limit => "limit",
         Kind::Update => "update",
+        Kind::Ignored => "ignored",
     }
 }
 
@@ -185,6 +186,7 @@ pub fn mark(k: Kind) -> gtk::Widget {
         Kind::Commit => icon("ph-git-branch-symbolic", "activity-commit"),
         Kind::Limit => icon("ph-gauge-symbolic", "activity-limit"),
         Kind::Update => icon("ph-arrow-circle-up-symbolic", "activity-update"),
+        Kind::Ignored => icon("ph-robot-bold-symbolic", "activity-ignored"),
     }
 }
 

@@ -34,6 +34,14 @@ to the program.
 Only while the focus is in RADE's own interface (not in a terminal or a web page): `Ctrl+K`
 palette, `Ctrl+B` Inspector, `Ctrl+G` newest unread.
 
+## In the Files tab
+
+| Keys | Action |
+|---|---|
+| `Ctrl+Alt+C` | Copy the focused row's path |
+| `Ctrl+Shift+Alt+C` | Copy its path relative to the tree's root |
+| `F5` | Refresh the tree |
+
 ## In a terminal
 
 | Keys | Action |

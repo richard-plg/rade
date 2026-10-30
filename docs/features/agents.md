@@ -45,7 +45,9 @@ as its own card in [Agent Overview](agent-overview.md). Walkthrough:
 ## Status at a glance
 
 Every Agent has a status, drawn as its own logo in the status colour — in the Navigator, on its
-Tab, in its Pane header, in the Inbox and in Agent Overview:
+Tab, in its Pane header, in the Inbox and in Agent Overview. A Tab holding more than one kind of
+Agent (a Codex that spawned a Claude next to it) shows each kind's logo, up to three, and its
+tooltip lists every Agent with its status:
 
 | Status | Looks like | Meaning |
 |---|---|---|
@@ -85,6 +87,13 @@ working directories and Agents come back. Each Agent is resumed in its own sessi
 with the session id RADE gave it, the others with the id their hooks reported), with the exact
 command line it was started with. Processes themselves don't survive a restart; an Agent that was
 mid-turn comes back **interrupted** — send it "continue".
+
+A Pane belongs to one Agent. When that Agent runs another one itself — a skill that calls
+`codex exec` to make an image, a `claude -p` helper — the helper's hooks don't take the Pane over:
+its glyph, session and restart command stay the Agent's, and Activity says
+`<pane> ignored a codex session (started by its Agent)`. A one-shot run (`codex exec`,
+`claude -p`) is never resumed; a Pane that an older RADE recorded that way comes back as a shell
+that says why.
 
 ## Install the hooks
 

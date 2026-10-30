@@ -113,6 +113,7 @@ fn on_key(keyval: Key, state: ModifierType) -> glib::Propagation {
         // Plain Ctrl+K / Ctrl+B act only from RADE's own chrome; in a
         // Terminal or a Browser page they reach the program (R17
         // amendment, R103.1, R103.4).
+        None if crate::files::key(keyval, state) => glib::Propagation::Stop,
         None => match chrome_key(keyval, state) {
             Some(a) if !crate::palette::is_open() && !focus_in_program() => {
                 run_action(a);

@@ -41,6 +41,19 @@ Changed files are marked (`M`, `A`, `?`) and so are the folders above them, so y
 what an Agent touched. Click to open, middle-click to open to the side. The tree follows the
 focused Pane: focus another Agent and it shows that Agent's Worktree.
 
+The header shows the root folder's name — hover for the full path, click to copy it — with
+**Collapse All**, **Refresh** (for when a change didn't show up by itself) and the show-ignored
+toggle. Right-click a file or a folder for:
+
+- **Open** / **Open to the Side** (files)
+- **Copy Path** (`Ctrl+Alt+C`) / **Copy Relative Path** (`Ctrl+Shift+Alt+C`)
+- **Insert Path in Agent** — types the relative path (quoted if needed) into the focused Agent
+  Pane, or the Worktree's newest one, without pressing Enter, so you can finish the prompt
+- **Reveal in Files** — the system file manager with the item selected
+- **Open Terminal Here** — a new Tab whose Terminal starts in that folder
+
+You can also drag a row onto a Terminal to paste its path.
+
 <picture>
   <source media="(prefers-color-scheme: light)" srcset="../images/files-light.png">
   <img alt="The Files tab: the Worktree's tree with git status colours" src="../images/files-dark.png">
