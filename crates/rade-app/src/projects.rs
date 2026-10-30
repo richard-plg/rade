@@ -545,7 +545,7 @@ struct Plan {
 }
 
 /// The Workspace for a new Project: `workspace`, else the caller's / shown.
-fn target_workspace(m: &State, q: Option<&str>, caller: Option<&str>) -> Result<String> {
+pub(crate) fn target_workspace(m: &State, q: Option<&str>, caller: Option<&str>) -> Result<String> {
     Ok(match q {
         Some(q) => m.find_workspace(q)?.id.clone(),
         None => caller_workspace(m, caller),

@@ -61,6 +61,8 @@ mod projects;
 mod quick_diff;
 mod review;
 mod review_view;
+mod schedules;
+mod schedules_view;
 mod search_view;
 mod settings_accounts;
 mod settings_view;

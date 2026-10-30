@@ -13,6 +13,9 @@ use jiff::Timestamp;
 use serde::{Deserialize, Deserializer, Serialize};
 use std::path::{Path, PathBuf};
 
+/// The time library (re-exported for the app).
+pub use jiff;
+
 /// Runs kept per Schedule (R137.4).
 pub const MAX_RUNS: usize = 50;
 /// A due time older than this at a check is a miss (R136.4).
@@ -884,3 +887,125 @@ pub fn check(s: &mut Schedule, ctx: &Ctx) -> Result<()> {
 #[cfg(test)]
 #[path = "schedule_tests.rs"]
 mod tests;
+
+/// What a Schedule Run's Pane is (R137.2, R137.6).
+pub struct RunPane {
+    /// The Source whose main Worktree holds the Tab (a link's Source, or
+    /// the Workspace's Scratch).
+    pub source: String,
+    /// The link checkout, or the folder.
+    pub cwd: PathBuf,
+    pub command: Option<String>,
+    pub name: String,
+    pub agent: String,
+    pub session_id: Option<String>,
+    pub account: Option<crate::account::Account>,
+    pub schedule: String,
+    /// `running` for a run with its prompt; none for a resume.
+    pub status: Option<AgentStatus>,
+    /// Unix seconds.
+    pub now: u64,
+}
+
+impl crate::model::State {
+    /// The Workspace's Schedule `name`.
+    pub fn schedule(&self, ws: &str, name: &str) -> Option<&Schedule> {
+        self.schedules
+            .iter()
+            .find(|s| s.workspace == ws && s.name == name)
+    }
+
+    pub fn schedule_mut(&mut self, ws: &str, name: &str) -> Option<&mut Schedule> {
+        self.schedules
+            .iter_mut()
+            .find(|s| s.workspace == ws && s.name == name)
+    }
+
+    /// The Tabs of Schedule `name` in Workspace `ws` (R137.2): `(source,
+    /// worktree, tab)`, found by the Tab's `schedule`, never its label.
+    pub fn schedule_tabs(&self, ws: &str, name: &str) -> Vec<(String, String, String)> {
+        let mut out = Vec::new();
+        for s in self.sources.iter().filter(|s| s.workspace == ws) {
+            for w in &s.worktrees {
+                for t in w
+                    .tabs
+                    .iter()
+                    .filter(|t| t.schedule.as_deref() == Some(name))
+                {
+                    out.push((s.id.clone(), w.id.clone(), t.id.clone()));
+                }
+            }
+        }
+        out
+    }
+
+    /// Place a run's Agent Pane (R137.2): in Source `source`'s main
+    /// Worktree, in the Schedule's Tab there (split right of its last Pane)
+    /// or a new Tab `⏱ <name>`. Nothing on screen or in focus changes.
+    /// Returns `(tab, pane)`.
+    pub fn spawn_scheduled(&mut self, r: RunPane) -> Result<(String, String)> {
+        self.check_not_paused(&r.source)?;
+        self.check_account(&r.source, r.account.as_ref())?;
+        let ws = self
+            .source(&r.source)
+            .ok_or_else(|| Error::not_found(format!("no source '{}'", r.source)))?
+            .workspace
+            .clone();
+        let worktree = self.source(&r.source).unwrap().worktrees[0].id.clone();
+        let mut pane = self.new_pane(&r.cwd, r.command, Some(r.name));
+        pane.agent = Some(r.agent);
+        pane.set_account(r.account);
+        pane.session_id = r.session_id;
+        pane.status = r.status;
+        pane.status_since = r.status.map(|_| r.now);
+        pane.schedule = Some(r.schedule.clone());
+        let id = pane.id.clone();
+        let existing = self
+            .schedule_tabs(&ws, &r.schedule)
+            .into_iter()
+            .find(|(s, _, _)| *s == r.source);
+        if let Some((s, w, t)) = existing {
+            let wt = self.worktree_mut(&s, &w)?;
+            let tab = wt.tabs.iter_mut().find(|x| x.id == t).unwrap();
+            let last = tab
+                .layout
+                .panes()
+                .last()
+                .map(|p| p.id.clone())
+                .unwrap_or_else(|| tab.focused.clone());
+            tab.zoomed = None;
+            tab.grid = None;
+            tab.layout
+                .split(&last, crate::layout::SplitDir::Right, pane);
+            return Ok((t, id));
+        }
+        let (tab, id) = self.new_tab_with(&r.source, &worktree, pane)?;
+        let wt = self.worktree_mut(&r.source, &worktree)?;
+        let t = wt.tabs.iter_mut().find(|x| x.id == tab).unwrap();
+        t.name = format!("⏱ {}", r.schedule);
+        t.renamed = true;
+        t.schedule = Some(r.schedule);
+        Ok((tab, id))
+    }
+
+    /// A Schedule renamed: its Tabs and Panes follow (R137.2).
+    pub fn rename_schedule(&mut self, ws: &str, old: &str, new: &str) {
+        for (s, w, t) in self.schedule_tabs(ws, old) {
+            if let Ok(wt) = self.worktree_mut(&s, &w) {
+                if let Some(tab) = wt.tabs.iter_mut().find(|x| x.id == t) {
+                    if tab.name == format!("⏱ {old}") {
+                        tab.name = format!("⏱ {new}");
+                    }
+                    tab.schedule = Some(new.to_string());
+                    for id in tab.pane_ids() {
+                        if let Some(p) = tab.pane_mut(&id) {
+                            if p.schedule.as_deref() == Some(old) {
+                                p.schedule = Some(new.to_string());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

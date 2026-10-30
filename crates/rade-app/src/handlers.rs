@@ -54,6 +54,8 @@ pub fn dispatch(req: Request) -> Response {
         crate::projects::dispatch(&req.method, req.params)
     } else if req.method.starts_with("account.") || req.method.starts_with("usage.") {
         crate::accounts::dispatch(&req.method, req.params)
+    } else if req.method.starts_with("schedule.") || req.method == "debug.schedule" {
+        crate::schedules::dispatch(&req.method, req.params)
     } else if req.method.starts_with("worktree.") {
         crate::worktrees::dispatch(&req.method, req.params)
     } else if req.method.starts_with("fanout.") || req.method == "debug.fanout" {
