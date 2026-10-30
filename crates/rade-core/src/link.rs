@@ -234,6 +234,113 @@ pub fn word_at(line: &str, col: usize) -> Option<String> {
     Some(chars[start..end].iter().collect())
 }
 
+/// The word under (`row`, `col`) of a block of screen rows, continued
+/// over rows a wrap split it across (R134): while the word ends its row
+/// at the right edge (within 2 columns of `cols`, or as far right as the
+/// rows next to it: a TUI wrapping at its own width), the next row's
+/// first word is appended; the same backwards. A URL takes only pieces
+/// that look like more of a URL. Of
+/// those joins the longest that `resolves` (a URL, an existing path) wins,
+/// else the clicked row's word alone; `true` = it spans several rows.
+pub fn token_across(
+    rows: &[String],
+    row: usize,
+    col: usize,
+    cols: usize,
+    resolves: &dyn Fn(&str) -> bool,
+) -> Option<(String, bool)> {
+    let chars: Vec<Vec<char>> = rows.iter().map(|r| r.chars().collect()).collect();
+    let line = chars.get(row)?;
+    if line.get(col).is_none_or(|c| c.is_whitespace()) {
+        return None;
+    }
+    let last = |r: &[char]| r.iter().rposition(|c| !c.is_whitespace());
+    let first = |r: &[char]| r.iter().position(|c| !c.is_whitespace());
+    let edge = |i: usize| {
+        let Some(l) = chars.get(i).and_then(|r| last(r)) else {
+            return false;
+        };
+        let near = [i.checked_sub(1), Some(i + 1)]
+            .into_iter()
+            .flatten()
+            .filter_map(|j| chars.get(j).and_then(|r| last(r)))
+            .max();
+        l + 3 >= cols || near.is_some_and(|n| l + 2 >= n)
+    };
+    let start = line[..col]
+        .iter()
+        .rposition(|c| c.is_whitespace())
+        .map_or(0, |i| i + 1);
+    let end = line[col..]
+        .iter()
+        .position(|c| c.is_whitespace())
+        .map_or(line.len(), |i| col + i);
+    let word: String = line[start..end].iter().collect();
+    // Pieces after: the next row's first word, while the current one ends
+    // the row at the edge.
+    let mut after: Vec<String> = Vec::new();
+    let (mut r, mut ends) = (row, last(line) == Some(end - 1) && edge(row));
+    while ends && after.len() < 8 {
+        let Some(next) = chars.get(r + 1) else { break };
+        let Some(f) = first(next) else { break };
+        let e = next[f..]
+            .iter()
+            .position(|c| c.is_whitespace())
+            .map_or(next.len(), |i| f + i);
+        after.push(next[f..e].iter().collect());
+        r += 1;
+        ends = last(next) == Some(e - 1) && edge(r);
+    }
+    // Pieces before: the row above's last word, while the current one
+    // starts its row and the row above ends at the edge.
+    let mut before: Vec<String> = Vec::new();
+    let (mut r, mut starts) = (row, first(line) == Some(start));
+    while starts && r > 0 && before.len() < 8 {
+        let prev = &chars[r - 1];
+        if !edge(r - 1) {
+            break;
+        }
+        let Some(l) = last(prev) else { break };
+        let s = prev[..=l]
+            .iter()
+            .rposition(|c| c.is_whitespace())
+            .map_or(0, |i| i + 1);
+        before.push(prev[s..=l].iter().collect());
+        r -= 1;
+        starts = first(prev) == Some(s);
+    }
+    before.reverse();
+    // A URL goes on only with pieces that look like more of a URL.
+    let urlish = |p: &str| p.contains(['/', '?', '=', '&', '%', '#', '.', '-', '_']);
+    if word.contains("://") || before.iter().any(|b| b.contains("://")) {
+        if let Some(i) = after.iter().position(|p| !urlish(p)) {
+            after.truncate(i);
+        }
+    }
+    let (nb, na) = (before.len(), after.len());
+    let mut best: Option<String> = None;
+    for b in 0..=nb {
+        for a in 0..=na {
+            if a == 0 && b == 0 {
+                continue;
+            }
+            let t: String = before[nb - b..]
+                .iter()
+                .map(String::as_str)
+                .chain(std::iter::once(word.as_str()))
+                .chain(after[..a].iter().map(String::as_str))
+                .collect();
+            if best.as_ref().is_none_or(|x| t.chars().count() > x.chars().count()) && resolves(&t) {
+                best = Some(t);
+            }
+        }
+    }
+    Some(match best {
+        Some(t) => (t, true),
+        None => (word, false),
+    })
+}
+
 /// [`parse`] + [`resolve`]: `None` for a file that does not exist.
 pub fn open_target(raw: &str, cwd: &Path, root: &Path, home: &Path) -> Option<Link> {
     match parse(raw)? {
@@ -248,6 +355,55 @@ pub fn open_target(raw: &str, cwd: &Path, root: &Path, home: &Path) -> Option<Li
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn r134_a_token_across_wrapped_rows() {
+        let rows = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let any = |_: &str| true;
+        // A soft wrap: the first row is full (20 columns).
+        let r = rows(&["see src/very/long/pa", "th/file.rs for it"]);
+        assert_eq!(
+            token_across(&r, 0, 6, 20, &|t| t == "src/very/long/path/file.rs"),
+            Some(("src/very/long/path/file.rs".into(), true))
+        );
+        // …clicked on the second row.
+        assert_eq!(
+            token_across(&r, 1, 2, 20, &|t| t == "src/very/long/path/file.rs"),
+            Some(("src/very/long/path/file.rs".into(), true))
+        );
+        // A TUI's hard wrap at its own width (18 of 24), the next row indented.
+        let r = rows(&["⏺ Open https://ex.am", "  ple.com/a/b/c then", "  check it"]);
+        assert_eq!(
+            token_across(&r, 0, 9, 24, &any),
+            Some(("https://ex.ample.com/a/b/c".into(), true))
+        );
+        // Three rows.
+        let r = rows(&["docs/aaaaaaaaaaaaaaa", "bbbbbbbbbbbbbbbbbbbb", "/c.md done"]);
+        let want = "docs/aaaaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbb/c.md";
+        assert_eq!(
+            token_across(&r, 1, 3, 20, &|t| t == want),
+            Some((want.to_string(), true))
+        );
+        // A join that resolves to nothing: the clicked row's word alone.
+        let r = rows(&["word at the edge xxxx", "yyyy and more"]);
+        assert_eq!(
+            token_across(&r, 0, 18, 21, &|_| false),
+            Some(("xxxx".into(), false))
+        );
+        // Not at the edge (the next row is wider): never joined.
+        let r = rows(&["short path.rs", "next/row.rs and a much longer row of text"]);
+        assert_eq!(
+            token_across(&r, 0, 7, 40, &any),
+            Some(("path.rs".into(), false))
+        );
+        assert_eq!(token_across(&r, 0, 5, 40, &any), None);
+        // A URL ending a full row, then plain words: not part of it.
+        let r = rows(&["see https://ex.am/a", "and more words here"]);
+        assert_eq!(
+            token_across(&r, 0, 6, 19, &any),
+            Some(("https://ex.am/a".into(), false))
+        );
+    }
 
     fn file(p: &str, line: Option<u32>, col: Option<u32>) -> Option<Link> {
         Some(Link::File(FileTarget {

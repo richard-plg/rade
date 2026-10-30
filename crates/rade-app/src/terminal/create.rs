@@ -18,6 +18,9 @@ pub struct TerminalCallbacks {
     pub on_child_exited: Box<ChildExitedCallback>,
     /// Ctrl+click on a link: Ghostty's matched text or OSC 8 URI (R7.1).
     pub on_open_url: Box<PwdChangedCallback>,
+    /// Whether a Ctrl+click text opens something (a URL, an existing
+    /// file): which join of a wrapped token to take (R134).
+    pub link_resolves: Box<LinkResolves>,
     /// OSC 133 command finished (shell integration, R10.2 fallback).
     pub on_command_finished: Box<VoidCallback>,
     /// RADE (R19.6): a right-click the program did not take (no mouse
@@ -35,6 +38,7 @@ impl TerminalCallbacks {
             on_close: Box::new(|| {}),
             on_child_exited: Box::new(|_| {}),
             on_open_url: Box::new(|_| {}),
+            link_resolves: Box::new(|_| false),
             on_command_finished: Box::new(|| {}),
             on_context_menu: Box::new(|_, _| {}),
         }
@@ -434,6 +438,10 @@ pub fn create_terminal(
                             let cb = callbacks.clone();
                             move |url| (cb.borrow().on_open_url)(url)
                         })),
+                        link_resolves: Some(Box::new({
+                            let cb = callbacks.clone();
+                            move |t| (cb.borrow().link_resolves)(t)
+                        })),
                         on_command_finished: Some(Box::new({
                             let cb = callbacks.clone();
                             move || (cb.borrow().on_command_finished)()
@@ -660,9 +668,8 @@ pub fn create_terminal(
                         mods,
                     );
                 }
-                if btn == 1 && mods & GHOSTTY_MODS_CTRL != 0 {
-                    links::after_release(surface, &gl_for_release, x, y);
-                }
+                let ctrl = btn == 1 && mods & GHOSTTY_MODS_CTRL != 0;
+                links::after_release(surface, &gl_for_release, x, y, ctrl);
             }
         });
         controllers.borrow_mut().push(click.clone().upcast());

@@ -10,6 +10,21 @@ thread_local! {
     static OPENED: Cell<bool> = const { Cell::new(false) };
     /// Shift was held on the current Ctrl+click: Open to the Side (R113.2).
     static SIDE: Cell<bool> = const { Cell::new(false) };
+    /// Between `before_release` and `after_release`: Ghostty's `OPEN_URL`
+    /// waits in `HELD` for the release to choose (R134).
+    static IN_RELEASE: Cell<bool> = const { Cell::new(false) };
+    static HELD: RefCell<Option<String>> = const { RefCell::new(None) };
+}
+
+/// Ghostty's matched link: kept while a release is being handled (the
+/// release opens it, or a longer wrapped one), else given back to open.
+pub(super) fn hold(url: String) -> Option<String> {
+    if IN_RELEASE.with(Cell::get) {
+        HELD.with(|h| *h.borrow_mut() = Some(url));
+        None
+    } else {
+        Some(url)
+    }
 }
 
 pub(super) fn set_side(side: bool) {
@@ -69,23 +84,83 @@ fn row_text(surface: ghostty_surface_t, row: u32, cols: u16) -> String {
 /// (with Ctrl held) opens the word under (x, y) if Ghostty opened nothing.
 pub(super) fn before_release() {
     OPENED.with(|o| o.set(false));
+    IN_RELEASE.with(|r| r.set(true));
+    HELD.with(|h| h.borrow_mut().take());
 }
 
-pub(super) fn after_release(surface: ghostty_surface_t, gl_area: &gtk::GLArea, x: f64, y: f64) {
-    if OPENED.with(|o| o.get()) || unsafe { ghostty_surface_has_selection(surface) } {
+/// After a release: a plain click opens what Ghostty matched; a Ctrl+click
+/// opens the token under the pointer joined over wrapped rows when that
+/// resolves (R134), else Ghostty's match, else the word there.
+pub(super) fn after_release(
+    surface: ghostty_surface_t,
+    gl_area: &gtk::GLArea,
+    x: f64,
+    y: f64,
+    ctrl: bool,
+) {
+    IN_RELEASE.with(|r| r.set(false));
+    let held = HELD.with(|h| h.borrow_mut().take());
+    let key = surface as usize;
+    let open = move |word: String| {
+        glib::idle_add_local_once(move || {
+            SURFACE_MAP.with(|map| {
+                if let Some(cb) = map.borrow().get(&key).and_then(|e| e.on_open_url.as_ref()) {
+                    cb(&word);
+                }
+            });
+        });
+    };
+    if !ctrl {
+        if let Some(u) = held {
+            open(u);
+        }
         return;
     }
-    let Some(word) = word_at_point(surface, gl_area, x, y) else {
+    if held.is_none() && unsafe { ghostty_surface_has_selection(surface) } {
         return;
-    };
+    }
+    match (held, token_at_point(surface, gl_area, x, y)) {
+        (_, Some((t, true))) => open(t),
+        (Some(u), _) => open(u),
+        (None, Some((t, false))) => open(t),
+        (None, None) => {}
+    }
+}
+
+/// The token at widget point (x, y), joined over wrapped rows (R134):
+/// up to 8 rows above and below are read; `true` = it spans several.
+fn token_at_point(
+    surface: ghostty_surface_t,
+    gl_area: &gtk::GLArea,
+    x: f64,
+    y: f64,
+) -> Option<(String, bool)> {
+    let scale = gl_area.scale_factor().max(1) as f64;
+    let (px, py, cw, ch) = geometry(surface, scale)?;
+    let (col, row) = (
+        ((x * scale - px) / cw).floor(),
+        ((y * scale - py) / ch).floor(),
+    );
+    if col < 0.0 || row < 0.0 {
+        return None;
+    }
+    let (col, row) = (col as usize, row as usize);
+    let size = unsafe { ghostty_surface_size(surface) };
+    let top = row.saturating_sub(8);
+    let bottom = (row + 8).min(size.rows.max(1) as usize - 1);
+    let rows: Vec<String> = (top..=bottom)
+        .map(|r| row_text(surface, r as u32, size.columns))
+        .collect();
     let key = surface as usize;
-    glib::idle_add_local_once(move || {
+    let resolves = |t: &str| {
         SURFACE_MAP.with(|map| {
-            if let Some(cb) = map.borrow().get(&key).and_then(|e| e.on_open_url.as_ref()) {
-                cb(&word);
-            }
-        });
-    });
+            map.borrow()
+                .get(&key)
+                .and_then(|e| e.link_resolves.as_ref())
+                .is_some_and(|f| f(t))
+        })
+    };
+    rade_core::link::token_across(&rows, row - top, col, size.columns as usize, &resolves)
 }
 
 /// The whitespace-delimited word at widget point (x, y), if any.
@@ -143,6 +218,6 @@ pub(super) fn ctrl_click_cell(
     unsafe {
         ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_LEFT, mods)
     };
-    after_release(surface, gl_area, x, y);
+    after_release(surface, gl_area, x, y, true);
     true
 }

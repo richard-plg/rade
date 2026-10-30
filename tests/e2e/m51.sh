@@ -14,13 +14,16 @@
 # unused clean Project checkouts removed, a shared or dirty one kept, Panes
 # there closed, Worktrees to Scratch), `rade project prune`, the
 # "no longer used" line, the to-base hint.
+# R134 (links): Ctrl+click on a path or URL wrapped over rows — a shell's
+# soft wrap, a TUI's hard wrap at its own width with an indent — opens the
+# whole token.
 # (Tab labels, R103.2 amendment: tests/e2e/titles.sh.)
 # Usage: tests/e2e/m51.sh   (PARTS="git …", NO_BUILD=1, KEEP=1)
 set -euo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
 OUT=$(cd "$HERE/../.." && pwd)/target/e2e-m51
 source "$HERE/lib.sh"
-PARTS=${PARTS:-git move home remove}
+PARTS=${PARTS:-git move home remove links}
 part() { [[ " $PARTS " == *" $1 "* ]]; }
 
 mkdir -p "$XDG_CONFIG_HOME/rade"
@@ -276,6 +279,61 @@ if part remove; then
     rade project prune --workspace acme >"$OUT/prune.txt"
     check "R133-c prune removed it, the dirty one stays" \
         bash -c "[[ ! -e '$PC/billing/lib' && -f '$PC/rel/lib/dirty.txt' ]] && grep -qx 'removed $PC/billing/lib' '$OUT/prune.txt'"
+fi
+
+if part links; then
+    echo "== R134 Ctrl+click across wrapped rows"
+    # A stand-in browser: records the URLs GIO hands to the http handler.
+    BROWSER_LOG=$T/browser.log
+    mkdir -p "$XDG_DATA_HOME/applications"
+    printf '[Desktop Entry]\nType=Application\nName=Fake Browser\nExec=sh -c '"'"'echo "$1" >> %s'"'"' sh %%u\nMimeType=x-scheme-handler/http;x-scheme-handler/https;\n' "$BROWSER_LOG" \
+        >"$XDG_DATA_HOME/applications/fakebrowser.desktop"
+    printf '[Default Applications]\nx-scheme-handler/http=fakebrowser.desktop\nx-scheme-handler/https=fakebrowser.desktop\n' \
+        >"$XDG_CONFIG_HOME/mimeapps.list"
+    X=$A/linky
+    mkdir -p "$X"
+    rade source add "$X" --workspace acme >/dev/null
+    a=$(rade spawn --cmd bash --source linky --name a --json | jq -r .pane)
+    rade focus "$a" >/dev/null
+    eventually 10 screen_has "$a" '$' || true
+    viewer_path() { rade debug state | jq -r '[.. | objects | select(.kind?.type? == "viewer")][0].kind.path // ""'; }
+    export -f viewer_path
+    rade send "$a" "tput cols > $T/cols" --enter
+    eventually 5 test -s "$T/cols"
+    cols=$(cat "$T/cols")
+    # A path longer than the Terminal is wide: a soft wrap.
+    long=docs
+    while (( ${#long} < cols + 30 )); do long="$long/segment-$((${#long} % 97))-abcdefghij"; done
+    long="$long/LONGTAIL.md"
+    mkdir -p "$X/$(dirname "$long")" && echo '# long' >"$X/$long"
+    rade send "$a" "clear; echo $long" --enter
+    eventually 5 screen_has "$a" "LONGTAIL.md"
+    rade debug click "$a" "LONGTAIL.md" >/dev/null
+    check "R134-b soft wrap: a click on the 2nd row opens the whole path" eventually 5 is viewer_path "$X/$long"
+    rade close "$(rade debug state | jq -r '[.. | objects | select(.kind?.type? == "viewer")][0].id')" >/dev/null 2>&1 || true
+
+    # A TUI that wraps at 60 columns itself, the next row indented.
+    mkdir -p "$X/src/components/checkout" && echo x >"$X/src/components/checkout/ShippingAddressForm.tsx"
+    url="https://example.com/orders/12345/items?expand=shipping&lang=vi"
+    cat >"$T/tui.txt" <<TUI
+⏺ I changed the checkout form and the order page so that a
+  guest can pay. The form is in src/components/checkout/Shipp
+  ingAddressForm.tsx and the API answer is at https://example.
+  com/orders/12345/items?expand=shipping&lang=vi for now.
+TUI
+    rade send "$a" "clear; cat $T/tui.txt" --enter
+    eventually 5 screen_has "$a" "ingAddressForm.tsx"
+    sleep 0.3
+    rade debug click "$a" "https://example." >/dev/null
+    check "R134-b a hard-wrapped URL opens whole (not Ghostty's first-row part)" \
+        eventually 5 bash -c "[[ \$(tail -1 '$BROWSER_LOG' 2>/dev/null) == '$url' ]]"
+    : >"$BROWSER_LOG"
+    rade debug click "$a" "com/orders" >/dev/null
+    check "R134-b …also from its 2nd row" eventually 5 bash -c "[[ \$(tail -1 '$BROWSER_LOG' 2>/dev/null) == '$url' ]]"
+    rade debug click "$a" "ingAddressForm" >/dev/null
+    check "R134-b hard wrap with an indent: the 2nd row's part opens the whole path" \
+        eventually 5 is viewer_path "$X/src/components/checkout/ShippingAddressForm.tsx"
+    shot links-tui
 fi
 
 echo
