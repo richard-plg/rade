@@ -8,13 +8,15 @@
 # R132 (move): Move to Project asks about the base (Keep / Compare against),
 # `rade worktree move`, Scratch in the submenu, suggestions only on a real
 # match. (Close Panes in Scratch…, R132.4: tests/e2e/m37.sh R104-l.)
+# R132.5 (home): Project home's Open terminal with several links offers
+# them, the last used first; with one it opens at once.
 # (Tab labels, R103.2 amendment: tests/e2e/titles.sh.)
 # Usage: tests/e2e/m51.sh   (PARTS="git …", NO_BUILD=1, KEEP=1)
 set -euo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
 OUT=$(cd "$HERE/../.." && pwd)/target/e2e-m51
 source "$HERE/lib.sh"
-PARTS=${PARTS:-git move}
+PARTS=${PARTS:-git move home}
 part() { [[ " $PARTS " == *" $1 "* ]]; }
 
 mkdir -p "$XDG_CONFIG_HOME/rade"
@@ -156,6 +158,40 @@ if part move; then
     check "R132-a checkout-v2 on develop's line but named nothing: no guess" is "sug checkout-v2" "none"
     rpc debug.ui '{"op":"sidebar"}' >"$OUT/move-sidebar.json"
     shot move-scratch
+fi
+
+if part home; then
+    echo "== R132-e Project home: Open terminal on which link"
+    for r in shop-api shared-ui; do
+        mkdir -p "$A/$r" && G -C "$A/$r" init -q -b develop
+        echo x >"$A/$r/x" && G -C "$A/$r" add -A && G -C "$A/$r" commit -qm init
+        rade source add "$A/$r" --workspace acme >/dev/null
+    done
+    rade project add Trio --workspace acme --source shop-web:develop --source shop-api:develop --source shared-ui:develop >/dev/null
+    rade project add Solo --workspace acme --source shared-ui:develop >/dev/null
+    home() { rpc debug.ui "$(jq -nc --arg a "${1:-}" '{op: "home", arg: $a}')" | jq -c .home; }
+    menu() { home | jq -r '.open_terminal_menu | join("|")'; }
+    panes() { rade list --json | jq -r '[.panes[].pane] | sort | join(" ")'; }
+    export -f home menu panes
+    home "open Trio" >/dev/null
+    check "R132-e three links in table order" eventually 5 is menu "shop-web · develop|shop-api · develop|shared-ui · develop"
+    before=$(panes)
+    home "terminal shop-api" >/dev/null
+    check "R132-e a Terminal opened on shop-api" eventually 8 bash -c "[[ \$(panes) != '$before' ]]"
+    np=$(comm -13 <(tr ' ' '\n' <<<"$before") <(panes | tr ' ' '\n') | head -1)
+    sleep 1
+    rade send "$np" 'pwd' --enter >/dev/null
+    check "R132-e …in shop-api's checkout" eventually 8 screen_has "$np" "$A/shop-api"
+    home "open Trio" >/dev/null
+    check "R132-e the link used last comes first" eventually 5 is menu "shop-api · develop|shop-web · develop|shared-ui · develop"
+    home "click_open" >/dev/null
+    check "R132-e with three links the click shows the menu, no Terminal" \
+        eventually 3 bash -c "home | jq -e '.open_terminal_menu_up' >/dev/null && [[ \$(panes) == '$(panes)' ]]"
+    before=$(panes)
+    home "open Solo" >/dev/null
+    sleep 0.5
+    home "click_open" >/dev/null
+    check "R132-e with one link Open terminal opens at once" eventually 8 bash -c "[[ \$(panes) != '$before' ]]"
 fi
 
 echo

@@ -426,6 +426,23 @@ pub fn totals<'a>(rows: impl IntoIterator<Item = &'a FileRow>) -> (usize, usize)
         .fold((0, 0), |(a, d), r| (a + r.add, d + r.del))
 }
 
+/// The links Project home's Open terminal offers (R132.5): the one used
+/// last first, then the others in table order; `(source, "name · base")`.
+pub fn open_terminal_menu(
+    links: &[(String, String, String)],
+    last: Option<&str>,
+) -> Vec<(String, String)> {
+    let mut out: Vec<(String, String)> = links
+        .iter()
+        .map(|(s, name, base)| (s.clone(), format!("{name} · {base}")))
+        .collect();
+    if let Some(i) = last.and_then(|l| out.iter().position(|(s, _)| s == l)) {
+        let hit = out.remove(i);
+        out.insert(0, hit);
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -638,5 +655,21 @@ mod tests {
             ["Back to base", "Keep, show in Shop", "Move to a Worktree…"]
         );
         assert_eq!(c.sub, "It is clean: Back to base switches it to develop.");
+    }
+
+    #[test]
+    fn r132_e_open_terminal_menu_puts_the_last_link_first() {
+        let l = |s: &str, b: &str| (s.to_string(), s.to_string(), b.to_string());
+        let links = [l("shop-web", "develop"), l("shop-api", "develop"), l("shared-ui", "develop")];
+        let names = |v: Vec<(String, String)>| v.into_iter().map(|(_, n)| n).collect::<Vec<_>>();
+        assert_eq!(
+            names(open_terminal_menu(&links, None)),
+            ["shop-web · develop", "shop-api · develop", "shared-ui · develop"]
+        );
+        assert_eq!(
+            names(open_terminal_menu(&links, Some("shared-ui"))),
+            ["shared-ui · develop", "shop-web · develop", "shop-api · develop"]
+        );
+        assert_eq!(open_terminal_menu(&links, Some("gone")).len(), 3);
     }
 }
