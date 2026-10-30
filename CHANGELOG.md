@@ -10,6 +10,29 @@ the 0.x sections were written by hand. Requirement IDs (R…) refer to [docs/int
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-10-30
+
+### Added
+
+- Project home's Open terminal asks which repository
+- Remove a Project and prune unused Project checkouts
+- Prune Unused Project Checkouts… in the command palette
+- Schedules start an Agent on a cron expression or once at a given time
+- Rade schedule add|list|show|edit|on|off|remove|run|runs|resume|next
+- Schedules page, New / Edit Schedule form, Statusline cell, Navigator mark
+- A Schedules button in the titlebar
+- Schedules page redesigned; Resume and Show now take you to the run's Pane
+
+### Fixed
+
+- RADE no longer shows "Not Responding" at launch with many Agents: restored Agents start in stages, the ones on screen first
+- An Agent Tab is named after its session's title, not the agent
+- A new folder can join a Project: Initialize runs git init
+- Move to Project asks which base to compare against
+- Ctrl+click opens a path or URL that wraps onto the next rows
+- Selected text in the Viewer is visible
+- The Agent Usage page closes with ✕ or Esc
+
 ## [1.4.0] - 2026-10-30
 
 ### Added
@@ -1154,7 +1177,8 @@ Initial release: everything built in milestones M0–M12.
   releases with the `.deb` and `SHA256SUMS`, `rade-app --version`, this
   changelog (ADR-0012).
 
-[Unreleased]: https://github.com/richard-plg/rade/compare/v1.4.0...HEAD
+[Unreleased]: https://github.com/richard-plg/rade/compare/v1.5.0...HEAD
+[1.5.0]: https://github.com/richard-plg/rade/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/richard-plg/rade/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/richard-plg/rade/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/richard-plg/rade/compare/v1.1.0...v1.2.0
