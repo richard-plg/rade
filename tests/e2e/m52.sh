@@ -194,8 +194,109 @@ shot m52-runs
 stop_app
 }
 
+ui() { rpc debug.ui "{\"op\": \"schedules\"${1:+, $1}}" | jq '.schedules'; }
+
 part2() {
-    echo "== part 2: UI (R139) — see below"
+start_app
+# Part 1's Schedules (a full run): part 2 starts from none.
+rade schedule list --all --json | jq -r '.schedules[] | "\(.workspace) \(.name)"' | while read -r w n; do
+    rade schedule remove "$n" --workspace "$w" >/dev/null
+done
+echo "== part 2 setup: Projects shop and ops, a folder"
+for r in shop ops; do
+    repo "$T/src/$r"
+    rade source add "$T/src/$r" >/dev/null
+    rade project add "$r" --source "$r" >/dev/null
+done
+mkdir -p "$T/gone"
+rade schedule add a1 --project shop --cron "0 9 * * 1-5" "hello" >/dev/null
+rade schedule add a2 --project shop --cron "@daily" --off "hello" >/dev/null
+rade schedule add b1 --project ops --cron "0 */2 * * *" "hello" >/dev/null
+rade schedule add c1 --dir "$T/gone" --cron "@weekly" "hello" >/dev/null
+rmdir "$T/gone"
+rade schedule run c1 >/dev/null || true
+check "R139-a c1's run failed" test "$(runs c1 | jq -r '.runs[0].outcome')" = failed
+
+echo "== R139-a the page from the Statusline cell, grouped by Project then Scratch"
+cells() { rpc debug.ui '{"op": "chrome"}' | jq -r '.chrome.statusline.cells | join("|")'; }
+check "R139-a the Statusline cell says 3 on" eventually 5 bash -c "$(declare -f rpc cells); cells | grep -qF '⏱ 3'"
+rpc debug.ui '{"op": "click", "widget": "status-schedules"}' >/dev/null
+check "R139-a the page is open" eventually 5 is "ui | jq -r .open" true
+eventually 5 is "ui | jq '.groups | length'" 3 || true
+u=$(ui)
+check "R139-a groups shop, ops, Scratch" test "$(jq -c '[.groups[].title]' <<<"$u")" = '["shop","ops","Scratch"]'
+check "R139-a LEDs: a1 on, a2 off, b1 on, c1 failed" \
+    test "$(jq -c '[.groups[].rows[] | [.name, .state]]' <<<"$u")" = '[["a1","on"],["a2","off"],["b1","on"],["c1","failed"]]'
+check "R139-a when texts" test "$(jq -c '[.groups[].rows[].when]' <<<"$u")" = '["Weekdays 09:00","Daily 00:00","Every 2 h","Sundays 00:00"]'
+check "R139-a next times on the on rows, none on off" test "$(jq -c '[.groups[].rows[] | (.next != null)]' <<<"$u")" = '[true,false,true,true]'
+for th in dark light; do
+    rade debug action "color_scheme_$th" >/dev/null; sleep 1
+    shot "m52-page-$th"
+done
+rade debug action color_scheme_dark >/dev/null
+ui '"arg": "filter", "project": "shop"' >/dev/null
+check "R139-a the Project filter leaves one group" eventually 5 is "ui | jq -c '[.groups[].title]'" '["shop"]'
+ui '"arg": "filter", "project": null' >/dev/null
+
+echo "== R139-b the form: Weekdays 09:00, codex, then a bad cron"
+ui '"arg": "new"' >/dev/null
+ui '"arg": "form_set", "field": "name", "value": "fromui"' >/dev/null
+ui '"arg": "form_set", "field": "target", "value": "project"' >/dev/null
+ui '"arg": "form_set", "field": "project", "value": "ops"' >/dev/null
+ui '"arg": "form_set", "field": "preset", "value": "Weekdays 09:00"' >/dev/null
+ui '"arg": "form_set", "field": "agent", "value": "codex"' >/dev/null
+f=$(ui '"arg": "form_set", "field": "prompt", "value": "summarize yesterday"' | jq .form)
+check "R139-b the next 3 times show" test "$(jq -r .preview <<<"$f" | grep -o '·' | wc -l)" = 2
+check "R139-b Create enabled" test "$(jq -r .create_enabled <<<"$f")" = true
+for th in dark light; do
+    rade debug action "color_scheme_$th" >/dev/null; sleep 1
+    shot "m52-form-$th"
+done
+rade debug action color_scheme_dark >/dev/null
+f=$(ui '"arg": "form_set", "field": "cron", "value": "61 * * * *"' | jq .form)
+check "R139-b a bad cron shows its error" test "$(jq -r '.preview_error' <<<"$f")" = true
+jq -r .preview <<<"$f" | grep -q minute && ok "R139-b the error names the field" || bad "R139-b preview: $(jq -r .preview <<<"$f")"
+check "R139-b Create disabled" test "$(jq -r .create_enabled <<<"$f")" = false
+shot m52-form-bad-cron
+ui '"arg": "form_set", "field": "cron", "value": "0 9 * * 1-5"' >/dev/null
+ui '"arg": "form_submit"' >/dev/null
+check "R139-b Create wrote the Schedule" eventually 5 is "rade schedule show fromui --json | jq -r '[.project, .link, .cron, .agent, .prompt] | @tsv'" "$(printf 'ops\tops\t0 9 * * 1-5\tcodex\tsummarize yesterday')"
+check "R139-b the form closed, the new row selected" eventually 5 is "ui | jq -c '[(.form == null), .selected[1]]'" '[true,"fromui"]'
+ui '"arg": "edit", "name": "fromui"' >/dev/null
+check "R139-b Edit fills the form" eventually 5 is "ui | jq -r '.form.params | [.name, .cron, .agent] | @tsv'" "$(printf 'fromui\t0 9 * * 1-5\tcodex')"
+ui '"arg": "form_cancel"' >/dev/null
+
+echo "== R139-c Run now, then Resume of the older run"
+ui '"arg": "select", "workspace": "default", "name": "a1"' >/dev/null
+eventually 5 is "ui | jq -r .selected[1]" a1 || true
+ui '"arg": "run_now"' >/dev/null
+check "R139-c Run now started run 1" eventually 10 is "runs a1 | jq -r '.runs[0] | [.n, .outcome] | @tsv'" "$(printf '1\tstarted')"
+eventually 10 is "runs a1 | jq -r '.runs[0].status'" done || true
+P1=$(runs a1 | jq -r '.runs[0].pane'); S1=$(runs a1 | jq -r '.runs[0].session')
+rade close "$P1" >/dev/null
+ui '"arg": "run_now"' >/dev/null
+check "R139-c run 2 started" eventually 10 is "runs a1 | jq -r '.runs[0].n'" 2
+eventually 5 is "ui | jq '[.detail.runs[] | select(.n == 1 and .pane == null)] | length'" 1 || true
+ui '"arg": "resume", "n": 1' >/dev/null
+check "R139-c the old session resumed in the Schedule's Tab" eventually 10 grep -q -- "--resume $S1" "$FAKE_ARGV"
+check "R139-c recorded as run 1's resumed Pane" eventually 5 is "runs a1 | jq -r '.runs[1].resumed | type'" string
+for th in dark light; do
+    rade debug action "color_scheme_$th" >/dev/null; sleep 1
+    shot "m52-detail-$th"
+done
+rade debug action color_scheme_dark >/dev/null
+
+echo "== R139-d Delete… asks; Panes stay"
+before=$(rade list --json | jq '[.panes[] | select((.name // "") | startswith("a1-"))] | length')
+ui '"arg": "delete"' >/dev/null
+check "R139-d Delete asks" eventually 5 is "ui | jq -r .delete_open" true
+shot m52-delete
+ui '"arg": "delete_respond", "response": "delete", "close_panes": false' >/dev/null
+check "R139-d the Schedule is gone" eventually 5 is "rade schedule list --json | jq '[.schedules[] | select(.name == \"a1\")] | length'" 0
+check "R139-d its Panes stay" test "$(rade list --json | jq '[.panes[] | select((.name // "") | startswith("a1-"))] | length')" = "$before"
+ui '"arg": "close"' >/dev/null
+check "R139-a Esc / ✕ closes the page" eventually 5 is "ui | jq -r .open" false
+stop_app
 }
 
 case $PART in
