@@ -496,6 +496,9 @@ impl App {
         // Project home (R105) until the focus moves to a checkout.
         if crate::usage_view::is_shown(&model) {
             self.stack.set_visible_child_name(crate::usage_view::PAGE);
+        } else if crate::schedules_view::is_shown(&model) {
+            self.stack
+                .set_visible_child_name(crate::schedules_view::PAGE);
         } else if crate::home_view::shown(&model).is_some() {
             self.stack.set_visible_child_name(crate::home_view::PAGE);
         } else {

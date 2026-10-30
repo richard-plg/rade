@@ -370,6 +370,8 @@ pub const ACTIONS: &[(&str, &str)] = &[
     ("toggle_file_tree", "Toggle Right Panel"),
     ("toggle_status_bar", "Toggle Status Bar"),
     ("open_usage", "Agent Usage"),
+    ("open_schedules", "Schedules"),
+    ("new_schedule", "New Schedule…"),
     ("agent_overview", "Agent Overview"),
     ("voice", "Voice Prompt"),
     ("open_settings", "Settings"),

@@ -592,6 +592,8 @@ pub fn ui(app: &App, p: &Value) -> Result<Value> {
         // The Usage page (R110.2): `arg` = open | close | period <p> |
         // filter <ws>|all|shown | select <agent> <name> <ws> | key up|down.
         "usage" => r["usage"] = crate::usage_view::debug(s("arg"))?,
+        // The Schedules page and form (R139): see `schedules_view::debug`.
+        "schedules" => r["schedules"] = crate::schedules_view::debug(p)?,
         // The forecast Toast check now (`arg` reset: raise one again).
         "forecast_check" => crate::accounts::debug_forecast(s("arg") == Some("reset")),
         // A click on a Navigator row: `key`, or `kind` + `title` (R104).

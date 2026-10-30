@@ -253,6 +253,8 @@ pub enum CellKind {
     Ports,
     /// The focused Agent's account usage (R110.3, A.74).
     Usage,
+    /// `⏱ 3`: Schedules on in the shown Workspace (R139.1).
+    Schedules,
     Identity,
     /// The system monitor (R116): a widget of its own after the cells.
     Monitor,
@@ -270,6 +272,7 @@ impl CellKind {
             CellKind::Counts => "counts",
             CellKind::Ports => "ports",
             CellKind::Usage => "usage",
+            CellKind::Schedules => "schedules",
             CellKind::Identity => "identity",
             CellKind::Monitor => "monitor",
             CellKind::Update => "update",
@@ -305,6 +308,8 @@ pub struct StatusInput {
     /// The focused Agent's account usage, `claude 5h 62% · wk 41%`
     /// (`crate::usage::view::status_cell`); `None` hides the cell.
     pub usage: Option<String>,
+    /// Schedules on in the shown Workspace; 0 hides the cell (R139.1).
+    pub schedules: usize,
 }
 
 /// One status count as the Statusline words it: `1 waiting`.
@@ -340,6 +345,9 @@ pub fn statusline_cells(s: &StatusInput) -> Vec<Cell> {
     }
     if let Some(u) = &s.usage {
         out.push(cell(CellKind::Usage, u.clone()));
+    }
+    if s.schedules > 0 {
+        out.push(cell(CellKind::Schedules, format!("⏱ {}", s.schedules)));
     }
     if let Some(i) = s.identity.as_deref().filter(|i| !i.is_empty()) {
         out.push(cell(CellKind::Identity, i.to_string()));
@@ -626,6 +634,7 @@ pub fn statusline_fit(cells: &[Cell], widths: &[i32], avail: i32) -> Vec<bool> {
         CellKind::Monitor,
         CellKind::Update,
         CellKind::Ports,
+        CellKind::Schedules,
         CellKind::Identity,
     ] {
         order.extend((0..cells.len()).rev().filter(|&i| cells[i].kind == kind));
@@ -956,6 +965,7 @@ mod tests {
             ports: vec![5173],
             identity: Some("richard@acme.io".into()),
             usage: Some("claude 5h 62% · wk 41%".into()),
+            schedules: 0,
         };
         let cells = statusline_cells(&s);
         let texts: Vec<&str> = cells.iter().map(|c| c.text.as_str()).collect();
@@ -1171,6 +1181,7 @@ mod tests {
             ports: vec![5173],
             identity: Some("richard@acme.io".into()),
             usage: Some("claude 5h 62% · wk 41%".into()),
+            schedules: 0,
         })
     }
 

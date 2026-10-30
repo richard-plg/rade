@@ -102,6 +102,8 @@ pub struct Row {
     pub selected: bool,
     /// A Worktree under review: `R2 · 3 open` / `approved` (R119.5).
     pub review: Option<String>,
+    /// Agent rows of a Schedule Run: the Schedule's name (R139.4).
+    pub schedule: Option<String>,
     pub target: Target,
 }
 
@@ -125,6 +127,7 @@ impl Row {
             color: None,
             selected: false,
             review: None,
+            schedule: None,
             target,
         }
     }
@@ -272,6 +275,7 @@ fn agent_row(p: &Pane, depth: u8, input: &Input) -> Row {
     r.led = p.status;
     r.mark = p.mark();
     r.preset = p.agent_name().map(String::from);
+    r.schedule = p.schedule.clone();
     r.meta = match p.status {
         Some(AgentStatus::Waiting) | Some(AgentStatus::Error) => {
             p.status.unwrap().words().to_string()

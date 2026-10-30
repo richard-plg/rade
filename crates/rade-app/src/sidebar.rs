@@ -274,6 +274,12 @@ fn build_row(r: &Row) -> gtk::ListBoxRow {
         c.set_valign(gtk::Align::Center);
         meta.append(&c);
     }
+    if let Some(s) = &r.schedule {
+        // A Schedule Run's Agent (R139.4).
+        let i = icon("ph-clock-symbolic", &["nav-schedule"]);
+        i.set_tooltip_text(Some(&format!("Schedule {s}")));
+        meta.append(&i);
+    }
     if r.drift {
         meta.append(&icon("ph-warning-diamond-fill-symbolic", &["nav-drift"]));
     }
@@ -399,6 +405,7 @@ fn move_to_project(source: &str, wt: &str, project: Option<String>) {
 fn activate(r: &Row) {
     let Some(app) = try_app() else { return };
     crate::usage_view::close();
+    crate::schedules_view::close();
     if !matches!(r.target, Target::Project { .. }) {
         crate::home_view::close();
     }
@@ -743,6 +750,7 @@ impl Sidebar {
                 json!({
                     "kind": kind_str(r.kind), "depth": r.depth, "text": r.label(),
                     "title": r.title, "meta": r.meta, "drift": r.drift, "review": r.review,
+                    "schedule": r.schedule,
                     "also_in": r.kind == RowKind::Link && r.also_in.is_some(),
                     "tooltip": w.as_ref().and_then(|w| w.tooltip_text()).map(|t| t.to_string()),
                     "suggest": suggest_text(r), "collapsed": r.collapsed,
@@ -1100,6 +1108,10 @@ fn install_menu(list: &gtk::ListBox, rows: Rc<RefCell<Vec<Row>>>) {
         crate::home_view::open_terminal(p, s);
     });
     act("project-customize", |k, _| crate::projects::customize(k));
+    // R139.1: the Schedules page filtered to the Project.
+    act("project-schedules", |k, _| {
+        crate::schedules_view::open_project(k.rsplit_once('/').map_or(k, |x| x.1))
+    });
     act("project-remove", |k, _| crate::projects::remove_dialog(k));
     act("scratch-remove", |p, _| remove_from_scratch_dialog(p));
     act("remove-worktree", |p, w| {

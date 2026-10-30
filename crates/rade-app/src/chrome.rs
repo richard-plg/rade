@@ -516,6 +516,7 @@ impl Statusline {
             ports: self.ports.borrow().clone(),
             identity: fresh.then(|| facts.identity.clone()).flatten(),
             usage: None,
+            schedules: crate::schedules::on_count(ws, ws.active_workspace()),
         };
         let usage = crate::accounts::focused_cell(ws);
         let input = StatusInput {
@@ -555,6 +556,27 @@ impl Statusline {
                 CellKind::Project => cell_box(c.kind, Some("ph-cube-symbolic"), &c.text).upcast(),
                 CellKind::Worktree => {
                     cell_box(c.kind, Some("ph-git-branch-symbolic"), &c.text).upcast()
+                }
+                CellKind::Schedules => {
+                    // `⏱ 3` → the Schedules page (R139.1).
+                    let n = c.text.trim_start_matches("⏱ ").to_string();
+                    let inner = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+                    let img = gtk::Image::from_icon_name("ph-clock-symbolic");
+                    img.add_css_class("status-icon");
+                    inner.append(&img);
+                    inner.append(&gtk::Label::new(Some(&n)));
+                    let button = gtk::Button::new();
+                    button.set_child(Some(&inner));
+                    button.add_css_class("flat");
+                    button.add_css_class("status-schedules");
+                    button.set_focus_on_click(false);
+                    button.set_tooltip_text(Some(&format!("{n} Schedules on · open Schedules")));
+                    button.connect_clicked(|_| crate::schedules_view::open(None));
+                    let b = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+                    b.add_css_class("status-cell");
+                    b.add_css_class("status-cell-schedules");
+                    b.append(&button);
+                    b.upcast()
                 }
                 CellKind::Identity => {
                     let b = cell_box(c.kind, Some("ph-user-circle-symbolic"), &c.text);

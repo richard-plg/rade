@@ -215,6 +215,7 @@ pub fn shown(m: &rade_core::State) -> Option<String> {
 pub fn open(project: &str) {
     let Some(app) = try_app() else { return };
     crate::usage_view::close();
+    crate::schedules_view::close();
     let at = focus_key(&app.model.borrow());
     SHOWN.with(|s| *s.borrow_mut() = Some((project.to_string(), at)));
     RENDERED.with(|r| r.borrow_mut().take());

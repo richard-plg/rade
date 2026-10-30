@@ -957,6 +957,7 @@ pub fn menu(key: &str) -> gio::Menu {
         ("Project settings…", "sb.project-settings"),
         ("Add source…", "sb.link-add"),
         ("New Worktree…", "sb.project-new-worktree"),
+        ("Schedules…", "sb.project-schedules"),
         ("Open project.toml", "sb.project-open"),
         ("Customize Project…", "sb.project-customize"),
     ] {

@@ -547,6 +547,20 @@ toast > button.circular image { -gtk-icon-size: 16px; }
 .led-done { background: @ok; border-color: @ok; }
 .led-error { background: @err; border-color: @err; }
 .led-interrupted { background: @wt; border-color: @wt; }
+/* Schedules (R139): on = armed (accent), off = the hollow LED. */
+.led-sched-on { background: @acc; border-color: @acc; }
+.nav-schedule { -gtk-icon-size: 12px; color: @fg3; }
+.sched-group { padding: 10px 10px 4px 10px; }
+.sched-detail { padding: 14px; }
+.sched-fields { margin-top: 4px; }
+.sched-field-name { padding-top: 2px; }
+.sched-actions { margin: 4px 0; }
+.sched-run-row { padding: 2px 0; }
+.sched-outcome-failed { color: @err; }
+.sched-outcome-skipped, .sched-outcome-missed { color: @wait; }
+.sched-filter { min-height: 24px; }
+.sched-form-section { margin-top: 6px; }
+.sched-form-prompt-box { border: 1px solid @line; border-radius: 6px; }
 /* Agent glyphs (R115, ADR-0038): the LED's colours on each agent's own icon. */
 .agent-glyph { -gtk-icon-size: 14px; min-width: 14px; min-height: 14px; color: @fg3; }
 .agent-glyph.glyph-running { color: @run; animation: led-pulse 1.6s ease-in-out infinite; }
