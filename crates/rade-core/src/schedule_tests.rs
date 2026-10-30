@@ -507,3 +507,50 @@ fn r136_c_on_again_after_an_early_run() {
     assert!(on.enabled && !on.done);
     assert_eq!(on.next(ctx.now, &tz), s.at);
 }
+
+#[test]
+fn r139_f_relative_times_and_run_chips() {
+    let now = 1_000_000;
+    assert_eq!(relative(now + 20, now), "in <1m");
+    assert_eq!(relative(now + 25 * 60, now), "in 25m");
+    assert_eq!(relative(now + 2 * 3600, now), "in 2h");
+    assert_eq!(relative(now + 2 * 3600 + 10 * 60, now), "in 2h 10m");
+    assert_eq!(relative(now + 30 * 3600, now), "in 1d 6h");
+    assert_eq!(relative(now + 5 * 86400 + 3600, now), "in 5d");
+    assert_eq!(relative(now - 10, now), "just now");
+    assert_eq!(relative(now - 5 * 60, now), "5m ago");
+    assert_eq!(relative(now - 3 * 3600 - 59, now), "3h ago");
+    assert_eq!(relative(now - 2 * 86400, now), "2d ago");
+
+    use AgentStatus as A;
+    let chip = |o, s, open| run_chip(o, s, open);
+    assert_eq!(
+        chip(Outcome::Started, Some(A::Running), true),
+        ("running", "running")
+    );
+    assert_eq!(
+        chip(Outcome::Started, Some(A::Waiting), true),
+        ("needs input", "waiting")
+    );
+    assert_eq!(
+        chip(Outcome::Started, Some(A::Done), false),
+        ("done", "done")
+    );
+    assert_eq!(
+        chip(Outcome::Started, Some(A::Error), false),
+        ("error", "error")
+    );
+    assert_eq!(
+        chip(Outcome::Started, Some(A::Interrupted), true),
+        ("interrupted", "interrupted")
+    );
+    assert_eq!(chip(Outcome::Started, None, true), ("started", "running"));
+    assert_eq!(
+        chip(Outcome::Started, Some(A::Exited), false),
+        ("ended", "exited")
+    );
+    assert_eq!(chip(Outcome::Started, None, false), ("ended", "exited"));
+    assert_eq!(chip(Outcome::Skipped, None, false), ("skipped", "exited"));
+    assert_eq!(chip(Outcome::Missed, None, false), ("missed", "exited"));
+    assert_eq!(chip(Outcome::Failed, None, false), ("failed", "error"));
+}

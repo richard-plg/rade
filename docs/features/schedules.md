@@ -46,14 +46,17 @@ never brought to the front: you get the usual notification when the Agent finish
 
 Open it from the clock button in the titlebar, the Statusline's **⏱ n** (Schedules switched on in this Workspace), the palette
 (**Schedules**), or a Project's right-click menu (**Schedules…**, filtered to that Project). The list
-is grouped by Project, then Scratch, with filters for Workspace, Project and on / off; its LED is
-the accent when on, hollow when off, red when the last run failed.
+is grouped by Project, then Scratch, with **All · On · Off** and Workspace / Project filters. Each row
+shows when it runs, the agent and account, how long ago it last ran and when it runs next; its LED is
+the accent when on, hollow when off, red when the last run failed. Up / Down move through the list,
+a double-click edits.
 
-The selected Schedule shows every setting, the next five times and its **Runs** — time, outcome
-(*started*, *skipped*, *missed*, *failed*) and the Agent's last status. **Resume** on a started run
-focuses its Pane, or — when that Pane was closed — opens a new one `deps-3-r` that resumes the same
-agent session. **Run now**, **Edit…**, **Turn off / on** and **Delete…** (which can close its Panes
-too) are under the details. Esc or ✕ goes back.
+The selected Schedule has an **on / off switch** in its header and **⋯** for **Edit…** and
+**Delete…** (which can close its Panes too). Under it: what happens next (*Next run in 2h 10m*), **Run
+now**, its settings, the prompt, the next five times and its **Runs** — time, and a chip with how it
+went (*running*, *needs input*, *done*, *skipped*, *missed*, *failed*…). **Show** takes you to a run
+whose Pane is still open; **Resume** opens a new Pane `deps-3-r` that resumes the same agent session.
+Either way the page closes and that Pane has the focus. Esc or ✕ goes back.
 
 ## From the CLI
 

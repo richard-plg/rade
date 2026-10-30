@@ -49,6 +49,9 @@ struct Data {
     projects: Vec<(String, String, String)>,
     detail: Option<Value>,
     error: Option<String>,
+    /// The detail goes under the list (narrow window or large text).
+    below: bool,
+    large: bool,
 }
 
 thread_local! {
@@ -60,6 +63,30 @@ thread_local! {
     static GEN: Cell<u64> = const { Cell::new(0) };
     static FORM: RefCell<Option<Rc<Form>>> = const { RefCell::new(None) };
     static DELETE: RefCell<Option<adw::AlertDialog>> = const { RefCell::new(None) };
+    static BUILT: Cell<(bool, bool)> = const { Cell::new((false, false)) };
+}
+
+/// The page's padding left and right, the gap, the detail's width and the
+/// list's least width.
+const PAGE_PAD: i32 = 48;
+const LIST_MIN: i32 = 660;
+const DETAIL_W: i32 = 400;
+
+/// (detail below the list, large text) now (R111).
+fn shape() -> (bool, bool) {
+    let mode = crate::layout_mode::mode();
+    let content = crate::layout_mode::center_width() - PAGE_PAD;
+    (
+        mode.large_text || (content > 0 && content - 16 - DETAIL_W < LIST_MIN),
+        mode.large_text,
+    )
+}
+
+/// The window's width or text scale changed: build again when the shape did.
+pub fn relayout() {
+    if BUILT.with(Cell::get) != shape() {
+        refresh();
+    }
 }
 
 fn focus_key(m: &rade_core::State) -> Focus {
@@ -77,6 +104,18 @@ pub fn install() -> gtk::ScrolledWindow {
     sc.set_hscrollbar_policy(gtk::PolicyType::Automatic);
     sc.add_css_class("usage-scroll");
     sc.add_css_class("sched-scroll");
+    // Up / Down move the selection.
+    let keys = gtk::EventControllerKey::new();
+    keys.connect_key_pressed(|_, k, _, _| {
+        let down = match k {
+            gtk::gdk::Key::Down | gtk::gdk::Key::KP_Down => true,
+            gtk::gdk::Key::Up | gtk::gdk::Key::KP_Up => false,
+            _ => return glib::Propagation::Proceed,
+        };
+        step(down);
+        glib::Propagation::Stop
+    });
+    sc.add_controller(keys);
     ROOT.with(|r| *r.borrow_mut() = Some(sc.clone()));
     // Next times and Run statuses stay fresh.
     glib::timeout_add_seconds_local(15, || {
@@ -153,6 +192,29 @@ pub(crate) fn leave() {
     }
 }
 
+/// Select the row under / over the selected one.
+fn step(down: bool) {
+    let Some(d) = DATA.with(|d| d.borrow().clone()) else {
+        return;
+    };
+    let keys: Vec<(String, String)> = groups(&d)
+        .into_iter()
+        .flat_map(|(_, rows)| rows)
+        .map(|r| (s(&r["workspace"]).to_string(), s(&r["name"]).to_string()))
+        .collect();
+    let at = keys
+        .iter()
+        .position(|k| Some(k) == d.choice.selected.as_ref());
+    let to = match (at, down) {
+        (Some(i), true) => (i + 1).min(keys.len().saturating_sub(1)),
+        (Some(i), false) => i.saturating_sub(1),
+        (None, _) => 0,
+    };
+    if let Some(k) = keys.get(to).cloned() {
+        set_choice(move |c| c.selected = Some(k));
+    }
+}
+
 fn call(method: &str, p: Value) -> std::result::Result<Value, String> {
     crate::schedules::dispatch(method, p).map_err(|e| e.message)
 }
@@ -200,8 +262,11 @@ pub fn refresh() {
         g.set(g.get() + 1);
         g.get()
     });
+    let (below, large) = shape();
     std::thread::spawn(move || {
-        let data = load(choice, shown_ws, workspaces, projects);
+        let mut data = load(choice, shown_ws, workspaces, projects);
+        data.below = below;
+        data.large = large;
         glib::MainContext::default().invoke(move || {
             if GEN.with(|g| g.get()) != gen {
                 return;
@@ -268,6 +333,8 @@ fn load(
         projects,
         detail,
         error,
+        below: false,
+        large: false,
     }
 }
 
@@ -290,15 +357,6 @@ fn label(text: &str, classes: &[&str]) -> gtk::Label {
     l
 }
 
-fn button(text: &str, classes: &[&str], f: impl Fn() + 'static) -> gtk::Button {
-    let b = gtk::Button::with_label(text);
-    for c in classes {
-        b.add_css_class(c);
-    }
-    b.connect_clicked(move |_| f());
-    b
-}
-
 fn render() {
     let Some(root) = ROOT.with(|r| r.borrow().clone()) else {
         return;
@@ -309,6 +367,7 @@ fn render() {
     if RENDERED.with(|r| r.borrow().as_ref() == Some(&d)) {
         return;
     }
+    BUILT.with(|b| b.set((d.below, d.large)));
     root.set_child(Some(&build(&d)));
     RENDERED.with(|r| *r.borrow_mut() = Some(d));
 }
@@ -394,12 +453,80 @@ fn groups(d: &Data) -> Vec<(String, Vec<&Value>)> {
     out
 }
 
-fn header(d: &Data) -> gtk::Box {
-    let h = gtk::Box::new(gtk::Orientation::Horizontal, 10);
-    h.add_css_class("usage-head");
-    let icon = gtk::Image::from_icon_name("ph-clock-symbolic");
-    icon.add_css_class("usage-icon");
-    h.append(&icon);
+fn icon(name: &str, classes: &[&str]) -> gtk::Image {
+    let i = gtk::Image::from_icon_name(name);
+    for c in classes {
+        i.add_css_class(c);
+    }
+    i
+}
+
+/// A secondary button (the Usage page's, A.15): icon, text, optional caret.
+fn secondary(icon_name: &str, text: &str, class: &str, caret: bool) -> gtk::Button {
+    let b = gtk::Button::new();
+    let inner = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+    if !icon_name.is_empty() {
+        inner.append(&icon(icon_name, &["btn-icon"]));
+    }
+    if !text.is_empty() {
+        inner.append(&gtk::Label::new(Some(text)));
+    }
+    if caret {
+        inner.append(&icon("ph-caret-down-symbolic", &["btn-caret"]));
+    }
+    b.set_child(Some(&inner));
+    b.add_css_class("secondary-button");
+    b.add_css_class(class);
+    b.set_valign(gtk::Align::Center);
+    b
+}
+
+type Items = Vec<(String, Box<dyn Fn()>)>;
+
+/// A menu of `items` under `anchor`; a `!` first in a text = destructive.
+fn popover(anchor: &gtk::Button, items: Rc<Items>) {
+    let pop = gtk::Popover::new();
+    pop.add_css_class("menu");
+    let col = gtk::Box::new(gtk::Orientation::Vertical, 0);
+    for (i, (t, _)) in items.iter().enumerate() {
+        let row = gtk::Button::with_label(t.trim_start_matches('!'));
+        row.add_css_class("flat");
+        if t.starts_with('!') {
+            row.add_css_class("sched-menu-danger");
+        }
+        let (items, pop2) = (items.clone(), pop.clone());
+        row.connect_clicked(move |_| {
+            pop2.popdown();
+            (items[i].1)();
+        });
+        col.append(&row);
+    }
+    pop.set_child(Some(&col));
+    pop.set_parent(anchor);
+    pop.connect_closed(|p| {
+        let p = p.clone();
+        glib::idle_add_local_once(move || p.unparent());
+    });
+    pop.popup();
+}
+
+fn menu_button(icon_name: &str, text: &str, class: &str, items: Items) -> gtk::Button {
+    let b = secondary(icon_name, text, class, true);
+    b.add_css_class("sched-filter");
+    let items = Rc::new(items);
+    b.connect_clicked(move |anchor| popover(anchor, items.clone()));
+    b
+}
+
+/// `in 2h 10m`.
+fn rel(t: i64) -> String {
+    rade_core::schedule::relative(t, now())
+}
+
+fn header(d: &Data) -> gtk::Widget {
+    let h = gtk::Box::new(gtk::Orientation::Horizontal, 12);
+    h.add_css_class("usage-header");
+    h.append(&icon("ph-clock-symbolic", &["usage-icon"]));
     let titles = gtk::Box::new(gtk::Orientation::Vertical, 2);
     titles.append(&label("Schedules", &["usage-title", "sched-title"]));
     // Switched on (a failed last Run is still on), like the Statusline cell.
@@ -413,40 +540,39 @@ fn header(d: &Data) -> gtk::Box {
         .iter()
         .filter_map(|r| Some((r["next"].as_i64()?, s(&r["name"]))))
         .min();
+    let total = d.rows.len();
     let sub = match next {
-        Some((t, n)) => format!(
-            "{on} on · next {n} {}",
-            fmt_time(t, now(), crate::schedules::tz())
-        ),
-        None => format!("{on} on"),
+        Some((t, n)) => format!("{total} schedules · {on} on · next {n} {}", rel(t)),
+        None => format!("{total} schedules · {on} on"),
     };
     titles.append(&label(&sub, &["usage-sub", "sched-sub"]));
     titles.set_hexpand(true);
+    titles.set_valign(gtk::Align::Center);
     h.append(&titles);
+
+    // On / off: a segmented control like the Usage page's period.
+    let seg = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+    seg.add_css_class("usage-period");
+    seg.add_css_class("sched-filter-on");
+    seg.set_valign(gtk::Align::Center);
+    for (v, text) in [(None, "All"), (Some(true), "On"), (Some(false), "Off")] {
+        let b = gtk::Button::with_label(text);
+        b.add_css_class("usage-period-seg");
+        b.add_css_class("flat");
+        if d.choice.on == v {
+            b.add_css_class("active");
+        }
+        b.set_focus_on_click(false);
+        b.connect_clicked(move |_| set_choice(move |c| c.on = v));
+        seg.append(&b);
+    }
 
     let ws_label = match d.choice.workspace.as_deref() {
         Some("") => "All workspaces".to_string(),
-        Some(w) => d
-            .workspaces
-            .iter()
-            .find(|x| x.0 == w)
-            .map_or(w.to_string(), |x| x.1.clone()),
-        None => d
-            .workspaces
-            .iter()
-            .find(|x| x.0 == d.shown_workspace)
-            .map_or(d.shown_workspace.clone(), |x| x.1.clone()),
+        Some(w) => ws_name(d, w),
+        None => ws_name(d, &d.shown_workspace),
     };
-    let mut ws_items: Vec<(String, Box<dyn Fn()>)> = vec![(
-        "This workspace".into(),
-        Box::new(|| {
-            set_choice(|c| {
-                c.workspace = None;
-                c.project = None;
-            })
-        }),
-    )];
-    ws_items.push((
+    let mut ws_items: Items = vec![(
         "All workspaces".into(),
         Box::new(|| {
             set_choice(|c| {
@@ -454,21 +580,27 @@ fn header(d: &Data) -> gtk::Box {
                 c.project = None;
             })
         }),
-    ));
+    )];
     for (id, name) in &d.workspaces {
         let id = id.clone();
+        let mine = id == d.shown_workspace;
         ws_items.push((
             name.clone(),
             Box::new(move || {
                 let id = id.clone();
                 set_choice(move |c| {
-                    c.workspace = Some(id);
+                    c.workspace = if mine { None } else { Some(id) };
                     c.project = None;
                 })
             }),
         ));
     }
-    h.append(&menu_button(&ws_label, "sched-filter-ws", ws_items));
+    let ws = menu_button(
+        "ph-circles-four-symbolic",
+        &ws_label,
+        "sched-filter-ws",
+        ws_items,
+    );
 
     let proj_label = match d.choice.project.as_deref() {
         None => "All projects".to_string(),
@@ -484,7 +616,7 @@ fn header(d: &Data) -> gtk::Box {
         Some(w) => Some(w.to_string()),
         None => Some(d.shown_workspace.clone()),
     };
-    let mut p_items: Vec<(String, Box<dyn Fn()>)> = vec![(
+    let mut p_items: Items = vec![(
         "All projects".into(),
         Box::new(|| set_choice(|c| c.project = None)),
     )];
@@ -505,73 +637,86 @@ fn header(d: &Data) -> gtk::Box {
         "Scratch".into(),
         Box::new(|| set_choice(|c| c.project = Some(String::new()))),
     ));
-    h.append(&menu_button(&proj_label, "sched-filter-project", p_items));
-
-    let on_label = match d.choice.on {
-        None => "On and off",
-        Some(true) => "On",
-        Some(false) => "Off",
-    };
-    h.append(&menu_button(
-        on_label,
-        "sched-filter-on",
-        vec![
-            (
-                "On and off".into(),
-                Box::new(|| set_choice(|c| c.on = None)),
-            ),
-            ("On".into(), Box::new(|| set_choice(|c| c.on = Some(true)))),
-            (
-                "Off".into(),
-                Box::new(|| set_choice(|c| c.on = Some(false))),
-            ),
-        ],
-    ));
-    h.append(&button(
-        "New Schedule…",
-        &["suggested-action", "sched-new"],
-        || new_form(None),
-    ));
+    let proj = menu_button(
+        "ph-cube-symbolic",
+        &proj_label,
+        "sched-filter-project",
+        p_items,
+    );
+    let new = secondary("ph-plus-symbolic", "New schedule", "sched-new", false);
+    new.set_tooltip_text(Some("New Schedule…"));
+    new.connect_clicked(|_| new_form(None));
     let close = gtk::Button::from_icon_name("ph-x-symbolic");
+    close.add_css_class("dialog-close");
     close.add_css_class("flat");
+    close.add_css_class("usage-close");
     close.add_css_class("sched-close");
     close.set_tooltip_text(Some("Close (Esc)"));
+    close.set_valign(gtk::Align::Center);
     close.connect_clicked(|_| leave());
+    let controls: [&gtk::Widget; 4] = [
+        seg.upcast_ref(),
+        ws.upcast_ref(),
+        proj.upcast_ref(),
+        new.upcast_ref(),
+    ];
+    if d.large {
+        // Large text: the controls go under the title (no sideways scroll).
+        h.append(&close);
+        let row = gtk::Box::new(gtk::Orientation::Horizontal, 12);
+        row.add_css_class("usage-header-controls");
+        for w in controls {
+            row.append(w);
+        }
+        let top = gtk::Box::new(gtk::Orientation::Vertical, 10);
+        top.append(&h);
+        top.append(&row);
+        return top.upcast();
+    }
+    for w in controls {
+        h.append(w);
+    }
     h.append(&close);
-    h
+    h.upcast()
 }
 
-fn menu_button(text: &str, class: &str, items: Vec<(String, Box<dyn Fn()>)>) -> gtk::Button {
-    let b = gtk::Button::new();
-    let inner = gtk::Box::new(gtk::Orientation::Horizontal, 6);
-    inner.append(&gtk::Label::new(Some(text)));
-    inner.append(&gtk::Image::from_icon_name("ph-caret-down-symbolic"));
-    b.set_child(Some(&inner));
-    b.add_css_class("flat");
-    b.add_css_class("sched-filter");
-    b.add_css_class(class);
-    let items = Rc::new(items);
-    b.connect_clicked(move |anchor| {
-        let pop = gtk::Popover::new();
-        let col = gtk::Box::new(gtk::Orientation::Vertical, 0);
-        for (i, (t, _)) in items.iter().enumerate() {
-            let row = gtk::Button::with_label(t);
-            row.add_css_class("flat");
-            let (items, pop2) = (items.clone(), pop.clone());
-            row.connect_clicked(move |_| {
-                pop2.popdown();
-                (items[i].1)();
-            });
-            col.append(&row);
-        }
-        pop.set_child(Some(&col));
-        pop.set_parent(anchor);
-        pop.connect_closed(|p| {
-            let p = p.clone();
-            glib::idle_add_local_once(move || p.unparent());
-        });
-        pop.popup();
-    });
+fn ws_name(d: &Data, id: &str) -> String {
+    d.workspaces
+        .iter()
+        .find(|x| x.0 == id)
+        .map_or(id.to_string(), |x| x.1.clone())
+}
+
+/// The list's columns (head text, width; -1 = the rest).
+const COLUMNS: [(&str, i32); 5] = [
+    ("SCHEDULE", -1),
+    ("WHEN", 150),
+    ("AGENT", 130),
+    ("LAST RUN", 120),
+    ("NEXT", 110),
+];
+
+/// A column's width; at large text it grows with the text (R111.2).
+fn sized(w: &impl IsA<gtk::Widget>, width: i32) {
+    let px = if crate::layout_mode::mode().large_text {
+        (f64::from(width) * crate::layout_mode::text_scale()).round() as i32
+    } else {
+        width
+    };
+    w.set_size_request(px, -1);
+}
+
+fn badge(agent: &str, size: i32) -> gtk::Label {
+    let b = gtk::Label::new(Some(match agent {
+        "codex" => "X",
+        "claude" => "C",
+        a => &a[..a.len().min(1)],
+    }));
+    b.add_css_class("agent-badge");
+    b.add_css_class(&format!("agent-badge-{agent}"));
+    b.set_size_request(size, size);
+    b.set_valign(gtk::Align::Center);
+    b.set_halign(gtk::Align::Center);
     b
 }
 
@@ -581,53 +726,118 @@ fn build(d: &Data) -> gtk::Widget {
     page.add_css_class("sched-page");
     page.append(&header(d));
     if let Some(e) = &d.error {
-        page.append(&label(e, &["sched-error", "error"]));
+        page.append(&label(e, &["sched-error", "field-error"]));
     }
     if d.rows.is_empty() {
-        let empty = gtk::Box::new(gtk::Orientation::Vertical, 8);
-        empty.add_css_class("sched-empty");
-        empty.set_valign(gtk::Align::Center);
-        empty.set_vexpand(true);
-        let l = label("No Schedules here yet", &["usage-title"]);
-        l.set_halign(gtk::Align::Center);
-        empty.append(&l);
+        let card = gtk::Box::new(gtk::Orientation::Vertical, 8);
+        card.add_css_class("usage-accounts-card");
+        card.add_css_class("sched-empty");
+        card.append(&icon("ph-clock-symbolic", &["sched-empty-icon"]));
+        let filtered = d.choice.project.is_some() || d.choice.on.is_some();
+        card.append(&label(
+            if filtered {
+                "No schedules match these filters"
+            } else {
+                "No schedules yet"
+            },
+            &["sched-empty-title"],
+        ));
         let hint = label(
-            "A Schedule starts an Agent with a prompt on a cron expression or once at a time.",
-            &["usage-sub"],
+            "A schedule starts an Agent with a prompt — on a cron expression, or once at a time.\nIt runs in a Project or a folder, while RADE is open.",
+            &["sched-empty-hint"],
         );
-        hint.set_halign(gtk::Align::Center);
-        empty.append(&hint);
-        let b = button("New Schedule…", &["suggested-action"], || new_form(None));
+        hint.set_justify(gtk::Justification::Center);
+        hint.set_ellipsize(gtk::pango::EllipsizeMode::None);
+        card.append(&hint);
+        let b = secondary("ph-plus-symbolic", "New schedule", "sched-empty-new", false);
         b.set_halign(gtk::Align::Center);
-        empty.append(&b);
-        page.append(&empty);
+        b.connect_clicked(|_| new_form(None));
+        card.append(&b);
+        let mut c = card.first_child();
+        while let Some(w) = c {
+            w.set_halign(gtk::Align::Center);
+            c = w.next_sibling();
+        }
+        let grid = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        grid.add_css_class("usage-grid");
+        grid.append(&card);
+        page.append(&grid);
         return page.upcast();
     }
-    let body = gtk::Box::new(gtk::Orientation::Horizontal, 16);
+    let body = gtk::Box::new(
+        if d.below {
+            gtk::Orientation::Vertical
+        } else {
+            gtk::Orientation::Horizontal
+        },
+        16,
+    );
     body.add_css_class("usage-grid");
     let list = gtk::Box::new(gtk::Orientation::Vertical, 0);
     list.add_css_class("usage-accounts-card");
     list.add_css_class("sched-list");
     list.set_hexpand(true);
     list.set_valign(gtk::Align::Start);
+    let head = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+    head.add_css_class("usage-table-head");
+    for (text, w) in COLUMNS {
+        let l = label(text, &["usage-col"]);
+        if w < 0 {
+            l.set_hexpand(true);
+            // The LED's room, so the head lines up with the names.
+            l.set_margin_start(13);
+        } else {
+            sized(&l, w);
+        }
+        if text == "NEXT" {
+            l.set_xalign(1.0);
+        }
+        head.append(&l);
+    }
+    list.append(&head);
     for (title, rows) in groups(d) {
-        let g = label(&title.to_uppercase(), &["usage-col", "sched-group"]);
-        list.append(&g);
+        list.append(&group_row(
+            &title,
+            rows.first().is_some_and(|r| r["project"].is_null()),
+            rows.len(),
+        ));
         for r in rows {
             list.append(&row(d, r));
         }
     }
     body.append(&list);
     if let Some(det) = &d.detail {
-        body.append(&detail(det));
+        let card = detail(det);
+        if d.below {
+            card.set_size_request(-1, -1);
+            card.set_hexpand(true);
+        }
+        body.append(&card);
     }
     page.append(&body);
     page.upcast()
 }
 
+/// A group's title row: the Project (cube) or Scratch (terminal), a count.
+fn group_row(title: &str, scratch: bool, n: usize) -> gtk::Box {
+    let g = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+    g.add_css_class("sched-group");
+    g.append(&icon(
+        if scratch {
+            "ph-terminal-window-symbolic"
+        } else {
+            "ph-cube-symbolic"
+        },
+        &["sched-group-icon"],
+    ));
+    g.append(&label(title, &["sched-group-title"]));
+    g.append(&label(&n.to_string(), &["sched-group-count"]));
+    g
+}
+
 fn row(d: &Data, r: &Value) -> gtk::Box {
     let key = (s(&r["workspace"]).to_string(), s(&r["name"]).to_string());
-    let b = gtk::Box::new(gtk::Orientation::Horizontal, 10);
+    let b = gtk::Box::new(gtk::Orientation::Horizontal, 0);
     b.add_css_class("usage-row");
     b.add_css_class("sched-row");
     b.set_widget_name(&format!("sched-row-{}", key.1));
@@ -635,156 +845,322 @@ fn row(d: &Data, r: &Value) -> gtk::Box {
         b.add_css_class("selected");
     }
     let st = state(r);
+    if st == "off" || st == "done" {
+        b.add_css_class("sched-row-off");
+    }
     let cell = gtk::Box::new(gtk::Orientation::Horizontal, 8);
     cell.add_css_class("usage-cell");
+    cell.add_css_class("usage-cell-account");
     cell.append(&led(st));
     cell.append(&label(s(&r["name"]), &["usage-account-name", "sched-name"]));
-    cell.set_size_request(170, -1);
+    cell.set_hexpand(true);
+    cell.set_size_request(120, -1);
     b.append(&cell);
+
     let when = label(s(&r["when_text"]), &["usage-cell", "sched-when"]);
-    when.set_size_request(150, -1);
+    when.set_tooltip_text(r["cron"].as_str());
+    sized(&when, COLUMNS[1].1);
     b.append(&when);
-    let who = label(
-        &format!("{} · {}", s(&r["agent"]), account_text(r)),
-        &["usage-cell", "sched-agent"],
-    );
-    who.set_hexpand(true);
-    b.append(&who);
-    let next = match st {
-        "off" => "off".to_string(),
-        "done" => "done".to_string(),
-        _ => time(&r["next"]),
+
+    let who = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+    who.add_css_class("usage-cell");
+    who.append(&badge(s(&r["agent"]), 16));
+    let acct = match r["account"].as_str() {
+        Some(a) => label(a, &["sched-account"]),
+        None => label("default", &["sched-account", "sched-dim"]),
     };
-    b.append(&label(&next, &["usage-cell", "sched-next"]));
+    acct.set_tooltip_text(Some(&account_text(r)));
+    who.append(&acct);
+    sized(&who, COLUMNS[2].1);
+    b.append(&who);
+
+    let last = match (r["last"]["at"].as_i64(), s(&r["last"]["outcome"])) {
+        // A past time, even a few seconds ahead of the clock.
+        (Some(t), "started") => label(&rel(t.min(now())), &["usage-cell", "sched-mono"]),
+        (Some(t), o) => label(
+            &format!("{o} · {}", rel(t.min(now()))),
+            &["usage-cell", "sched-mono", &format!("sched-last-{o}")],
+        ),
+        _ => label("—", &["usage-cell", "sched-mono", "sched-dim"]),
+    };
+    if let Some(t) = r["last"]["at"].as_i64() {
+        last.set_tooltip_text(Some(&format!(
+            "Run #{} · {}",
+            r["last"]["n"],
+            time(&json!(t))
+        )));
+    }
+    sized(&last, COLUMNS[3].1);
+    b.append(&last);
+
+    let next = match (st, r["next"].as_i64()) {
+        ("off", _) => label("off", &["usage-cell", "sched-mono", "sched-dim"]),
+        ("done", _) => label("done", &["usage-cell", "sched-mono", "sched-dim"]),
+        (_, Some(t)) => {
+            let l = label(&rel(t), &["usage-cell", "sched-mono", "sched-next"]);
+            if t - now() < 3600 {
+                l.add_css_class("soon");
+            }
+            l.set_tooltip_text(Some(&time(&json!(t))));
+            l
+        }
+        _ => label("—", &["usage-cell", "sched-mono", "sched-dim"]),
+    };
+    next.set_xalign(1.0);
+    sized(&next, COLUMNS[4].1);
+    b.append(&next);
     let click = gtk::GestureClick::new();
-    click.connect_released(move |_, _, _, _| {
+    click.connect_released(move |_, n, _, _| {
         let key = key.clone();
+        if n == 2 {
+            // Double-click: Edit.
+            new_form(Some(key));
+            return;
+        }
         set_choice(move |c| c.selected = Some(key));
     });
     b.add_controller(click);
     b
 }
 
-fn field(grid: &gtk::Grid, row: i32, name: &str, value: &str) {
-    grid.attach(
-        &label(name, &["usage-col", "sched-field-name"]),
-        0,
-        row,
-        1,
-        1,
-    );
-    let v = label(value, &["usage-cell", "sched-field"]);
+/// One `name  value` line of the detail.
+fn kv(card: &gtk::Box, name: &str, value: &gtk::Widget) {
+    let r = gtk::Box::new(gtk::Orientation::Horizontal, 10);
+    r.add_css_class("sched-kv");
+    let n = label(name, &["sched-kv-name"]);
+    n.set_valign(gtk::Align::Start);
+    sized(&n, 84);
+    r.append(&n);
+    value.set_hexpand(true);
+    r.append(value);
+    card.append(&r);
+}
+
+fn kv_text(card: &gtk::Box, name: &str, value: &str) {
+    let v = label(value, &["sched-kv-value"]);
     v.set_wrap(true);
     v.set_ellipsize(gtk::pango::EllipsizeMode::None);
-    grid.attach(&v, 1, row, 1, 1);
+    kv(card, name, v.upcast_ref());
+}
+
+fn section_head(card: &gtk::Box, title: &str, note: Option<&str>) {
+    let h = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+    h.add_css_class("usage-limit-group");
+    let l = label(title, &["section-label"]);
+    l.set_hexpand(true);
+    h.append(&l);
+    if let Some(n) = note {
+        h.append(&label(n, &["usage-chart-note"]));
+    }
+    card.append(&h);
 }
 
 fn detail(det: &Value) -> gtk::Box {
     let ws = s(&det["workspace"]).to_string();
     let name = s(&det["name"]).to_string();
-    let card = gtk::Box::new(gtk::Orientation::Vertical, 10);
-    card.add_css_class("usage-accounts-card");
+    let st = state(det);
+    let card = gtk::Box::new(gtk::Orientation::Vertical, 0);
+    card.add_css_class("usage-detail");
     card.add_css_class("sched-detail");
-    card.set_size_request(380, -1);
+    sized(&card, 400);
     card.set_valign(gtk::Align::Start);
-    let top = gtk::Box::new(gtk::Orientation::Horizontal, 8);
-    top.add_css_class("sched-detail-head");
-    top.append(&led(state(det)));
-    let t = label(&name, &["usage-account-name", "sched-detail-name"]);
-    t.set_hexpand(true);
-    top.append(&t);
-    top.append(&label(state(det), &["usage-ws-chip", "sched-state"]));
-    card.append(&top);
 
-    let grid = gtk::Grid::new();
-    grid.set_column_spacing(12);
-    grid.set_row_spacing(4);
-    grid.add_css_class("sched-fields");
+    // Head: agent, name, where; the on / off switch; ⋯ (Edit, Delete).
+    let head = gtk::Box::new(gtk::Orientation::Horizontal, 10);
+    head.add_css_class("usage-detail-header");
+    head.append(&badge(s(&det["agent"]), 24));
+    let titles = gtk::Box::new(gtk::Orientation::Vertical, 1);
+    titles.append(&label(&name, &["usage-detail-name", "sched-detail-name"]));
     let target = match (det["project"].as_str(), det["dir"].as_str()) {
-        (Some(p), _) => format!("{p} / {}", s(&det["link"])),
-        (_, Some(d)) => format!("{d} (Scratch)"),
+        (Some(p), _) if det["link"].as_str().is_some_and(|l| l != p) => {
+            format!("{p} / {}", s(&det["link"]))
+        }
+        (Some(p), _) => p.to_string(),
+        (_, Some(dir)) => format!("Scratch · {dir}"),
         _ => String::new(),
     };
-    let when = match det["cron"].as_str() {
-        Some(c) => format!("{} ({c})", s(&det["when_text"])),
-        None => s(&det["when_text"]).to_string(),
-    };
-    let rows = [
-        ("Target", target),
-        ("When", when),
-        ("Agent", s(&det["agent"]).to_string()),
-        ("Account", account_text(det)),
-        (
-            "If missed",
-            if s(&det["catch_up"]) == "once" {
-                "Run once when the app opens".into()
-            } else {
-                "Skip".into()
-            },
-        ),
-        ("Keep", format!("last {} run Panes", det["keep_runs"])),
-        ("Prompt", s(&det["prompt"]).to_string()),
-    ];
-    for (i, (k, v)) in rows.iter().enumerate() {
-        field(&grid, i as i32, k, v);
+    let sub = label(&target, &["usage-detail-sub"]);
+    sub.set_ellipsize(gtk::pango::EllipsizeMode::Middle);
+    titles.append(&sub);
+    titles.set_hexpand(true);
+    head.append(&titles);
+    let sw = gtk::Switch::new();
+    sw.add_css_class("settings-switch");
+    sw.add_css_class("sched-switch");
+    sw.set_valign(gtk::Align::Center);
+    sw.set_active(det["enabled"].as_bool() == Some(true));
+    sw.set_tooltip_text(Some(if sw.is_active() {
+        "On — click to turn off"
+    } else {
+        "Off — click to turn on"
+    }));
+    {
+        let (w, n) = (ws.clone(), name.clone());
+        sw.connect_state_set(move |_, on| {
+            set_enabled(&w, &n, on);
+            glib::Propagation::Proceed
+        });
     }
-    card.append(&grid);
+    head.append(&sw);
+    let more = secondary("ph-dots-three-symbolic", "", "sched-more", false);
+    more.set_tooltip_text(Some("More"));
+    {
+        let (w, n) = (ws.clone(), name.clone());
+        more.connect_clicked(move |b| {
+            let (w1, n1, w2, n2) = (w.clone(), n.clone(), w.clone(), n.clone());
+            let items: Items = vec![
+                (
+                    "Edit…".into(),
+                    Box::new(move || new_form(Some((w1.clone(), n1.clone())))),
+                ),
+                ("!Delete…".into(), Box::new(move || delete(&w2, &n2))),
+            ];
+            popover(b, Rc::new(items));
+        });
+    }
+    head.append(&more);
+    card.append(&head);
 
-    let next: Vec<String> = det["next_times"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .map(time)
-        .collect();
-    card.append(&label("NEXT", &["usage-col"]));
-    card.append(&label(
-        &if next.is_empty() {
-            "—".to_string()
-        } else {
-            next.join(" · ")
+    // What happens next, in one line.
+    let next_t = det["next"].as_i64();
+    let last = det["runs"].as_array().and_then(|r| r.first());
+    let (text, class) = match st {
+        "off" => ("Off — it won't run until you turn it on".to_string(), "off"),
+        "done" => (
+            match last.and_then(|r| r["at"].as_i64()) {
+                Some(t) => format!("Done — ran once, {}", time(&json!(t))),
+                None => "Done".to_string(),
+            },
+            "off",
+        ),
+        "failed" => (
+            format!(
+                "Last run failed{}",
+                last.and_then(|r| r["reason"].as_str())
+                    .map(|x| format!(": {x}"))
+                    .unwrap_or_default()
+            ),
+            "failed",
+        ),
+        _ => match next_t {
+            Some(t) => (format!("Next run {} · {}", rel(t), time(&json!(t))), "on"),
+            None => ("No next run".to_string(), "off"),
         },
-        &["usage-cell", "sched-next-times"],
-    ));
+    };
+    let banner = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+    banner.add_css_class("sched-status");
+    banner.add_css_class(&format!("sched-status-{class}"));
+    banner.append(&led(st));
+    let bl = label(&text, &["sched-status-text"]);
+    bl.set_wrap(true);
+    bl.set_ellipsize(gtk::pango::EllipsizeMode::None);
+    bl.set_hexpand(true);
+    banner.append(&bl);
+    card.append(&banner);
+    if st == "failed" {
+        if let Some(t) = next_t {
+            card.append(&label(
+                &format!("Still on · next run {} · {}", rel(t), time(&json!(t))),
+                &["sched-status-sub"],
+            ));
+        }
+    }
 
     let actions = gtk::Box::new(gtk::Orientation::Horizontal, 6);
     actions.add_css_class("sched-actions");
     {
         let (w, n) = (ws.clone(), name.clone());
-        actions.append(&button("Run now", &["sched-run"], move || run_now(&w, &n)));
+        let b = secondary("ph-arrow-clockwise-symbolic", "Run now", "sched-run", false);
+        b.set_tooltip_text(Some("Start one run now, in a new Pane"));
+        b.connect_clicked(move |_| run_now(&w, &n));
+        actions.append(&b);
     }
     {
         let (w, n) = (ws.clone(), name.clone());
-        actions.append(&button("Edit…", &["sched-edit"], move || {
-            new_form(Some((w.clone(), n.clone())))
-        }));
-    }
-    {
-        let (w, n) = (ws.clone(), name.clone());
-        let on = det["enabled"].as_bool() == Some(true);
-        actions.append(&button(
-            if on { "Turn off" } else { "Turn on" },
-            &["sched-toggle"],
-            move || set_enabled(&w, &n, !on),
-        ));
-    }
-    {
-        let (w, n) = (ws.clone(), name.clone());
-        actions.append(&button(
-            "Delete…",
-            &["destructive-action", "sched-delete"],
-            move || delete(&w, &n),
-        ));
+        let b = secondary("", "Edit…", "sched-edit", false);
+        b.connect_clicked(move |_| new_form(Some((w.clone(), n.clone()))));
+        actions.append(&b);
     }
     card.append(&actions);
 
-    card.append(&label("RUNS", &["usage-col"]));
+    section_head(&card, "SETTINGS", None);
+    let when = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+    when.append(&label(s(&det["when_text"]), &["sched-kv-value"]));
+    if let Some(c) = det["cron"].as_str() {
+        when.append(&label(c, &["chip", "sched-cron-chip"]));
+    }
+    kv(&card, "When", when.upcast_ref());
+    let runs_in = match (det["project"].as_str(), det["dir"].as_str()) {
+        (Some(p), _) => format!("Project {p} · link {}", s(&det["link"])),
+        (_, Some(dir)) => format!("{dir} (Scratch)"),
+        _ => String::new(),
+    };
+    kv_text(&card, "Runs in", &runs_in);
+    kv_text(
+        &card,
+        "Agent",
+        &format!("{} · {}", s(&det["agent"]), account_text(det)),
+    );
+    kv_text(
+        &card,
+        "If missed",
+        if s(&det["catch_up"]) == "once" {
+            "Run once when RADE opens"
+        } else {
+            "Skip it"
+        },
+    );
+    kv_text(
+        &card,
+        "Keep open",
+        &format!("the last {} run Panes", det["keep_runs"]),
+    );
+
+    section_head(&card, "PROMPT", None);
+    let prompt = label(s(&det["prompt"]), &["sched-prompt"]);
+    prompt.set_wrap(true);
+    prompt.set_wrap_mode(gtk::pango::WrapMode::WordChar);
+    prompt.set_lines(8);
+    prompt.set_selectable(true);
+    prompt.set_tooltip_text(det["prompt"].as_str());
+    card.append(&prompt);
+
+    let next: Vec<i64> = det["next_times"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_i64)
+        .collect();
+    if !next.is_empty() {
+        section_head(&card, "UPCOMING", None);
+        let up = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        up.add_css_class("sched-upcoming");
+        for t in next {
+            let r = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+            r.add_css_class("sched-up-row");
+            let a = label(&time(&json!(t)), &["sched-mono"]);
+            a.set_hexpand(true);
+            r.append(&a);
+            r.append(&label(&rel(t), &["sched-mono", "sched-dim"]));
+            up.append(&r);
+        }
+        card.append(&up);
+    }
+
     let runs = det["runs"].as_array().cloned().unwrap_or_default();
+    section_head(&card, "RUNS", (!runs.is_empty()).then_some("newest first"));
     if runs.is_empty() {
-        card.append(&label("No runs yet", &["usage-sub"]));
+        card.append(&label(
+            "No runs yet — Run now starts one.",
+            &["usage-detail-empty", "sched-no-runs"],
+        ));
     }
+    let list = gtk::Box::new(gtk::Orientation::Vertical, 0);
+    list.add_css_class("sched-runs");
     for r in runs {
-        card.append(&run_row(&ws, &name, &r));
+        list.append(&run_row(&ws, &name, &r));
     }
+    card.append(&list);
     card
 }
 
@@ -792,32 +1168,48 @@ fn run_row(ws: &str, name: &str, r: &Value) -> gtk::Box {
     let b = gtk::Box::new(gtk::Orientation::Horizontal, 8);
     b.add_css_class("sched-run-row");
     b.set_widget_name(&format!("sched-run-{}", r["n"]));
-    b.append(&label(&format!("#{}", r["n"]), &["usage-sub"]));
-    b.append(&label(&time(&r["at"]), &["usage-sub"]));
-    let outcome = s(&r["outcome"]);
-    let o = label(
-        outcome,
-        &["usage-ws-chip", &format!("sched-outcome-{outcome}")],
-    );
-    b.append(&o);
-    let mut text = r["status"].as_str().unwrap_or("").to_string();
-    if let Some(reason) = r["reason"].as_str() {
-        text = if text.is_empty() {
-            reason.to_string()
-        } else {
-            format!("{text} · {reason}")
-        };
-    }
-    let t = label(&text, &["usage-cell"]);
-    t.set_hexpand(true);
-    t.set_tooltip_text(Some(&text));
+    let n = label(&format!("#{}", r["n"]), &["sched-mono", "sched-dim"]);
+    sized(&n, 26);
+    b.append(&n);
+    let t = label(&time(&r["at"]), &["sched-mono"]);
+    sized(&t, 92);
     b.append(&t);
-    if outcome == "started" && r["session"].is_string() {
-        let n = r["n"].as_u64().unwrap_or(0) as u32;
-        let (w, nm) = (ws.to_string(), name.to_string());
-        b.append(&button("Resume", &["flat", "sched-resume"], move || {
-            resume(&w, &nm, n)
-        }));
+    let outcome: rade_core::schedule::Outcome = serde_json::from_value(r["outcome"].clone())
+        .unwrap_or(rade_core::schedule::Outcome::Started);
+    let status: Option<rade_core::AgentStatus> = serde_json::from_value(r["status"].clone()).ok();
+    let open = r["pane"].is_string() || r["resumed"].is_string();
+    let (text, kind) = rade_core::schedule::run_chip(outcome, status, open);
+    let chip = label(
+        text,
+        &["rade-chip", &format!("rade-chip-{kind}"), "sched-run-chip"],
+    );
+    chip.set_valign(gtk::Align::Center);
+    b.append(&chip);
+    let mut why = r["reason"].as_str().unwrap_or("").to_string();
+    if r["resumed"].is_string() {
+        why = "resumed".into();
+    }
+    let w = label(&why, &["sched-run-why"]);
+    w.set_hexpand(true);
+    w.set_tooltip_text(r["reason"].as_str());
+    b.append(&w);
+    let n = r["n"].as_u64().unwrap_or(0) as u32;
+    let (w, nm) = (ws.to_string(), name.to_string());
+    if open {
+        let s = secondary("ph-arrow-square-out-symbolic", "Show", "sched-show", false);
+        s.set_tooltip_text(Some("Go to this run's Pane"));
+        s.connect_clicked(move |_| resume(&w, &nm, n));
+        b.append(&s);
+    } else if outcome == rade_core::schedule::Outcome::Started && r["session"].is_string() {
+        let s = secondary(
+            "ph-arrow-counter-clockwise-symbolic",
+            "Resume",
+            "sched-resume",
+            false,
+        );
+        s.set_tooltip_text(Some("Resume this run's session in a new Pane"));
+        s.connect_clicked(move |_| resume(&w, &nm, n));
+        b.append(&s);
     }
     b
 }
@@ -839,12 +1231,32 @@ fn run_now(ws: &str, name: &str) {
     );
 }
 
+/// Show (an open run Pane) or Resume (its session in a new Pane), then go
+/// there: the page closes and the Pane has the focus (R139.2).
 fn resume(ws: &str, name: &str, n: u32) {
     ask(
         "schedule.resume",
         json!({"workspace": ws, "name": name, "n": n}),
-        report("Could not resume the run"),
+        |r| match r {
+            Ok(v) => {
+                if let Some(p) = v["pane"].as_str() {
+                    jump(p);
+                }
+            }
+            Err(e) => {
+                crate::worktrees::alert("Could not resume the run", &e);
+                refresh();
+            }
+        },
     );
+}
+
+/// Leave the page for Pane `pane`, focused (its Workspace, Tab shown).
+fn jump(pane: &str) {
+    let Some(app) = try_app() else { return };
+    close();
+    let _ = app.update(|m| m.focus_pane(pane));
+    app.restore_focus();
 }
 
 fn set_enabled(ws: &str, name: &str, on: bool) {
@@ -934,17 +1346,43 @@ fn strings(list: &[String]) -> gtk::StringList {
     gtk::StringList::new(&v)
 }
 
-fn section(title: &str) -> gtk::Label {
-    label(title, &["usage-col", "sched-form-section"])
+/// A field's label, with a hint after it.
+fn field_label(title: &str, hint: Option<&str>) -> gtk::Box {
+    let b = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+    b.append(&label(title, &["field-label"]));
+    if let Some(h) = hint {
+        b.append(&label(h, &["field-hint"]));
+    }
+    b
 }
 
+/// A field's label with a control (a segmented pair) at its right.
+fn field_head(title: &str, right: &impl IsA<gtk::Widget>) -> gtk::Box {
+    let b = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+    b.add_css_class("field-row");
+    b.add_css_class("sched-field-head");
+    let l = label(title, &["field-label"]);
+    l.set_hexpand(true);
+    l.set_valign(gtk::Align::Center);
+    b.append(&l);
+    right.set_valign(gtk::Align::Center);
+    b.append(right);
+    b
+}
+
+/// Two exclusive choices as a segmented control (the Usage page's period).
 fn toggle_pair(a: &str, b: &str, class: &str) -> (gtk::Box, gtk::ToggleButton, gtk::ToggleButton) {
     let x = gtk::ToggleButton::with_label(a);
     let y = gtk::ToggleButton::with_label(b);
     y.set_group(Some(&x));
     x.set_active(true);
+    for t in [&x, &y] {
+        t.add_css_class("usage-period-seg");
+        t.add_css_class("flat");
+        t.set_focus_on_click(false);
+    }
     let row = gtk::Box::new(gtk::Orientation::Horizontal, 0);
-    row.add_css_class("linked");
+    row.add_css_class("usage-period");
     row.add_css_class(class);
     row.append(&x);
     row.append(&y);
@@ -1035,7 +1473,7 @@ impl Form {
                         }
                     }
                     self.preview
-                        .set_label(&format!("Next: {}", times.join(" · ")));
+                        .set_label(&format!("Next  {}", times.join("  ·  ")));
                     self.preview.remove_css_class("error");
                 }
                 Err(e) => {
@@ -1051,9 +1489,20 @@ impl Form {
                 .borrow()
                 .as_ref()
                 .is_some_and(|l| l.1.as_deref() == Some(text.as_str()));
-            match rade_core::schedule::parse_at(&text, tz) {
-                Ok(t) if t > now() || unchanged => {}
-                _ => ok = false,
+            let (msg, bad) = match rade_core::schedule::parse_at(&text, tz) {
+                Ok(t) if t > now() || unchanged => (format!("Runs once, {}", rel(t)), false),
+                Ok(_) => ("That time has passed".to_string(), true),
+                Err(_) if self.date.text().trim().is_empty() => {
+                    ("Enter a date and a time".to_string(), true)
+                }
+                Err(_) => ("Date as YYYY-MM-DD, time as HH:MM".to_string(), true),
+            };
+            self.preview.set_label(&msg);
+            if bad {
+                self.preview.add_css_class("error");
+                ok = false;
+            } else {
+                self.preview.remove_css_class("error");
             }
         }
         ok &= !self.prompt_text().trim().is_empty();
@@ -1181,152 +1630,246 @@ pub fn new_form(editing: Option<(String, String)>) {
         (projects, presets)
     };
 
+    let ws_name = app
+        .model
+        .borrow()
+        .workspace_looks()
+        .into_iter()
+        .find(|l| l.id == workspace)
+        .map_or(workspace.clone(), |l| l.name);
     let dialog = adw::Dialog::new();
     dialog.set_title(if editing.is_some() {
         "Edit Schedule"
     } else {
         "New Schedule"
     });
-    dialog.set_content_width(520);
+    dialog.set_content_width(580);
     dialog.add_css_class("sched-form");
-    let view = adw::ToolbarView::new();
-    let bar = adw::HeaderBar::new();
-    bar.set_show_end_title_buttons(false);
-    bar.set_show_start_title_buttons(false);
-    let cancel = gtk::Button::with_label("Cancel");
-    cancel.add_css_class("sched-form-cancel");
-    let create = gtk::Button::with_label(if editing.is_some() { "Save" } else { "Create" });
-    create.add_css_class("suggested-action");
-    create.add_css_class("sched-form-create");
-    bar.pack_start(&cancel);
-    bar.pack_end(&create);
-    view.add_top_bar(&bar);
+    let shell = gtk::Box::new(gtk::Orientation::Vertical, 0);
+    shell.add_css_class("sched-form-shell");
 
-    let col = gtk::Box::new(gtk::Orientation::Vertical, 8);
+    // Header (the New Project dialog's): icon, title, Workspace, ✕.
+    let header = gtk::Box::new(gtk::Orientation::Horizontal, 10);
+    header.add_css_class("dialog-header");
+    header.append(&icon("ph-clock-symbolic", &["dialog-icon"]));
+    header.append(&label(&dialog.title(), &["dialog-title"]));
+    let ctx = label(&format!("in {ws_name}"), &["dialog-context"]);
+    ctx.set_hexpand(true);
+    header.append(&ctx);
+    let x = gtk::Button::from_icon_name("ph-x-symbolic");
+    x.add_css_class("flat");
+    x.add_css_class("dialog-close");
+    x.set_tooltip_text(Some("Close (Esc)"));
+    header.append(&x);
+    shell.append(&header);
+
+    let col = gtk::Box::new(gtk::Orientation::Vertical, 0);
+    col.add_css_class("dialog-body");
     col.add_css_class("sched-form-body");
-    col.set_margin_start(18);
-    col.set_margin_end(18);
-    col.set_margin_top(12);
-    col.set_margin_bottom(18);
 
-    col.append(&section("NAME"));
+    col.append(&field_label("Name", None));
     let name = gtk::Entry::new();
-    name.set_placeholder_text(Some("nightly-deps"));
+    name.set_placeholder_text(Some("e.g. nightly-deps"));
     name.add_css_class("sched-form-name");
     col.append(&name);
 
-    col.append(&section("RUNS IN"));
     let (pair, by_project, by_folder) = toggle_pair("Project", "Folder", "sched-form-target");
-    col.append(&pair);
-    let project_box = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+    col.append(&field_head("Runs in", &pair));
+    let project_box = gtk::Box::new(gtk::Orientation::Horizontal, 8);
     let pnames: Vec<String> = projects.iter().map(|p| p.0.clone()).collect();
     let project = gtk::DropDown::new(Some(strings(&pnames)), gtk::Expression::NONE);
     project.add_css_class("sched-form-project");
+    project.add_css_class("sched-drop");
     project.set_hexpand(true);
     let link = gtk::DropDown::new(None::<gtk::StringList>, gtk::Expression::NONE);
     link.add_css_class("sched-form-link");
+    link.add_css_class("sched-drop");
+    link.set_tooltip_text(Some("The Project's link (Source) to run in"));
     project_box.append(&project);
     project_box.append(&link);
     col.append(&project_box);
-    let folder_box = gtk::Box::new(gtk::Orientation::Vertical, 4);
-    let frow = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+    let folder_box = gtk::Box::new(gtk::Orientation::Vertical, 0);
+    let frow = gtk::Box::new(gtk::Orientation::Horizontal, 8);
     let folder = gtk::Entry::new();
     folder.set_placeholder_text(Some("/home/you/notes"));
     folder.set_hexpand(true);
     folder.add_css_class("sched-form-folder");
-    let choose = gtk::Button::with_label("Choose…");
+    let choose = secondary(
+        "ph-folder-simple-symbolic",
+        "Choose…",
+        "sched-form-choose",
+        false,
+    );
     frow.append(&folder);
     frow.append(&choose);
     folder_box.append(&frow);
-    folder_box.append(&label("Runs in Scratch", &["usage-sub"]));
+    folder_box.append(&label(
+        "Runs in Scratch, started in this folder.",
+        &["field-hint", "sched-form-hint"],
+    ));
     col.append(&folder_box);
     if projects.is_empty() {
         by_folder.set_active(true);
     }
 
-    col.append(&section("WHEN"));
     let (pair, repeat, once) = toggle_pair("Repeat", "Once", "sched-form-when");
-    col.append(&pair);
-    let cron_box = gtk::Box::new(gtk::Orientation::Vertical, 4);
+    col.append(&field_head("When", &pair));
+    let cron_box = gtk::Box::new(gtk::Orientation::Vertical, 0);
     let cron = gtk::Entry::new();
-    cron.set_placeholder_text(Some("0 9 * * 1-5"));
+    cron.set_placeholder_text(Some("minute hour day month weekday — e.g. 0 9 * * 1-5"));
     cron.add_css_class("sched-form-cron");
     cron_box.append(&cron);
     let presets_row = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+    presets_row.add_css_class("sched-presets");
     for (t, expr) in [
         ("Hourly", "0 * * * *"),
         ("Daily 09:00", "0 9 * * *"),
         ("Weekdays 09:00", "0 9 * * 1-5"),
+        ("Mondays 09:00", "0 9 * * 1"),
     ] {
         let b = gtk::Button::with_label(t);
-        b.add_css_class("flat");
         b.add_css_class("sched-form-preset");
+        b.set_tooltip_text(Some(expr));
         let c = cron.clone();
         b.connect_clicked(move |_| c.set_text(expr));
         presets_row.append(&b);
     }
     cron_box.append(&presets_row);
-    let preview = label("", &["usage-sub", "sched-form-preview"]);
-    preview.set_wrap(true);
-    cron_box.append(&preview);
     col.append(&cron_box);
-    let once_box = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+    let once_box = gtk::Box::new(gtk::Orientation::Horizontal, 8);
     let date = gtk::Entry::new();
     date.set_placeholder_text(Some("YYYY-MM-DD"));
     date.add_css_class("sched-form-date");
+    date.set_hexpand(true);
     let clock = gtk::Entry::new();
     clock.set_placeholder_text(Some("HH:MM"));
     clock.add_css_class("sched-form-time");
+    clock.set_width_chars(8);
     once_box.append(&date);
     once_box.append(&clock);
     col.append(&once_box);
+    let preview = label("", &["sched-form-preview"]);
+    preview.set_wrap(true);
+    preview.set_ellipsize(gtk::pango::EllipsizeMode::None);
+    col.append(&preview);
 
-    col.append(&section("AGENT"));
-    let arow = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+    let who = gtk::Grid::new();
+    who.set_column_spacing(12);
+    who.set_column_homogeneous(true);
+    who.add_css_class("field-row");
+    who.attach(&field_label("Agent", None), 0, 0, 1, 1);
+    who.attach(&field_label("Account", None), 1, 0, 1, 1);
     let agent = gtk::DropDown::new(Some(strings(&presets)), gtk::Expression::NONE);
     agent.add_css_class("sched-form-agent");
+    agent.add_css_class("sched-drop");
     if let Some(i) = presets.iter().position(|p| p == "claude") {
         agent.set_selected(i as u32);
     }
     let account = gtk::DropDown::new(None::<gtk::StringList>, gtk::Expression::NONE);
     account.add_css_class("sched-form-account");
-    account.set_hexpand(true);
-    arow.append(&agent);
-    arow.append(&account);
-    col.append(&arow);
+    account.add_css_class("sched-drop");
+    account.set_tooltip_text(Some(
+        "Default = the Workspace's default account when it runs",
+    ));
+    who.attach(&agent, 0, 1, 1, 1);
+    who.attach(&account, 1, 1, 1, 1);
+    col.append(&who);
 
-    col.append(&section("PROMPT"));
+    let ph = field_label("Prompt", Some("what the Agent is asked at each run"));
+    ph.add_css_class("field-row");
+    col.append(&ph);
     let prompt = gtk::TextView::new();
     prompt.set_wrap_mode(gtk::WrapMode::WordChar);
     prompt.add_css_class("sched-form-prompt");
+    prompt.set_top_margin(8);
+    prompt.set_bottom_margin(8);
+    prompt.set_left_margin(10);
+    prompt.set_right_margin(10);
     let psc = gtk::ScrolledWindow::new();
-    psc.set_min_content_height(90);
+    psc.set_min_content_height(76);
+    psc.set_max_content_height(200);
+    psc.set_propagate_natural_height(true);
+    psc.set_hscrollbar_policy(gtk::PolicyType::Never);
     psc.set_child(Some(&prompt));
     psc.add_css_class("sched-form-prompt-box");
     col.append(&psc);
 
-    let catch_up = gtk::CheckButton::with_label("Run once when the app opens after a missed time");
+    let oh = field_label("Options", None);
+    oh.add_css_class("field-row");
+    col.append(&oh);
+    let opts = gtk::Box::new(gtk::Orientation::Vertical, 6);
+    opts.add_css_class("sched-form-options");
+    let catch_up = gtk::CheckButton::with_label(
+        "If a time passes while RADE is closed, run once when it opens",
+    );
     catch_up.add_css_class("sched-form-catchup");
-    col.append(&catch_up);
-    let krow = gtk::Box::new(gtk::Orientation::Horizontal, 6);
-    krow.append(&label("Keep the last", &["usage-cell"]));
+    opts.append(&catch_up);
+    let krow = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+    krow.append(&label("Keep the last", &["sched-form-text"]));
     let keep = gtk::SpinButton::with_range(1.0, 20.0, 1.0);
     keep.set_value(3.0);
     keep.add_css_class("sched-form-keep");
+    keep.set_valign(gtk::Align::Center);
     krow.append(&keep);
-    krow.append(&label("run Panes open", &["usage-cell"]));
-    col.append(&krow);
-    let error = label("", &["error", "sched-form-error"]);
+    krow.append(&label(
+        "finished run Panes open; older ones close",
+        &["sched-form-text"],
+    ));
+    opts.append(&krow);
+    col.append(&opts);
+    let error = label("", &["field-error", "sched-form-error"]);
     error.set_wrap(true);
+    error.set_ellipsize(gtk::pango::EllipsizeMode::None);
     error.set_visible(false);
     col.append(&error);
 
     let sc = gtk::ScrolledWindow::new();
     sc.set_propagate_natural_height(true);
-    sc.set_max_content_height(640);
+    sc.set_max_content_height(660);
+    sc.set_hscrollbar_policy(gtk::PolicyType::Never);
     sc.set_child(Some(&col));
-    view.set_content(Some(&sc));
-    dialog.set_child(Some(&view));
+    shell.append(&sc);
+
+    // Footer: a note, Cancel, the primary button.
+    let footer = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+    footer.add_css_class("dialog-footer");
+    let note = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+    note.add_css_class("dialog-note");
+    note.set_hexpand(true);
+    note.append(&icon("ph-info-symbolic", &["dialog-note-icon"]));
+    let nl = label(
+        "Runs only while RADE is open, each in a new Pane of its own Tab.",
+        &["dialog-note-text"],
+    );
+    nl.set_wrap(true);
+    nl.set_ellipsize(gtk::pango::EllipsizeMode::None);
+    nl.set_hexpand(true);
+    note.append(&nl);
+    footer.append(&note);
+    let cancel = gtk::Button::with_label("Cancel");
+    cancel.add_css_class("secondary-button");
+    cancel.add_css_class("dialog-cancel");
+    cancel.add_css_class("sched-form-cancel");
+    cancel.set_valign(gtk::Align::Center);
+    footer.append(&cancel);
+    let create = gtk::Button::with_label(if editing.is_some() {
+        "Save"
+    } else {
+        "Create schedule"
+    });
+    create.add_css_class("suggested-action");
+    create.add_css_class("dialog-primary");
+    create.add_css_class("sched-form-create");
+    create.set_valign(gtk::Align::Center);
+    footer.append(&create);
+    shell.append(&footer);
+    dialog.set_child(Some(&shell));
+    {
+        let d = dialog.clone();
+        x.connect_clicked(move |_| {
+            d.close();
+        });
+    }
 
     let form = Rc::new(Form {
         dialog: dialog.clone(),

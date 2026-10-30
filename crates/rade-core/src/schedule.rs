@@ -582,6 +582,53 @@ pub fn cron_text(expr: &str) -> String {
     expr.to_string()
 }
 
+/// `in 2h 10m` / `in 1d 6h` / `5m ago` / `just now` (R139.1–R139.2).
+pub fn relative(t: i64, now: i64) -> String {
+    let d = t - now;
+    let a = d.abs();
+    let (days, hours, mins) = (a / 86400, a % 86400 / 3600, a % 3600 / 60);
+    if d >= 0 {
+        match () {
+            _ if a < 60 => "in <1m".into(),
+            _ if a < 3600 => format!("in {mins}m"),
+            _ if a < 86400 && mins == 0 => format!("in {hours}h"),
+            _ if a < 86400 => format!("in {hours}h {mins}m"),
+            _ if days < 3 && hours > 0 => format!("in {days}d {hours}h"),
+            _ => format!("in {days}d"),
+        }
+    } else {
+        match () {
+            _ if a < 60 => "just now".into(),
+            _ if a < 3600 => format!("{mins}m ago"),
+            _ if a < 86400 => format!("{}h ago", a / 3600),
+            _ => format!("{days}d ago"),
+        }
+    }
+}
+
+/// A Run's chip on the Schedules page (R139.2): (text, `rade-chip-<kind>`).
+/// A started Run says its Agent's status; `open` = its Pane is still there.
+pub fn run_chip(
+    outcome: Outcome,
+    status: Option<AgentStatus>,
+    open: bool,
+) -> (&'static str, &'static str) {
+    match outcome {
+        Outcome::Failed => ("failed", "error"),
+        Outcome::Skipped => ("skipped", "exited"),
+        Outcome::Missed => ("missed", "exited"),
+        Outcome::Started => match status {
+            Some(AgentStatus::Running) => ("running", "running"),
+            Some(AgentStatus::Waiting) => ("needs input", "waiting"),
+            Some(AgentStatus::Done) => ("done", "done"),
+            Some(AgentStatus::Error) => ("error", "error"),
+            Some(AgentStatus::Interrupted) => ("interrupted", "interrupted"),
+            None if open => ("started", "running"),
+            Some(AgentStatus::Exited) | None => ("ended", "exited"),
+        },
+    }
+}
+
 /// `Oct 30 09:00`, with the year when it is not `now`'s.
 pub fn fmt_time(t: i64, now: i64, tz: &TimeZone) -> String {
     let Ok(ts) = Timestamp::from_second(t) else {

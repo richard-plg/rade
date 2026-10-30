@@ -211,6 +211,7 @@ stop_app
 }
 
 ui() { rpc debug.ui "{\"op\": \"schedules\"${1:+, $1}}" | jq '.schedules'; }
+focused() { rade debug state | jq -r '.active_source as $a | .sources[] | select(.id==$a) | .active_worktree as $w | .worktrees[] | select(.id==$w) | .active_tab as $t | .tabs[] | select(.id==$t) | .focused'; }
 
 part2() {
 start_app
@@ -304,6 +305,17 @@ eventually 5 is "ui | jq '[.detail.runs[] | select(.n == 1 and .pane == null)] |
 ui '"arg": "resume", "n": 1' >/dev/null
 check "R139-c the old session resumed in the Schedule's Tab" eventually 10 grep -q -- "--resume $S1" "$FAKE_ARGV"
 check "R139-c recorded as run 1's resumed Pane" eventually 5 is "runs a1 | jq -r '.runs[1].resumed | type'" string
+R1=$(runs a1 | jq -r '.runs[1].resumed')
+check "R139-e Resume closes the page" eventually 5 is "ui | jq -r .open" false
+check "R139-e the resumed Pane is focused" eventually 5 is focused "$R1"
+ui '"arg": "open", "name": "a1"' >/dev/null
+eventually 5 is "ui | jq -r .open" true || true
+P2=$(runs a1 | jq -r '.runs[0].pane')
+ui '"arg": "resume", "n": 2' >/dev/null
+check "R139-e Show closes the page" eventually 5 is "ui | jq -r .open" false
+check "R139-e the open Run's Pane is focused" eventually 5 is focused "$P2"
+ui '"arg": "open", "name": "a1"' >/dev/null
+eventually 5 is "ui | jq -r .open" true || true
 for th in dark light; do
     rade debug action "color_scheme_$th" >/dev/null; sleep 1
     shot "m52-detail-$th"

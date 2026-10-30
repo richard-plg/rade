@@ -188,6 +188,7 @@ fn update() {
                 }
                 crate::home_view::relayout();
                 crate::usage_view::relayout();
+                crate::schedules_view::relayout();
             });
         }
         if old != new {
@@ -204,6 +205,7 @@ fn update() {
     }
     crate::home_view::relayout();
     crate::usage_view::relayout();
+    crate::schedules_view::relayout();
 }
 
 fn apply(u: &Ui, old: LayoutMode, new: LayoutMode) {
