@@ -98,6 +98,10 @@ pub struct Pane {
     /// (R125.4), not chosen: cleared when that Agent ends.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub account_detected: bool,
+    /// The Schedule whose run started this Pane (R137.2): `RADE_SCHEDULE`
+    /// and the Navigator's mark.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub schedule: Option<String>,
     /// A line the restored Terminal prints before its shell (R108.7: why a
     /// recorded invocation was not run); transient.
     #[serde(skip)]
@@ -203,6 +207,7 @@ impl Pane {
             account: None,
             account_agent: None,
             account_detected: false,
+            schedule: None,
             notice: None,
             task: None,
         }

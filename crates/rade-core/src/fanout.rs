@@ -424,6 +424,7 @@ impl State {
             grid: None,
             renamed: true,
             last_viewer: None,
+            schedule: None,
         });
         wt.active_tab.get_or_insert(tab.clone());
         self.fanouts.push(Fanout {

@@ -45,6 +45,9 @@ pub struct State {
     /// Fan-outs not yet discarded (R15).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub fanouts: Vec<crate::fanout::Fanout>,
+    /// Schedules of every Workspace (R136, ADR-0051).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub schedules: Vec<crate::schedule::Schedule>,
     /// Folded Project headers in the sidebar, `<workspace>/<project>` (R30.1).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub collapsed_projects: Vec<String>,
@@ -189,6 +192,10 @@ pub struct Tab {
     /// The Viewer focused last: a plain file open goes there (R113.3).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_viewer: Option<String>,
+    /// The Schedule (name, in the Tab's Workspace) whose runs this Tab
+    /// holds (R137.2): found by this, not by its label.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub schedule: Option<String>,
 }
 
 /// Where a Pane lives.
@@ -239,6 +246,7 @@ impl State {
             file_tree: false,
             palette_recent: Vec::new(),
             fanouts: Vec::new(),
+            schedules: Vec::new(),
             collapsed_projects: Vec::new(),
             trusted_configs: Default::default(),
             sidebar_rule: SIDEBAR_RULE,
@@ -870,6 +878,7 @@ impl State {
             grid: None,
             renamed: false,
             last_viewer: None,
+            schedule: None,
         };
         wt.tabs.push(tab);
         wt.active_tab.get_or_insert(tab_id.clone());

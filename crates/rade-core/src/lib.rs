@@ -44,6 +44,7 @@ pub mod restore_queue;
 pub mod review;
 pub mod review_loop;
 pub mod rpc;
+pub mod schedule;
 pub mod scm;
 pub mod scm_view;
 pub mod search;
