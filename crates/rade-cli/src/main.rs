@@ -1507,7 +1507,10 @@ mod tests {
             secs("code.impact", json!({"wait": 200.0}), None, None),
             Some(210)
         );
-        assert_eq!(secs("code.def", json!({"wait": 45.5}), None, None), Some(56));
+        assert_eq!(
+            secs("code.def", json!({"wait": 45.5}), None, None),
+            Some(56)
+        );
         assert_eq!(
             secs("browser.wait", json!({"timeout": 90}), None, None),
             Some(100)
