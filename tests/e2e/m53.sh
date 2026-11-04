@@ -8,13 +8,27 @@
 #   R142.3  `rade wait --until /regex/` finds text that scrolled off the screen, before or after it began
 #   R142-d  a `git` that takes 5 s (a wrapper first on PATH): with the window in front for 12 s, at
 #           most one facts read was in flight at any time
+#   R140-c  a test-mode app whose UI thread is held (`debug.ui block`): `rade list --call-timeout 2`
+#           exits 6 within 3 s naming the limit; `RADE_TIMEOUT=0 rade list` answers after the block
+#   R141-e  after `rade account add` (user + Workspace) and a Settings → Accounts variable,
+#           accounts.toml, workspace.toml and state.json are 0600
+#   R140-f  two `rade browser --engine chromium open` at once: one daemon, both answer (skipped
+#           without a Chromium)
 # The numbers are written to target/e2e-m53/numbers.txt (docs/internals/checks/M53.md quotes them).
 # Usage: tests/e2e/m53.sh   (NO_BUILD=1 to skip the build, KEEP=1 to keep the temp dir,
-#        PARTS="b a f d" to pick parts, AGENTS=60 to use fewer Agents in part a)
+#        PARTS="b a f d c s k" to pick parts, AGENTS=60 to use fewer Agents in part a)
 set -euo pipefail
 [[ -n ${DEBUG_M53:-} ]] && set -x
 HERE=$(cd "$(dirname "$0")" && pwd)
 OUT=$(cd "$HERE/../.." && pwd)/target/e2e-m53
+# A Chromium from the real HOME (Playwright's cache), found before lib.sh swaps
+# HOME for a temp one (as m24); $RADE_E2E_CHROMIUM overrides.
+if [[ -z ${RADE_E2E_BUS:-} && -z ${RADE_E2E_CHROMIUM:-} ]]; then
+    for c in "$HOME"/.cache/ms-playwright/chromium-*/chrome-linux*/chrome /opt/chrome-for-testing/chrome \
+        "$(command -v chromium || true)" "$(command -v google-chrome-stable || true)"; do
+        [[ -n $c && -x $c ]] && { export RADE_E2E_CHROMIUM=$c; break; }
+    done
+fi
 source "$HERE/lib.sh"
 
 mkdir -p "$T/bin" "$XDG_CONFIG_HOME/rade"
@@ -35,7 +49,7 @@ repo() { mkdir -p "$1" && git -C "$1" init -q -b main && git -C "$1" -c user.ema
 perf() { rpc debug.ui '{"op":"perf"}'; }
 wakeups() { rpc debug.ui "{\"op\":\"wakeups\",\"arg\":\"$1\"}"; }
 note() { echo "$*" | tee -a "$NUMBERS"; }
-want() { [[ " ${PARTS:-b a f d} " == *" $1 "* ]]; }
+want() { [[ " ${PARTS:-b a f d c s k} " == *" $1 "* ]]; }
 fresh() { rm -rf "$XDG_DATA_HOME/rade-dev"; } # no session to restore
 
 repo "$T/src/app"
@@ -147,6 +161,80 @@ EOF
     note "R142-d window active: $active; facts reads started in 12 s: $started, most in flight at once: $most"
     check "R142-d reads happened ($started)" test "$started" -ge 1
     check "R142-d at most one facts read in flight ($most)" test "$most" -le 1
+fi
+
+if want c; then
+    echo "== R140-c: a call the app does not answer in time"
+    fresh
+    start_app
+    rpc debug.ui '{"op":"block","ms":5000}' >/dev/null # held on the UI thread's next idle
+    sleep 0.3
+    t0=$(date +%s.%N); rc=0
+    rade list --call-timeout 2 >/dev/null 2>"$T/c.err" || rc=$?
+    secs=$(echo "$(date +%s.%N) - $t0" | bc)
+    note "R140-c rade list --call-timeout 2 on a held UI thread: exit $rc after $secs s: $(cat "$T/c.err")"
+    check "R140-c rade list --call-timeout 2 exits 6 (TIMEOUT) (exit $rc)" test "$rc" = 6
+    check "R140-c it ends within 3 s ($secs s)" test "$(echo "$secs <= 3" | bc)" = 1
+    check "R140-c the message names the limit and the method" grep -qF 'did not answer within 2 s (pane.list)' "$T/c.err"
+    check "R140-c RADE_TIMEOUT=0 rade list answers once the block ends" env RADE_TIMEOUT=0 rade list
+    stop_app
+fi
+
+if want s; then
+    echo "== R141-e: files with secrets are 0600 after real edits"
+    fresh
+    WS=$T/ws-acme
+    mkdir -p "$WS/.rade"
+    printf 'name = "acme"\n' >"$WS/.rade/workspace.toml"
+    chmod 644 "$WS/.rade/workspace.toml"
+    ACC=$XDG_CONFIG_HOME/rade/accounts.toml
+    printf '# logins\n' >"$ACC"
+    chmod 644 "$ACC"
+    start_app
+    rade workspace add "$WS" >/dev/null
+    rade account add --user --agent claude --name m53 --config-dir '~/.m53' >/dev/null
+    rade account add --workspace acme --agent claude --name acme-m53 --config-dir '~/.acme-m53' >/dev/null
+    rpc debug.ui '{"op":"app_settings_open"}' >/dev/null
+    sleep 0.5
+    rpc debug.ui '{"op":"app_settings_accounts","do":"select","agent":"claude","name":"m53"}' >/dev/null
+    rpc debug.ui '{"op":"app_settings_accounts","do":"add_var","key":"M53_TOKEN","value":"s3cret"}' >/dev/null
+    check "R141-e Settings → Accounts wrote the variable" eventually 5 grep -qx 'M53_TOKEN = "s3cret"' "$ACC"
+    check "R141-e state.json was saved" eventually 10 test -s "$STATE"
+    for f in "$ACC" "$WS/.rade/workspace.toml" "$STATE"; do
+        m=$(stat -c %a "$f")
+        note "R141-e $(basename "$f"): $m"
+        check "R141-e $(basename "$f") is 600 ($m)" test "$m" = 600
+    done
+    stop_app
+fi
+
+if want k; then
+    echo "== R140-f: two Chromium opens at once"
+    if [[ -z ${RADE_E2E_CHROMIUM:-} ]]; then
+        echo "  SKIP R140-f: no Chromium found (Playwright's cache, chromium, google-chrome; or RADE_E2E_CHROMIUM)"
+    else
+        fresh
+        printf '[browser]\nchromium = "%s"\n' "$RADE_E2E_CHROMIUM" >>"$XDG_CONFIG_HOME/rade/config.toml"
+        mkdir -p "$T/site" && printf '<title>m53</title><p>hi</p>\n' >"$T/site/index.html"
+        PORT=$(free_port)
+        python3 -m http.server "$PORT" --bind 127.0.0.1 --directory "$T/site" >/dev/null 2>&1 &
+        HTTP=$!
+        eventually 10 curl -sf "http://127.0.0.1:$PORT/" >/dev/null || true
+        start_app
+        r1=0 r2=0
+        rade browser --engine chromium open ":$PORT/" >"$T/k1.out" 2>&1 & k1=$!
+        rade browser --engine chromium open ":$PORT/" >"$T/k2.out" 2>&1 & k2=$!
+        wait "$k1" || r1=$?
+        wait "$k2" || r2=$?
+        check "R140-f both opens answered (exit $r1 / $r2)" test "$r1$r2" = 00
+        daemons=$(pgrep -c -u "$(id -u)" -f -- "__chromium $XDG_RUNTIME_DIR/" || true)
+        note "R140-f Chromium daemons after two opens: $daemons"
+        check "R140-f one Chromium daemon ($daemons)" test "$daemons" = 1
+        check "R140-f a third command reaches it" rade browser --engine chromium snapshot
+        rade browser --engine chromium close >/dev/null || true
+        kill "$HTTP" 2>/dev/null || true
+        stop_app
+    fi
 fi
 
 echo

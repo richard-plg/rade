@@ -1689,7 +1689,7 @@ AC:
 2. **`rade` calls time out.** A socket call the app doesn't answer within 30 s exits 6 `TIMEOUT` with `rade: the app did not answer within 30 s`. `--call-timeout <secs>` (global) or `RADE_TIMEOUT` changes it; `0` = no limit. Methods that wait by design keep their own limit plus 10 s: `pane.wait` / `fanout.wait` (`--timeout`), `code.*` (its query budget), and the git-heavy ones (`worktree.add|remove|move`, `pane.spawn` with `worktree: "new"`, `fanout.start`, `source.add`) get 300 s.
 3. **Language servers**: writes to a server go through a writer thread with a bounded queue; a server that stops reading is reported (state `error`, hint `hung: …`) within the query budget (R88) and restarted on the next query; LSP header lines are capped at 8 KB.
 4. **E2E harness**: `rpc` fails on EOF with the app's last log lines; `stop_app` waits 10 s then kills; each suite in `ci/e2e.sh` runs under a 20 min limit.
-5. A cron step larger than its field's range is a parse error (R136.5); one Chromium daemon per socket (a lock while starting); a Worktree setup's "type when settled" (R13) gives up at the setup's time limit.
+5. A cron step larger than its field's range is a parse error (R136.5); one Chromium daemon per socket (a lock while starting); a Worktree setup's "type when settled" (R13) gives up after 10 minutes without its done / failed marker and types nothing.
 
 AC:
 - R140-a [M53] (unit): Given a child that ignores SIGTERM and whose grandchild keeps stdout open. When it runs under a 1 s limit. Then the call returns within 2 s with a timeout error and the whole group is gone.
