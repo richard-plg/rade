@@ -277,6 +277,24 @@ check "R114-b Source toggle → the markup, highlighted as HTML" eventually 5 ba
 shot html-source
 rade debug viewer "$v" source >/dev/null
 check "R114-b …and back to rendered" eventually 5 bash -c "rade debug viewer $v info | jq -e '.view==\"doc\"'"
+check "R145-b …a page with its own <style> keeps the browser's colours" eventually 5 bash -c "rade debug viewer $v info | jq -e '.doc.color==\"rgb(0, 0, 0)\"'"
+echo "== R145-b: an unstyled HTML page uses the theme's colours"
+# A tokens.toml colour as the rgb() a computed style reports.
+token() { python3 -c 'import sys, tomllib; h = tomllib.load(open(sys.argv[1], "rb"))[sys.argv[2]][sys.argv[3]].lstrip("#"); print("rgb(%d, %d, %d)" % tuple(int(h[i:i + 2], 16) for i in (0, 2, 4)))' \
+    "$HERE/../../crates/rade-app/src/tokens.toml" "$1" "$2"; }
+printf '<!doctype html><html><head><title>Plain</title></head><body><h1>PLAIN-PAGE</h1><p>No styles of its own.</p></body></html>\n' > "$X/plain.html"
+rade open "$X/plain.html" --pane a >/dev/null
+check "R145-b an unstyled HTML page uses the theme's fg in light" eventually 10 bash -c "rade debug viewer $v info | jq -e --arg fg '$(token light fg)' '.view==\"doc\" and (.doc.text | contains(\"PLAIN-PAGE\")) and .doc.color==\$fg'"
+check "R145-b …and the theme's bg in light" eventually 5 bash -c "rade debug viewer $v info | jq -e --arg bg '$(token light bg0)' '.doc.background==\$bg'"
+sleep 0.5; shot html-plain-light
+rade debug action color_scheme_dark >/dev/null
+check "R145-b an unstyled HTML page uses the theme's fg in dark (not black)" eventually 10 bash -c "rade debug viewer $v info | jq -e --arg fg '$(token dark fg)' '.doc.color==\$fg'"
+check "R145-b …and the theme's bg in dark" eventually 5 bash -c "rade debug viewer $v info | jq -e --arg bg '$(token dark bg0)' '.doc.background==\$bg'"
+sleep 0.5; shot html-plain-dark
+rade open "$X/report.html" --pane a >/dev/null
+check "R145-b …a page with its own <style> keeps the browser's colours in dark" eventually 10 bash -c "rade debug viewer $v info | jq -e '(.doc.text | contains(\"RENDERED-REPORT\")) and .doc.color==\"rgb(0, 0, 0)\"'"
+rade debug action color_scheme_light >/dev/null
+rm -f "$X/plain.html"
 rade open "$X/spec.pdf" --pane a >/dev/null
 check "R114-c spec.pdf → rendered in the PDF viewer (view doc, its file loaded)" eventually 10 bash -c "rade debug viewer $v info | jq -e '.view==\"doc\" and (.doc.uri | endswith(\"/spec.pdf\")) and .doc.loading==false'"
 sleep 2; shot pdf-light

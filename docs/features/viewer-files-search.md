@@ -20,7 +20,8 @@ Open a file by `Ctrl+click`ing its path in a terminal, from the Files tree, Sear
   relative images; links to other `.md` files open in the same Viewer with Back. Everything is
   bundled — it works offline and loads nothing remote.
 - **HTML**: rendered (its own scripts run; `[viewer] html_scripts = false` to stop them), with a
-  Source toggle for the markup.
+  Source toggle for the markup. A page without styles of its own takes the theme's text and
+  background colours.
 - **PDF**: pages, zoom, search, text selection.
 - **Images**: fitted, with zoom.
 

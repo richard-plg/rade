@@ -154,9 +154,8 @@ impl DocView {
                 scripts || rade_core::viewer::classify(path) == rade_core::viewer::Content::Pdf,
             );
         }
-        let bg = crate::tokens::get("bg0", is_dark());
-        web.set_background_color(&gdk::RGBA::parse(bg).expect("color"));
         *self.0.current.borrow_mut() = path.to_path_buf();
+        self.restyle();
         let uri = gio::File::for_path(path).uri().to_string();
         if !keep_place {
             web.load_uri(&uri);
@@ -176,6 +175,38 @@ impl DocView {
         );
     }
 
+    /// Apply the light/dark appearance without a reload: the WebView's
+    /// background and, for an HTML page without styles of its own (R145.2),
+    /// a user style sheet with the theme's `fg` on `bg0`. A user sheet is
+    /// not subject to any page CSP and loses to every author style.
+    pub fn restyle(&self) {
+        let dark = is_dark();
+        let bg = crate::tokens::get("bg0", dark);
+        let web = &self.0.web;
+        web.set_background_color(&gdk::RGBA::parse(bg).expect("color"));
+        let Some(ucm) = web.user_content_manager() else {
+            return;
+        };
+        ucm.remove_all_style_sheets();
+        let path = self.0.current.borrow().clone();
+        let unstyled = rade_core::viewer::classify(&path) == rade_core::viewer::Content::Html
+            && std::fs::read(&path).is_ok_and(|b| !rade_core::viewer::html_has_own_styles(&b));
+        if unstyled {
+            let css = format!(
+                ":root {{ color: {}; background-color: {bg}; color-scheme: {}; }}",
+                crate::tokens::get("fg", dark),
+                if dark { "dark" } else { "light" },
+            );
+            ucm.add_style_sheet(&webkit6::UserStyleSheet::new(
+                &css,
+                webkit6::UserContentInjectedFrames::TopFrame,
+                webkit6::UserStyleLevel::User,
+                &[],
+                &[],
+            ));
+        }
+    }
+
     /// Debug summary of the page (`rade debug viewer`): URL, title, the
     /// first text, loading state.
     pub fn info(&self, mut base: Value, done: Box<dyn FnOnce(Value)>) {
@@ -188,6 +219,8 @@ impl DocView {
         web.evaluate_javascript(
             "JSON.stringify({text: document.body ? document.body.innerText.slice(0, 400) : '', \
              images: Array.from(document.images).map(i => i.complete && i.naturalWidth > 0), \
+             color: document.body ? getComputedStyle(document.body).color : '', \
+             background: getComputedStyle(document.documentElement).backgroundColor, \
              scroll_y: window.scrollY})",
             None,
             None,

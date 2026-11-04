@@ -1187,8 +1187,14 @@ impl Viewer {
     pub fn restyle(self: &Rc<Self>) {
         self.buffer.set_style_scheme(scheme_for(is_dark()).as_ref());
         self.quick.restyle();
-        if self.stack.visible_child_name().as_deref() == Some("markdown") {
-            self.load(true);
+        match self.stack.visible_child_name().as_deref() {
+            Some("markdown") => self.load(true),
+            Some("doc") => {
+                if let Some(d) = self.doc.borrow().as_ref() {
+                    d.restyle();
+                }
+            }
+            _ => {}
         }
     }
 

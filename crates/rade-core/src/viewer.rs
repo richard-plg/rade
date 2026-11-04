@@ -98,6 +98,16 @@ pub fn classify(path: &Path) -> Content {
     }
 }
 
+/// Whether an HTML page brings its own styles (R145.2): a `<style>`, a
+/// `style=` attribute or a linked stylesheet. One that doesn't gets the
+/// theme's text and background colours in the Viewer.
+pub fn html_has_own_styles(html: &[u8]) -> bool {
+    let lower = String::from_utf8_lossy(html).to_ascii_lowercase();
+    ["<style", "style=", "stylesheet"]
+        .iter()
+        .any(|m| lower.contains(m))
+}
+
 /// Content zoom steps of a Viewer (R113.5), like a browser's.
 pub const ZOOM_STEPS: [f64; 15] = [
     0.25, 0.33, 0.5, 0.67, 0.75, 0.8, 0.9, 1.0, 1.1, 1.25, 1.5, 1.75, 2.0, 3.0, 4.0,
@@ -799,6 +809,20 @@ mod tests {
         assert_eq!(zoom_step(0.37, -1), 0.33);
         assert_eq!(zoom_label(1.25), "125%");
         assert_eq!(zoom_label(0.33), "33%");
+    }
+
+    #[test]
+    fn r145_b_html_own_styles() {
+        assert!(!html_has_own_styles(
+            b"<!doctype html><html><head><title>t</title></head><body><h1>x</h1></body></html>"
+        ));
+        assert!(html_has_own_styles(
+            b"<STYLE>h1{color:red}</STYLE><h1>x</h1>"
+        ));
+        assert!(html_has_own_styles(b"<p style=\"color:red\">x</p>"));
+        assert!(html_has_own_styles(
+            b"<link rel=\"stylesheet\" href=\"a.css\">"
+        ));
     }
 
     #[test]
