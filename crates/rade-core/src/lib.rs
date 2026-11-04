@@ -59,6 +59,7 @@ pub mod status;
 pub mod store;
 pub mod sysmon;
 pub mod title;
+pub mod ui_work;
 pub mod update;
 pub mod usage;
 pub mod viewer;
