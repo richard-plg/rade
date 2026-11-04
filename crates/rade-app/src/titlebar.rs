@@ -68,7 +68,7 @@ pub fn read_email(path: &Path, env: Vec<(String, String)>) -> Option<String> {
     for (k, v) in env {
         c.env(k, v);
     }
-    c.output()
+    rade_core::proc::output(&mut c, rade_core::proc::GIT_LOCAL)
         .ok()
         .filter(|o| o.status.success())
         .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
