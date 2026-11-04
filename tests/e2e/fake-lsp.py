@@ -31,7 +31,8 @@ contains the query (any case); FAKE_LSP_NO_HOVER drops hoverProvider.
 logged as `watched <type>:<path relative to the root> ...` (M29).
 "@index_ms" in .fake-lsp.json sets the indexing time per repository,
 "@hang_on" the method to hang on (as FAKE_LSP_HANG_ON).
-A query on the name `crash_now` exits at once (code 3); on `garbage_now` it
+A query on the name `crash_now` exits at once (code 3; with FAKE_LSP_CRASH_STDERR_MS=<n> it
+closes stdout first and writes its stderr line n ms later); on `garbage_now` it
 sends a 99999999999999-byte Content-Length and hangs.
 """
 import json, os, sys, threading, time
@@ -167,6 +168,10 @@ def query(method, params):
             out.flush()
         time.sleep(3600)
     if word == "crash_now":
+        delay = int(os.environ.get("FAKE_LSP_CRASH_STDERR_MS", "0") or 0)
+        if delay:
+            os.close(1)  # stdout reaches EOF first; its stderr line follows
+            time.sleep(delay / 1000)
         sys.stderr.write("fake-lsp: crashed on purpose\n")
         sys.stderr.flush()
         os._exit(3)

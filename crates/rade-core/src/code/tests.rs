@@ -195,6 +195,35 @@ fn r83_missing_off_crash_restart_and_shutdown() {
 }
 
 #[test]
+fn r143_a_crash_hint_has_the_stderr_line_even_when_stdout_ends_first() {
+    // stdout reaches EOF at once; the stderr line comes 250 ms later. The hint
+    // waits for the stderr reader instead of racing it (R143.3).
+    let d = repo("stderr-late");
+    let pool = Mutex::new(Pool::default());
+    let a = run(
+        &pool,
+        &ctx(
+            &d,
+            Query::Def,
+            "src/lib.rs",
+            4,
+            5,
+            &[("FAKE_LSP_CRASH_STDERR_MS", "250")],
+        ),
+    );
+    assert_eq!(a.state, "error");
+    assert!(
+        a.hint.as_deref().unwrap().contains("crashed on purpose"),
+        "{:?}",
+        a.hint
+    );
+    super::stop(
+        pool.lock().unwrap().take_under(None),
+        Duration::from_secs(2),
+    );
+}
+
+#[test]
 fn r83_three_crashes_stop_restarts_until_restart() {
     let d = repo("three");
     let pool = Mutex::new(Pool::default());

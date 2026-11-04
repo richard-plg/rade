@@ -338,6 +338,9 @@ impl Client {
             doc_lock: Mutex::new(()),
             warm: Default::default(),
         };
+        // The stderr reader tells the stdout reader when it has seen EOF, so
+        // a crash's hint (the last stderr line) is never read before it is stored.
+        let (stderr_done_tx, stderr_done) = mpsc::channel::<()>();
         if let Some(err) = stderr {
             let st = status.clone();
             std::thread::spawn(move || {
@@ -345,7 +348,10 @@ impl Client {
                     let mut s = st.lock().unwrap();
                     s.stderr = line.chars().take(400).collect();
                 }
+                let _ = stderr_done_tx.send(());
             });
+        } else {
+            drop(stderr_done_tx);
         }
         let reply = Writer(out, writing);
         let settings = l.settings.clone();
@@ -355,6 +361,8 @@ impl Client {
             while let Ok(Some(msg)) = read_message(&mut r) {
                 handle(&msg, &pending, &status, &settings, &root, &reply);
             }
+            // A grandchild holding stderr open must not stall this: bounded wait.
+            let _ = stderr_done.recv_timeout(Duration::from_millis(500));
             let mut p = pending.lock().unwrap();
             status.lock().unwrap().dead = true;
             let why = status.lock().unwrap().stderr.clone();
