@@ -1699,6 +1699,7 @@ AC:
 - R140-e [M53] (unit): Given the cron `1/4294967295 * * * *`. When it is parsed. Then it is a `USAGE` error naming the field, no panic.
 - R140-f [M53] (e2e): Given no Chromium daemon. When two `rade browser --engine chromium open` run at once. Then one daemon runs and both calls answer (skipped with the reason without a Chromium).
 - R140-g [M53] (unit): Given the CLI. When `--call-timeout`, `RADE_TIMEOUT` and the method are given. Then the limit is the flag, else the variable, else the method's default above.
+- R140-h [M53] (unit): Given the source tree. When the spawn check runs. Then every `Command::new` outside proc.rs is in its allow-list with a reason, and a new one fails the check.
 
 ## R141 — Files with secrets stay private (M53, ADR-0052)
 

@@ -323,4 +323,117 @@ mod tests {
         let o = output(&mut c, Duration::from_secs(5)).unwrap();
         assert!(o.stdout.is_empty());
     }
+
+    /// Every file that builds a `Command` or calls `.output()` outside the
+    /// runner, with why that is fine (R140.1). A new one must be added here
+    /// on purpose, or go through `proc`.
+    const SPAWN_ALLOW: &[(&str, &str)] = &[
+        ("rade-core/src/git.rs", "builds commands; run through proc"),
+        (
+            "rade-core/src/shell_env.rs",
+            "shell probes: the command is run by proc",
+        ),
+        (
+            "rade-core/src/scm.rs",
+            "gh pr create goes through proc; the Draft runner has its own limit and cancel",
+        ),
+        (
+            "rade-core/src/update.rs",
+            "curl with --max-time; install is long-running by design",
+        ),
+        (
+            "rade-core/src/usage/detailed.rs",
+            "curl with --max-time and the token on stdin",
+        ),
+        (
+            "rade-core/src/code/lsp.rs",
+            "the language server is long-running by design",
+        ),
+        (
+            "rade-app/src/browser.rs",
+            "the stand-in browser for links: detached",
+        ),
+        (
+            "rade-app/src/project_dialogs.rs",
+            "runs rade, which has its own call limit",
+        ),
+        (
+            "rade-app/src/sysmon_view.rs",
+            "nvidia-smi: built here, run by proc in 2 s",
+        ),
+        (
+            "rade-app/src/update.rs",
+            "download / pkexec install: long-running by design",
+        ),
+        (
+            "rade-app/src/voice.rs",
+            "voice agent, STT and recorder: long-running by design",
+        ),
+        ("rade-app/build.rs", "build script"),
+        (
+            "rade-cli/src/chromium.rs",
+            "the Chromium daemon: long-running by design",
+        ),
+        ("rade-cli/src/workspace.rs", "interactive setup commands"),
+        ("rade-cli/src/clone.rs", "interactive clone"),
+        (
+            "rade-cli/src/local.rs",
+            "rade setup diff and hook, bounded there",
+        ),
+    ];
+
+    fn rust_files(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+        for e in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                rust_files(&p, out);
+            } else if p.extension().is_some_and(|x| x == "rs") {
+                out.push(p);
+            }
+        }
+    }
+
+    #[test]
+    fn r140_h_every_direct_spawn_is_in_the_allow_list() {
+        let crates = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+        let mut files = Vec::new();
+        rust_files(&crates, &mut files);
+        let mut bad = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+        for f in files {
+            let rel = f
+                .strip_prefix(&crates)
+                .unwrap()
+                .to_string_lossy()
+                .into_owned();
+            let name = f.file_name().unwrap().to_string_lossy().into_owned();
+            if rel.contains("/tests/") || name == "tests.rs" || name.ends_with("_tests.rs") {
+                continue;
+            }
+            let src = std::fs::read_to_string(&f).unwrap();
+            // Unit tests sit at the end of a file, after `#[cfg(test)]`.
+            let code = src.split("\n#[cfg(test)]").next().unwrap();
+            let needle_a = ["Command", "::new("].concat();
+            let needle_b = [".out", "put()"].concat();
+            if !(code.contains(&needle_a) || code.contains(&needle_b)) {
+                continue;
+            }
+            match SPAWN_ALLOW.iter().find(|(p, _)| *p == rel) {
+                Some((p, _)) => {
+                    seen.insert(*p);
+                }
+                None => bad.push(rel),
+            }
+        }
+        assert!(
+            bad.is_empty(),
+            "a direct child process outside proc.rs (use proc::output, or allow-list it with a reason): {bad:?}"
+        );
+        for (p, _) in SPAWN_ALLOW {
+            assert!(
+                seen.contains(p),
+                "{p} no longer spawns: drop it from the allow-list"
+            );
+        }
+    }
 }
