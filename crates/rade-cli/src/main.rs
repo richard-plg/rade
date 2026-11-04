@@ -962,7 +962,8 @@ fn default_limit(method: &str, params: &Value) -> u64 {
         // Wait for a page load (up to 30 s) before answering.
         "browser.open" | "browser.back" | "browser.forward" | "browser.reload"
         | "browser.click" | "browser.press" => 30 + 10,
-        m if m.starts_with("code.") => n("wait", 60) + 10,
+        // A first query may wait out a server's 30 s start (R83) whatever --wait is.
+        m if m.starts_with("code.") => n("wait", 60).max(30) + 10,
         // git-heavy.
         "worktree.add" | "worktree.remove" | "worktree.move" | "fanout.start" | "source.add" => 300,
         "pane.spawn" if params["worktree"] == "new" => 300,
@@ -1497,14 +1498,16 @@ mod tests {
             secs("fanout.wait", json!({"timeout": 5}), None, None),
             Some(15)
         );
-        assert_eq!(secs("code.def", json!({"wait": 20}), None, None), Some(30));
+        assert_eq!(secs("code.def", json!({"wait": 20}), None, None), Some(40));
+        // --wait 0: the server's 30 s start still fits (m30 R83 hung initialize).
+        assert_eq!(secs("code.def", json!({"wait": 0}), None, None), Some(40));
         assert_eq!(secs("code.impact", none.clone(), None, None), Some(70));
         // The CLI sends `--wait` as a float.
         assert_eq!(
             secs("code.impact", json!({"wait": 200.0}), None, None),
             Some(210)
         );
-        assert_eq!(secs("code.def", json!({"wait": 0.5}), None, None), Some(11));
+        assert_eq!(secs("code.def", json!({"wait": 45.5}), None, None), Some(56));
         assert_eq!(
             secs("browser.wait", json!({"timeout": 90}), None, None),
             Some(100)
