@@ -351,7 +351,11 @@ pub fn since(
         // Names like `:x` or `a*` are paths, not pathspec magic.
         .env("GIT_LITERAL_PATHSPECS", "1");
         let input = untracked.join("\0");
-        git::exec_spec(&mut c, "add", &Spec::new(proc::GIT_LOCAL).input(input.as_bytes()))?;
+        git::exec_spec(
+            &mut c,
+            "add",
+            &Spec::new(proc::GIT_LOCAL).input(input.as_bytes()),
+        )?;
     }
     // At most the limit is read (a huge untracked file must not fill memory).
     let mut c = git::command(dir);
