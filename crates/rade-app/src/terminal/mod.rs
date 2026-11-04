@@ -239,9 +239,6 @@ pub struct TerminalHandle {
     draw_count: Rc<Cell<u64>>,
     /// RADE (R19.5): the search bar over this Terminal.
     search: SearchBar,
-    /// Ghostty's scrollbar state: `upper` = every row (scrollback + active
-    /// area), `page_size` = the active area's rows (R142.3).
-    scrollbar_adjustment: gtk::Adjustment,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -515,52 +512,80 @@ impl TerminalHandle {
         })
     }
 
-    /// `(every row, rows of the active area)` as Ghostty last said; `(0, 0)`
-    /// before it said anything.
-    pub fn screen_rows(&self) -> (usize, usize) {
-        (
-            self.scrollbar_adjustment.upper().max(0.0) as usize,
-            self.scrollbar_adjustment.page_size().max(0.0) as usize,
-        )
+    /// `(every row, rows of the active area, row numbering identity)` as
+    /// the terminal itself says now (`ghostty_surface_scrollbar`, under its
+    /// lock): not the numbers of the last draw, which a Pane nobody sees
+    /// never makes. `None` without a surface.
+    pub fn screen_rows(&self) -> Option<(usize, usize, u64)> {
+        let surface = (*self.surface_cell.borrow())?;
+        let mut sb = ghostty_surface_scrollbar_s::default();
+        unsafe { ghostty_surface_scrollbar(surface, &mut sb) }.then_some((
+            sb.total as usize,
+            sb.len as usize,
+            sb.row_space_revision,
+        ))
     }
 
-    /// Rows `from..to` of the screen (scrollback + active area).
+    /// Rows `from..to` of the screen (scrollback + active area). Not a
+    /// `ghostty_point_s` read: its exact coordinates are clamped to the
+    /// visible rows, so it cannot reach the scrollback. `None` when the
+    /// terminal refuses (no surface, a read over its work budget).
     fn read_rows(&self, from: usize, to: usize) -> Option<String> {
+        if to <= from {
+            return Some(String::new());
+        }
         let surface = (*self.surface_cell.borrow())?;
-        let cols = unsafe { ghostty_surface_size(surface) }.columns.max(1) as u32;
-        self.read_selection(ghostty_selection_s {
-            top_left: ghostty_point_s {
-                tag: GHOSTTY_POINT_SCREEN,
-                coord: GHOSTTY_POINT_COORD_EXACT,
-                x: 0,
-                y: from as u32,
-            },
-            bottom_right: ghostty_point_s {
-                tag: GHOSTTY_POINT_SCREEN,
-                coord: GHOSTTY_POINT_COORD_EXACT,
-                x: cols - 1,
-                y: to.saturating_sub(1) as u32,
-            },
-            rectangle: false,
-        })
+        let cols = unsafe { ghostty_surface_size(surface) }.columns.max(1) as usize;
+        // Room for 4 bytes per cell and a newline per row (the work budget
+        // is a quarter of this many cells).
+        let max_bytes = (to - from).checked_mul(cols * 4 + 1)?.checked_add(4096)?;
+        let mut text = empty_ghostty_text();
+        let ok = unsafe {
+            ghostty_surface_read_screen_clipboard_text(
+                surface,
+                from as u32,
+                (to - 1) as u32,
+                max_bytes,
+                &mut text,
+            )
+        };
+        if !ok || text.text.is_null() {
+            return None;
+        }
+        let bytes = unsafe { std::slice::from_raw_parts(text.text.cast::<u8>(), text.text_len) };
+        let output = String::from_utf8_lossy(bytes).into_owned();
+        unsafe { ghostty_surface_free_text(surface, &mut text) };
+        Some(output)
     }
 
     /// The screen text a waiter has not seen: the same text as
     /// `read_text(GHOSTTY_POINT_SCREEN)` for what it searches, but only the
-    /// rows added since its last look are read (R142.3). Reads everything
-    /// when Ghostty has not said how many rows there are.
+    /// rows added since its last look are read (R142.3), unless the row
+    /// numbering changed (pruned at the cap, erased, reflowed): then all of
+    /// it. Reads everything when the terminal cannot say how many rows there
+    /// are.
     pub fn read_tail(&self, tail: &mut rade_core::ui_work::Tail) -> Option<String> {
-        let (total, rows) = self.screen_rows();
+        let Some((total, rows, revision)) = self.screen_rows() else {
+            return self.read_text(GHOSTTY_POINT_SCREEN);
+        };
         if rows == 0 || total < rows {
             return self.read_text(GHOSTTY_POINT_SCREEN);
         }
-        let plan = tail.plan(total, rows);
-        let scrolled = if plan.scrolled.1 > plan.scrolled.0 {
-            self.read_rows(plan.scrolled.0, plan.scrolled.1)?
-        } else {
-            String::new()
+        let plan = tail.plan(total, rows, revision);
+        // Both reads are by absolute row under the one snapshot above: the
+        // terminal keeps printing, and an ACTIVE read made a moment later
+        // would leave a gap between the two (rows that scrolled in between).
+        let (Some(scrolled), Some(active)) = (
+            self.read_rows(plan.scrolled.0, plan.scrolled.1),
+            self.read_rows(plan.scrolled.1, total),
+        ) else {
+            return self.read_text(GHOSTTY_POINT_SCREEN);
         };
-        let active = self.read_text(GHOSTTY_POINT_ACTIVE)?;
+        // Rows pruned or erased while reading: the numbers were stale, read
+        // all of it at once (one call, one lock) and start over next look.
+        if self.screen_rows().map(|(_, _, r)| r) != Some(revision) {
+            return self.read_text(GHOSTTY_POINT_SCREEN);
+        }
         Some(tail.text(plan, &scrolled, &active))
     }
 

@@ -174,22 +174,62 @@ if want f; then
     sh1=$(rade spawn --source app --name w1 --tab new --json | jq -r .pane)
     eventually 15 screen_has "$sh1" '$' || true
     # Output already in the scrollback when the wait starts.
-    rade send "$sh1" 'seq 1 400; echo EARLY-MARK; seq 401 900' --enter >/dev/null
-    eventually 15 screen_has "$sh1" '900' || true
+    rade send "$sh1" "seq 1 400; echo EARLY-MA''RK; seq 401 900; echo DO''NE" --enter >/dev/null
+    eventually 15 screen_has "$sh1" 'DONE' || true
     check "R142.3 a wait finds a mark that scrolled off before it began" \
         test "$(rade wait "$sh1" --until '/EARLY-MARK/' --timeout 10 2>&1)" = "EARLY-MARK"
     # A wait that began first sees a mark printed later, then scrolled off.
     rade wait "$sh1" --until '/LATER-MARK/' --timeout 30 >"$OUT/wait-later.txt" 2>&1 &
     waiter=$!
     sleep 1
-    rade send "$sh1" 'echo LATER-MARK; seq 1 600' --enter >/dev/null
+    rade send "$sh1" "echo LATER-MA''RK; seq 1 600" --enter >/dev/null
     wrc=0; wait "$waiter" || wrc=$?
     check "R142.3 a running wait finds a mark that was printed after it began (exit $wrc)" \
         bash -c "[[ $wrc == 0 ]] && grep -q LATER-MARK '$OUT/wait-later.txt'"
     # And a wait for text that never comes times out (exit 6) instead of matching old output.
     rc=0; rade wait "$sh1" --until '/NEVER-PRINTED/' --timeout 2 >/dev/null 2>&1 || rc=$?
     check "R142.3 a wait for a mark that never came times out (exit $rc)" test "$rc" = 6
+    # A Pane in a hidden Tab never draws, so what a draw published about its rows is
+    # stale: a mark that scrolls past the active area between two looks must still be found.
+    hid=$(rade spawn --source app --name hid --tab new --json | jq -r .pane)
+    eventually 15 screen_has "$hid" '$' || true
+    rade spawn --source app --name front --tab new >/dev/null # the new Tab is in front
+    sleep 1
+    rade wait "$hid" --until '/HIDDEN-MARK/' --timeout 20 >"$OUT/wait-hidden.txt" 2>&1 &
+    waiter=$!
+    sleep 1
+    rade send "$hid" "echo HIDDEN-MA''RK; seq 1 300" --enter >/dev/null
+    wrc=0; wait "$waiter" || wrc=$?
+    check "R142.3 a wait finds a mark that scrolled past the active area in a hidden Tab (exit $wrc)" \
+        bash -c "[[ $wrc == 0 ]] && grep -q HIDDEN-MARK '$OUT/wait-hidden.txt'"
     stop_app
+
+    # A Terminal at its scrollback cap: the count stops growing and the rows are renumbered
+    # (a Ghostty config with a small scrollback-limit; it is removed after this part).
+    echo "== R142.3: a Terminal at its scrollback cap"
+    mkdir -p "$XDG_CONFIG_HOME/ghostty"
+    printf 'scrollback-limit = 200000\n' >"$XDG_CONFIG_HOME/ghostty/config"
+    fresh
+    start_app
+    rade source add "$T/src/app" >/dev/null
+    cap=$(rade spawn --source app --name cap --tab new --json | jq -r .pane)
+    eventually 15 screen_has "$cap" '$' || true
+    rade send "$cap" "seq 1 60000; echo FILL''ED" --enter >/dev/null
+    eventually 60 screen_has "$cap" 'FILLED' || true
+    note "R142.3 cap: $(rade read "$cap" --scrollback | wc -l) rows kept of 60000"
+    check "R142.3 setup: the Pane's scrollback is at its cap (the first line is gone)" \
+        test "$(rade read "$cap" --scrollback | head -n 1)" != 1
+    for round in 1 2 3 4; do
+        rade wait "$cap" --until "/CAP-MARK-$round/" --timeout 20 >"$OUT/wait-cap$round.txt" 2>&1 &
+        waiter=$!
+        sleep 1
+        rade send "$cap" "echo CAP-MA''RK-$round; seq 1 300" --enter >/dev/null
+        wrc=0; wait "$waiter" || wrc=$?
+        check "R142.3 a wait finds a mark in a Terminal at its cap, round $round (exit $wrc)" \
+            bash -c "[[ $wrc == 0 ]] && grep -q CAP-MARK-$round '$OUT/wait-cap$round.txt'"
+    done
+    stop_app
+    rm -rf "$XDG_CONFIG_HOME/ghostty"
 fi
 
 if want d; then

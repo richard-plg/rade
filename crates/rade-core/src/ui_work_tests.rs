@@ -143,11 +143,19 @@ struct Screen {
     lines: Vec<String>,
     rows: usize,
     read: Cell<usize>,
+    /// Ghostty's row numbering identity; it moves when rows are pruned.
+    revision: u64,
 }
 
 impl Screen {
     fn total(&self) -> usize {
         self.lines.len().max(self.rows)
+    }
+    /// A Terminal at its scrollback cap: `n` oldest rows dropped, the rest
+    /// renumbered.
+    fn prune(&mut self, n: usize) {
+        self.lines.drain(..n);
+        self.revision += 1;
     }
     fn range(&self, from: usize, to: usize) -> String {
         self.read.set(self.read.get() + to.saturating_sub(from));
@@ -159,7 +167,7 @@ impl Screen {
     /// One look of `tail`: (the text to search, rows read).
     fn look(&self, tail: &mut Tail) -> (String, usize) {
         self.read.set(0);
-        let plan = tail.plan(self.total(), self.rows);
+        let plan = tail.plan(self.total(), self.rows, self.revision);
         let scrolled = self.range(plan.scrolled.0, plan.scrolled.1);
         let active = self.range(self.total() - self.rows, self.total());
         (tail.text(plan, &scrolled, &active), self.read.get())
@@ -172,6 +180,7 @@ fn r142_f_a_look_reads_only_the_rows_added_since_the_last_one() {
         lines: (0..5000).map(|i| format!("line {i}")).collect(),
         rows: 40,
         read: Cell::new(0),
+        revision: 0,
     };
     let mut tail = Tail::default();
     let re = regex_lite::Regex::new("BUILD (OK|FAILED)").unwrap();
@@ -201,6 +210,7 @@ fn r142_f_a_pattern_over_two_looks_and_a_resize() {
         lines: (0..100).map(|i| format!("l{i}")).collect(),
         rows: 10,
         read: Cell::new(0),
+        revision: 0,
     };
     let mut tail = Tail::default();
     s.look(&mut tail);
@@ -219,15 +229,47 @@ fn r142_f_a_pattern_over_two_looks_and_a_resize() {
 }
 
 #[test]
+fn r142_f_a_terminal_at_its_cap_is_read_again_when_rows_were_pruned() {
+    // 5000 rows is the cap: the count stays at 5000 however much is printed,
+    // the old rows leave and every row gets a new number.
+    let mut s = Screen {
+        lines: (0..5000).map(|i| format!("line {i}")).collect(),
+        rows: 40,
+        read: Cell::new(0),
+        revision: 0,
+    };
+    let mut tail = Tail::default();
+    s.look(&mut tail);
+    // Nothing pruned, nothing added: the cheap look.
+    assert_eq!(s.look(&mut tail).1, 40);
+    // 300 rows printed, the mark among them, 300 pruned: same total, new
+    // numbering. The mark has already left the active area.
+    s.prune(300);
+    s.lines.extend((0..300).map(|i| {
+        if i == 10 {
+            "MARK".to_string()
+        } else {
+            format!("new {i}")
+        }
+    }));
+    assert_eq!(s.total(), 5000);
+    let (text, read) = s.look(&mut tail);
+    assert!(text.contains("MARK"), "never missed what a full read finds");
+    assert_eq!(read, 5000, "read again under the new numbering");
+    // Back to cheap looks under it.
+    assert_eq!(s.look(&mut tail).1, 40);
+}
+
+#[test]
 fn r142_f_carry_is_bounded() {
     let mut tail = Tail::default();
-    let plan = tail.plan(100_000, 10);
+    let plan = tail.plan(100_000, 10, 0);
     let huge = "x".repeat(100_000);
     // The first look searches everything.
     let out = tail.text(plan, &huge, "tail");
     assert!(out.len() > 100_000 && out.ends_with("\ntail"));
     // Later looks carry only the last CARRY_MAX bytes.
-    let plan = tail.plan(100_001, 10);
+    let plan = tail.plan(100_001, 10, 0);
     let out = tail.text(plan, "x", "tail");
     assert!(out.len() <= CARRY_MAX + 8, "{}", out.len());
     assert!(out.ends_with("\ntail"));

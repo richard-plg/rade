@@ -205,7 +205,6 @@ pub fn create_terminal(
         controllers: controllers.clone(),
         draw_count: draw_count.clone(),
         search: search.clone(),
-        scrollbar_adjustment: scrollbar_adjustment.clone(),
     };
 
     {

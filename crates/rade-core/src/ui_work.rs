@@ -306,12 +306,18 @@ pub fn main_branch_files(path: &Path) -> Vec<PathBuf> {
 pub const CARRY_MAX: usize = 8 * 1024;
 
 /// A waiter's view of a Terminal's screen text. The rows above the active
-/// area never change, so each look reads only the rows that scrolled out
-/// since the last one plus the active area (the last `rows` rows).
+/// area never change while Ghostty's row numbering is the same (its
+/// `row_space_revision`: it moves when scrollback is pruned at the cap, on a
+/// resize reflow, a clear), so each look reads only the rows that scrolled
+/// out since the last one plus the active area (the last `rows` rows). The
+/// caller passes the counts straight from the terminal
+/// (`ghostty_surface_scrollbar`), never the ones the last draw published: a
+/// Pane nobody sees does not draw.
 #[derive(Debug, Default)]
 pub struct Tail {
     committed: usize,
     rows: usize,
+    revision: u64,
     started: bool,
     carry: String,
 }
@@ -325,16 +331,23 @@ pub struct Plan {
 
 impl Tail {
     /// The rows to read now: the Terminal has `total` rows (scrollback +
-    /// active area) of which the last `rows` are the active area. A first
-    /// look, a resize or a Terminal that lost rows starts over from row 0.
-    pub fn plan(&mut self, total: usize, rows: usize) -> Plan {
+    /// active area) of which the last `rows` are the active area, numbered
+    /// under `revision`. A first look, a resize, a new numbering (rows pruned
+    /// at the scrollback cap or erased) or a Terminal that lost rows starts
+    /// over from row 0, so no row is ever read under a stale number.
+    pub fn plan(&mut self, total: usize, rows: usize, revision: u64) -> Plan {
         let committed = total.saturating_sub(rows);
-        if !self.started || rows != self.rows || committed < self.committed {
+        if !self.started
+            || rows != self.rows
+            || revision != self.revision
+            || committed < self.committed
+        {
             self.carry.clear();
             self.committed = 0;
         }
         self.started = true;
         self.rows = rows;
+        self.revision = revision;
         Plan {
             scrolled: (self.committed, committed),
         }
