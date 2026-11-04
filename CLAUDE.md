@@ -30,7 +30,8 @@ git submodule update --init                                          # ghostty f
 cargo build --release                                                 # workspace (rpath finds ghostty/zig-out/lib)
 cargo clippy --workspace --all-targets
 cargo test --workspace                                                # unit tests (core model, RPC, transport, app helpers)
-scripts/trace.sh [--no-write] [--strict]                              # 1.0.0 AC → test matrix (R97+ ACs `- R97-a [M36] (unit): Given … When … Then …`, tests `fn r97_a_…` / `check "R97-a …"`) → docs/internals/checks/trace.md; fails on a gated milestone (docs/internals/checks/M<n>.md exists) with a missing AC; self-test scripts/trace_test.sh
+scripts/trace.sh [--no-write] [--strict]                              # 1.0.0 AC → test matrix (R97+ ACs `- R97-a [M36] (unit): Given … When … Then …`, tests `fn r97_a_…` / `check "R97-a …"`) → docs/internals/checks/trace.md; fails on a gated milestone (docs/internals/checks/M<n>.md exists) with a missing AC, and with --strict on an AC proven only by suites in no CI shard; self-test scripts/trace_test.sh
+scripts/check-ci-suites.sh                                            # R143.1: every tests/e2e suite is in a CI shard (ci.yml), exit 1 names the missing one; ci/flaky.txt = the only suites ci/e2e.sh may retry; tests scripts/ci_test.sh
 tests/e2e/run.sh                                                      # E2E (M1): headless Weston + rade CLI; screenshots → target/e2e/*.png (NO_BUILD=1, KEEP=1)
 tests/e2e/m2.sh                                                       # E2E (M2): Agents via tests/e2e/fake-agent.sh, grid, limits, wait, setup → target/e2e-m2/
 tests/e2e/m3.sh                                                       # E2E (M3): Notifications, panel, desktop via tests/e2e/notifyd.py → target/e2e-m3/ (all E2E run on a private D-Bus)

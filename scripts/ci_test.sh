@@ -60,5 +60,18 @@ check "R143-c a suite that fails then would pass is a failure when not in ci/fla
 check "R143-c a suite in ci/flaky.txt is retried once and passes" listed_retries
 check "R143-c a flaky entry for another suite (mxy) does not cover mx" prefix_not_listed
 
+# trace.sh --strict: an AC proven only by a suite outside CI fails (R143-b).
+trace_root() { # suites in ci.yml...
+    rm -rf "$work/tr"; cp -r "$root/scripts/testdata/trace/basic" "$work/tr"
+    mkdir -p "$work/tr/.github/workflows"
+    printf 'jobs:\n  e2e:\n    strategy:\n      matrix:\n        include:\n          - shard: a\n            suites: %s\n' "$*" \
+        >"$work/tr/.github/workflows/ci.yml"
+    "$root/scripts/trace.sh" --root "$work/tr" --no-write --strict 2>&1 >/dev/null
+}
+outside_named() { local out; out=$(trace_root other) || true; grep -q 'proven only by suites outside CI (--strict): R97-b (mX)' <<<"$out"; }
+inside_quiet() { local out; out=$(trace_root mX) || true; ! grep -q 'outside CI' <<<"$out"; }
+check "R143-b trace --strict names an AC whose only suite is outside CI" outside_named
+check "R143-b trace --strict is quiet once that suite is in a shard" inside_quiet
+
 echo "ci_test: $pass passed, $fail failed"
 [ "$fail" = 0 ]
