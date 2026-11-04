@@ -50,15 +50,26 @@ eventually 10 is "last_text $c1" "c1 finished — PONG" || true # its OSC 9 foll
 check "hook 'finished' + OSC 9 'PONG' → one entry" test "$(entries "$c1")" = 1
 check "…text 'c1 finished — PONG'" test "$(last_text "$c1")" = "c1 finished — PONG"
 check "…source merged" test "$(state | jq -r --arg p "$c1" '[.notifications[] | select(.pane==$p)][0].source')" = merged
-# GLib's freedesktop backend replaces a banner in place only once the first
-# Notify reply has arrived; before that (a loaded machine) it sends a second
-# Notify with the same text. Both are real, so the merged text may arrive as a
-# REPLACE or as that second NOTIFY: never more than two banners, never a bare one.
+# R3.1: one banner per Agent event: the merged text is its Notify, or the
+# in-place replace of it (replaces_id = the server's id), never a second Notify.
 check "a desktop banner for c1 (hidden Tab, smart)" eventually 5 test "$(notifyd NOTIFY "'c1 finished")" -ge 1
-check "…carries the merged text (replaced in place, or GLib's second Notify before the reply)" eventually 5 grep -qE "^(REPLACE|NOTIFY).*'c1 finished — PONG'" "$NOTIFYD_LOG"
-check "…at most one extra banner, none a stale duplicate" test "$(notifyd NOTIFY "'c1 finished")" -le 2
+check "…carries the merged text (replaced in place, or sent merged)" eventually 5 grep -qE "^(REPLACE|NOTIFY).*'c1 finished — PONG'" "$NOTIFYD_LOG"
+check "…exactly one banner (one Notify)" test "$(notifyd NOTIFY "'c1 finished")" = 1
 check "…no banner with the bare OSC text" test "$(grep -c "^NOTIFY.*	'PONG'" "$NOTIFYD_LOG" || true)" = 0
 check "debug desktop logs the replace" bash -c "rade debug desktop --json | jq -e '[.log[] | select(.event==\"replace\")] | length == 1' >/dev/null"
+echo "== R3.1 a slow notification server (the first Notify reply 600 ms late)"
+gdbus call --session --dest org.freedesktop.Notifications --object-path /org/freedesktop/Notifications \
+    --method org.freedesktop.Notifications.SetReplyDelay 600 >/dev/null
+sleep 1.2
+c1s=$(spawn --agent fake --source p1 --name c1s 'osc ZETA')
+check "c1s turn done (hook)" test "$(rade wait "$c1s" --until done --timeout 20)" = done
+eventually 10 is "last_text $c1s" "c1s finished — ZETA" || true
+check "slow server: one entry" test "$(entries "$c1s")" = 1
+check "slow server: the merged text reaches the banner" eventually 8 grep -qE "^(REPLACE|NOTIFY).*'c1s finished — ZETA'" "$NOTIFYD_LOG"
+sleep 1
+check "slow server: exactly one Notify, no second banner" test "$(notifyd NOTIFY "'c1s finished")" = 1
+gdbus call --session --dest org.freedesktop.Notifications --object-path /org/freedesktop/Notifications \
+    --method org.freedesktop.Notifications.SetReplyDelay 0 >/dev/null
 sleep 1.2 # Ghostty: one OSC notification per second
 c2=$(spawn --agent fake --source p1 --name c2 'oscfirst need you')
 check "c2 waiting (hook)" test "$(rade wait "$c2" --until waiting --timeout 20)" = waiting
