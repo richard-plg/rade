@@ -60,17 +60,10 @@ fn write(p: &Project, key: &str, value: &str) -> Result<()> {
     write_text(p, &old, &new)
 }
 
-/// Replace Project `p`'s file `old` with `new` (temp file + rename; nothing
+/// Replace Project `p`'s file `old` with `new` (atomic, under the file's lock; nothing
 /// written when equal).
 pub(crate) fn write_text(p: &Project, old: &str, new: &str) -> Result<()> {
-    if new != old {
-        // Through a symlinked project.toml to its target.
-        let file = std::fs::canonicalize(&p.file).unwrap_or_else(|_| p.file.clone());
-        let tmp = file.with_extension("toml.tmp");
-        std::fs::write(&tmp, new)
-            .and_then(|_| std::fs::rename(&tmp, &file))
-            .map_err(|e| Error::internal(format!("{}: {e}", p.file.display())))?;
-    }
+    project::write_checked(&p.file, old, new)?;
     crate::sidebar::projects_changed();
     Ok(())
 }

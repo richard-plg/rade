@@ -1126,3 +1126,20 @@ fn r127_k_a_skipped_offer_does_not_hide_an_installed_update() {
     let (p, _) = phase_after(&cache, &v("1.0.0"), None, InstallKind::Deb, Channel::Rc);
     assert_eq!(p, Phase::Available);
 }
+
+#[test]
+fn r141_a_update_cache_is_0600_also_when_it_was_0644() {
+    use std::os::unix::fs::PermissionsExt;
+    let d = std::env::temp_dir().join(format!("rade-r141-upd-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&d);
+    std::fs::create_dir_all(&d).unwrap();
+    let f = d.join("update.json");
+    std::fs::write(&f, "{}").unwrap();
+    std::fs::set_permissions(&f, std::fs::Permissions::from_mode(0o644)).unwrap();
+    Cache::update(&d, None, |c| c.checked_at = Some(1)).unwrap();
+    assert_eq!(
+        std::fs::metadata(&f).unwrap().permissions().mode() & 0o7777,
+        0o600
+    );
+    let _ = std::fs::remove_dir_all(d);
+}

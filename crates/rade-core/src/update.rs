@@ -10,7 +10,7 @@ use crate::AgentStatus;
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::fmt;
-use std::io::{Read, Write};
+use std::io::Read;
 use std::path::{Path, PathBuf};
 
 pub const REPO_API: &str = "https://api.github.com/repos/richard-plg/rade/releases?per_page=20";
@@ -411,7 +411,7 @@ impl Cache {
     }
 
     /// Load, let `f` change its own fields, save atomically
-    /// (`update.json.<pid>.tmp` + rename), so two writers never undo each
+    /// (`fs_atomic`, `0600`), so two writers never undo each
     /// other: the whole load → write → rename runs under an exclusive
     /// `flock` on `update.json.lock`. The only write path.
     pub fn update(
@@ -432,16 +432,12 @@ impl Cache {
         }
         let mut c = Cache::load(dir, base);
         f(&mut c);
-        let tmp = dir.join(format!(
-            "update.json.{}.{:?}.tmp",
-            std::process::id(),
-            std::thread::current().id()
-        ));
         let text = serde_json::to_string_pretty(&c).map_err(std::io::Error::other)?;
-        let mut file = std::fs::File::create(&tmp)?;
-        file.write_all(text.as_bytes())?;
-        file.sync_all()?;
-        std::fs::rename(&tmp, dir.join("update.json"))?;
+        crate::fs_atomic::write(
+            &dir.join("update.json"),
+            text.as_bytes(),
+            crate::fs_atomic::Mode::Private,
+        )?;
         Ok(c)
     }
 }

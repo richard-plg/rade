@@ -628,6 +628,7 @@ fn account_files_are_written_atomically_creating_dot_rade() {
     let names: Vec<_> = std::fs::read_dir(root.join(".rade"))
         .unwrap()
         .map(|e| e.unwrap().file_name().into_string().unwrap())
+        .filter(|n| !n.ends_with(".lock"))
         .collect();
     assert_eq!(names, ["workspace.toml"]);
     let _ = std::fs::remove_dir_all(&root);
@@ -1606,4 +1607,28 @@ fn r125_d_a_refused_restore_drops_a_detected_account() {
     assert!(!pane.account_detected);
     let _ = std::fs::remove_dir_all(root);
     let _ = std::fs::remove_dir_all(user.parent().unwrap());
+}
+
+#[test]
+fn r141_a_account_files_are_0600_and_a_symlink_is_written_through() {
+    use std::os::unix::fs::{symlink, PermissionsExt};
+    let d = std::env::temp_dir().join(format!("rade-r141-acc-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&d);
+    std::fs::create_dir_all(d.join("real")).unwrap();
+    let real = d.join("real/accounts.toml");
+    std::fs::write(&real, "# mine\n").unwrap();
+    std::fs::set_permissions(&real, std::fs::Permissions::from_mode(0o644)).unwrap();
+    let link = d.join("accounts.toml");
+    symlink("real/accounts.toml", &link).unwrap();
+    edit_user_file(&link, |t| Ok(format!("{t}# more\n"))).unwrap();
+    assert!(std::fs::symlink_metadata(&link)
+        .unwrap()
+        .file_type()
+        .is_symlink());
+    assert_eq!(std::fs::read_to_string(&real).unwrap(), "# mine\n# more\n");
+    let mode = |p: &Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o7777;
+    assert_eq!(mode(&real), 0o600);
+    let ws = write_workspace_file(&d, "x = 1\n").unwrap();
+    assert_eq!(mode(&ws), 0o600);
+    let _ = std::fs::remove_dir_all(d);
 }

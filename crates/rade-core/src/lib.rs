@@ -19,6 +19,7 @@ pub mod dotenv;
 pub mod drift;
 pub mod fanout;
 pub mod filetree;
+pub mod fs_atomic;
 pub mod git;
 pub mod home;
 pub mod layers;

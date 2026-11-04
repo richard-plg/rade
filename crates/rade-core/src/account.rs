@@ -9,6 +9,7 @@
 //! Agent detected from its config dir.
 
 use crate::agents::PresetsFor;
+use crate::fs_atomic;
 use crate::model::State;
 use crate::preset::{shell_words, HookKind, Invocation};
 use crate::rpc::{Error, ErrorKind, Result};
@@ -1096,29 +1097,38 @@ pub fn set_detailed_in_toml(text: &str, agent: AgentKind, name: &str, on: bool) 
 
 /// [`set_detailed_in_toml`] on a Workspace root, written atomically.
 pub fn set_detailed_file(root: &Path, agent: AgentKind, name: &str, on: bool) -> Result<PathBuf> {
-    let new = set_detailed_in_toml(&read_workspace_text(root)?, agent, name, on)?;
-    write_workspace_file(root, &new)
+    edit_workspace_file(root, |t| set_detailed_in_toml(t, agent, name, on))
+}
+
+fn workspace_file(root: &Path) -> PathBuf {
+    root.join(".rade/workspace.toml")
 }
 
 /// Write `<root>/.rade/workspace.toml` (creating `.rade/`) through a temp
-/// file and a rename, so a reader never sees half a file.
+/// file and a rename, so a reader never sees half a file. `0600`: it can
+/// hold `[account.env]` tokens (R141).
 pub fn write_workspace_file(root: &Path, text: &str) -> Result<PathBuf> {
-    let file = root.join(".rade/workspace.toml");
+    let file = workspace_file(root);
     write_atomic(&file, text)?;
     Ok(file)
 }
 
-/// Write `file` (creating its folder) through a temp file and a rename.
+/// Write `file` (creating its folder) through [`fs_atomic`]: `0600`, a
+/// symlink written through (R141).
 pub fn write_atomic(file: &Path, text: &str) -> Result<()> {
+    fs_atomic::write(file, text.as_bytes(), fs_atomic::Mode::Private)
+        .map_err(|e| Error::internal(format!("{}: {e}", file.display())))
+}
+
+/// Read `file` (missing = empty), let `change` make the new text and write
+/// it, all under the advisory lock beside the file (R141.3).
+fn locked_edit(file: &Path, change: impl FnOnce(&str) -> Result<String>) -> Result<()> {
     let fail = |e: std::io::Error| Error::internal(format!("{}: {e}", file.display()));
-    let dir = file.parent().unwrap_or(Path::new("."));
-    std::fs::create_dir_all(dir).map_err(fail)?;
-    let base = file.file_name().and_then(|n| n.to_str()).unwrap_or("file");
-    let tmp = dir.join(format!(".{base}.{}.tmp", std::process::id()));
-    let res = std::fs::write(&tmp, text).and_then(|_| std::fs::rename(&tmp, file));
-    if let Err(e) = res {
-        let _ = std::fs::remove_file(&tmp);
-        return Err(fail(e));
+    let _lock = fs_atomic::Lock::acquire(file).map_err(fail)?;
+    let text = fs_atomic::read_text(&fs_atomic::resolve(file)).map_err(fail)?;
+    let new = change(&text)?;
+    if new != text {
+        write_atomic(file, &new)?;
     }
     Ok(())
 }
@@ -1126,16 +1136,7 @@ pub fn write_atomic(file: &Path, text: &str) -> Result<()> {
 /// One change of the user's `accounts.toml` (R125.5, R126.3): `change`
 /// gets its text (missing = empty); the result is written atomically.
 pub fn edit_user_file(file: &Path, change: impl FnOnce(&str) -> Result<String>) -> Result<()> {
-    let text = match std::fs::read_to_string(file) {
-        Ok(t) => t,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
-        Err(e) => return Err(Error::internal(format!("{}: {e}", file.display()))),
-    };
-    let new = change(&text)?;
-    if new != text {
-        write_atomic(file, &new)?;
-    }
-    Ok(())
+    locked_edit(file, change)
 }
 
 /// One change of a Workspace's `workspace.toml` (`rade account set`
@@ -1144,30 +1145,20 @@ pub fn edit_workspace_file(
     root: &Path,
     change: impl FnOnce(&str) -> Result<String>,
 ) -> Result<PathBuf> {
-    let new = change(&read_workspace_text(root)?)?;
-    write_workspace_file(root, &new)
-}
-
-fn read_workspace_text(root: &Path) -> Result<String> {
-    let file = root.join(".rade/workspace.toml");
-    match std::fs::read_to_string(&file) {
-        Ok(t) => Ok(t),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(String::new()),
-        Err(e) => Err(Error::internal(format!("{}: {e}", file.display()))),
-    }
+    let file = workspace_file(root);
+    locked_edit(&file, change)?;
+    Ok(file)
 }
 
 /// `account.add` on a Workspace root: [`add_to_toml`] on its
 /// `workspace.toml` (missing = empty), written atomically. Returns the file.
 pub fn add_account_file(root: &Path, decl: &AccountDecl) -> Result<PathBuf> {
-    let new = add_to_toml(&read_workspace_text(root)?, decl)?;
-    write_workspace_file(root, &new)
+    edit_workspace_file(root, |t| add_to_toml(t, decl))
 }
 
 /// `account.set_default` on a Workspace root ([`set_default_in_toml`]).
 pub fn set_default_file(root: &Path, agent: Option<AgentKind>, name: &str) -> Result<PathBuf> {
-    let new = set_default_in_toml(&read_workspace_text(root)?, agent, name)?;
-    write_workspace_file(root, &new)
+    edit_workspace_file(root, |t| set_default_in_toml(t, agent, name))
 }
 
 /// What a restored plain shell is given to type (R108.7): a `printf` of
