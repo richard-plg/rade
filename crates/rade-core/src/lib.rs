@@ -24,6 +24,7 @@ pub mod git;
 pub mod home;
 pub mod layers;
 pub mod layout;
+pub mod layout_diff;
 pub mod link;
 pub mod linkview;
 pub mod markdown;
