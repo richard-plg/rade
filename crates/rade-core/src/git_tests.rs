@@ -268,3 +268,74 @@ fn r131_d_worktree_of_a_repository_without_commits_is_refused() {
     assert!(!dir.exists());
     let _ = std::fs::remove_dir_all(&d);
 }
+
+fn no_user_ssh() -> bool {
+    std::env::var_os("GIT_SSH_COMMAND").is_none() && std::env::var_os("GIT_SSH").is_none()
+}
+
+#[test]
+fn r140_h_ssh_command_of_a_core_sshcommand_gets_the_limits_after_it() {
+    if !no_user_ssh() {
+        return;
+    }
+    let d = repo("ssh-core");
+    sh(
+        &d,
+        &[
+            "config",
+            "core.sshCommand",
+            "ssh -i /k -o IdentitiesOnly=yes",
+        ],
+    );
+    assert_eq!(
+        ssh_command(&d, &[]).as_deref(),
+        Some("ssh -i /k -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=10")
+    );
+    // The Workspace env's GIT_SSH_COMMAND wins over core.sshCommand.
+    let env = vec![("GIT_SSH_COMMAND".to_string(), "ssh -F /c".to_string())];
+    assert_eq!(
+        ssh_command(&d, &env).as_deref(),
+        Some("ssh -F /c -o BatchMode=yes -o ConnectTimeout=10")
+    );
+}
+
+#[test]
+fn r140_h_the_core_sshcommand_probe_sees_the_workspace_env_config() {
+    if !no_user_ssh() {
+        return;
+    }
+    let d = repo("ssh-env");
+    let env: Vec<(String, String)> = [
+        ("GIT_CONFIG_COUNT", "1"),
+        ("GIT_CONFIG_KEY_0", "core.sshCommand"),
+        ("GIT_CONFIG_VALUE_0", "ssh -i /ws"),
+    ]
+    .iter()
+    .map(|(k, v)| (k.to_string(), v.to_string()))
+    .collect();
+    assert_eq!(
+        ssh_command(&d, &env).as_deref(),
+        Some("ssh -i /ws -o BatchMode=yes -o ConnectTimeout=10")
+    );
+    assert_eq!(ssh_command(&d, &[]).as_deref(), Some(SSH_DEFAULT));
+}
+
+#[test]
+fn r140_h_the_users_own_batchmode_still_wins_in_ssh() {
+    // The ordering claim: ssh takes the first value of an option.
+    let out = std::process::Command::new("ssh")
+        .args([
+            "-G",
+            "-o",
+            "BatchMode=no",
+            "-o",
+            "BatchMode=yes",
+            "-o",
+            "ConnectTimeout=10",
+            "example.invalid",
+        ])
+        .output();
+    let Ok(out) = out else { return };
+    let text = String::from_utf8_lossy(&out.stdout);
+    assert!(text.contains("batchmode no"), "{text}");
+}

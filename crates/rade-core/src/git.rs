@@ -51,21 +51,45 @@ pub fn command(dir: &Path) -> Command {
 /// connecting after 10 s (R140.1).
 pub const SSH_DEFAULT: &str = "ssh -o BatchMode=yes -o ConnectTimeout=10";
 
-/// The `GIT_SSH_COMMAND` a network command in `dir` should get: `None`
-/// when the user set `GIT_SSH_COMMAND` / `GIT_SSH` (in the environment or
-/// in `env`, the Workspace env) or `core.sshCommand`.
-pub fn ssh_command(dir: &Path, env: &[(String, String)]) -> Option<&'static str> {
-    let set = |k: &str| {
-        env.iter().any(|(n, _)| n == k) || std::env::var_os(k).is_some_and(|v| !v.is_empty())
+/// The `GIT_SSH_COMMAND` a network command in `dir` should get (R140.1).
+/// The user's own ssh command (`GIT_SSH_COMMAND` in `env`, the Workspace
+/// env, or in the environment, else `core.sshCommand` read with `env`)
+/// gets `-o BatchMode=yes -o ConnectTimeout=10` appended: ssh takes the
+/// first value of an option, so the user's own `-o BatchMode=no` still
+/// wins. Nothing chosen: [`SSH_DEFAULT`]. `None` when `GIT_SSH` names a
+/// program (no options can be added to it).
+pub fn ssh_command(dir: &Path, env: &[(String, String)]) -> Option<String> {
+    let var = |k: &str| {
+        env.iter()
+            .rev()
+            .find(|(n, _)| n == k)
+            .map(|(_, v)| v.clone())
+            .or_else(|| std::env::var(k).ok())
+            .filter(|v| !v.trim().is_empty())
     };
-    if set("GIT_SSH_COMMAND") || set("GIT_SSH") {
+    if let Some(user) = var("GIT_SSH_COMMAND") {
+        return Some(with_ssh_limits(&user));
+    }
+    if var("GIT_SSH").is_some() {
         return None;
     }
     let mut c = command(dir);
+    c.envs(env.iter().map(|(k, v)| (k, v)));
     c.args(["config", "--get", "core.sshCommand"]);
     let configured = proc::output(&mut c, proc::PROBE)
-        .is_ok_and(|o| o.status.success() && !o.stdout.trim_ascii().is_empty());
-    (!configured).then_some(SSH_DEFAULT)
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        .filter(|v| !v.is_empty());
+    Some(match configured {
+        Some(user) => with_ssh_limits(&user),
+        None => SSH_DEFAULT.to_string(),
+    })
+}
+
+/// `user`'s ssh command + the options of [`SSH_DEFAULT`], after its own.
+pub fn with_ssh_limits(user: &str) -> String {
+    format!("{user} -o BatchMode=yes -o ConnectTimeout=10")
 }
 
 /// Run a command made by [`command`] under `limit` (`what` names it in a
