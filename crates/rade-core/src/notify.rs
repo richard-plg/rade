@@ -325,6 +325,133 @@ pub fn relative_time(then: u64, now: u64) -> String {
     }
 }
 
+/// One call to `org.freedesktop.Notifications` that [`DesktopSlots`] wants made.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DesktopCall<C> {
+    /// `Notify` with this `replaces_id` (0 = a new banner).
+    Notify { replaces_id: u32, content: C },
+    /// `CloseNotification` of the server's id.
+    Close(u32),
+}
+
+enum Slot<C> {
+    /// `Notify` sent, the server's id not known yet: a newer text waits here
+    /// (only the latest is kept), a withdraw is remembered.
+    Pending {
+        queued: Option<C>,
+        withdrawn: bool,
+    },
+    Shown(u32),
+}
+
+/// R3.1: one Agent event is one desktop banner, replaced in place, never sent
+/// twice. A replace needs the server's id from the first `Notify` reply, so
+/// while that reply is outstanding the newest text is queued and sent as the
+/// replace when the reply arrives. Keys are Notification ids, `C` the content.
+pub struct DesktopSlots<C> {
+    slots: std::collections::HashMap<u64, Slot<C>>,
+}
+
+impl<C> Default for DesktopSlots<C> {
+    fn default() -> Self {
+        Self {
+            slots: Default::default(),
+        }
+    }
+}
+
+impl<C> DesktopSlots<C> {
+    /// Show `content` for `key`: a new banner, a replace, or queued.
+    pub fn send(&mut self, key: u64, content: C) -> Option<DesktopCall<C>> {
+        match self.slots.get_mut(&key) {
+            None => {
+                self.slots.insert(
+                    key,
+                    Slot::Pending {
+                        queued: None,
+                        withdrawn: false,
+                    },
+                );
+                Some(DesktopCall::Notify {
+                    replaces_id: 0,
+                    content,
+                })
+            }
+            Some(Slot::Pending { queued, .. }) => {
+                *queued = Some(content);
+                None
+            }
+            Some(Slot::Shown(id)) => Some(DesktopCall::Notify {
+                replaces_id: *id,
+                content,
+            }),
+        }
+    }
+
+    /// The server answered the first `Notify` with its id.
+    pub fn replied(&mut self, key: u64, server_id: u32) -> Option<DesktopCall<C>> {
+        let Some(Slot::Pending { queued, withdrawn }) = self.slots.remove(&key) else {
+            return None;
+        };
+        if withdrawn {
+            return Some(DesktopCall::Close(server_id));
+        }
+        self.slots.insert(key, Slot::Shown(server_id));
+        queued.map(|content| DesktopCall::Notify {
+            replaces_id: server_id,
+            content,
+        })
+    }
+
+    /// The first `Notify` failed: a queued text becomes a new first `Notify`.
+    pub fn failed(&mut self, key: u64) -> Option<DesktopCall<C>> {
+        match self.slots.remove(&key) {
+            Some(Slot::Pending {
+                queued: Some(content),
+                withdrawn: false,
+            }) => {
+                self.slots.insert(
+                    key,
+                    Slot::Pending {
+                        queued: None,
+                        withdrawn: false,
+                    },
+                );
+                Some(DesktopCall::Notify {
+                    replaces_id: 0,
+                    content,
+                })
+            }
+            _ => None,
+        }
+    }
+
+    /// Take the banner down (read in the app).
+    pub fn withdraw(&mut self, key: u64) -> Option<DesktopCall<C>> {
+        match self.slots.get_mut(&key) {
+            Some(Slot::Pending { queued, withdrawn }) => {
+                *queued = None;
+                *withdrawn = true;
+                None
+            }
+            Some(Slot::Shown(id)) => {
+                let id = *id;
+                self.slots.remove(&key);
+                Some(DesktopCall::Close(id))
+            }
+            None => None,
+        }
+    }
+
+    /// The Notification a server id belongs to (for the click actions).
+    pub fn key_of(&self, server_id: u32) -> Option<u64> {
+        self.slots.iter().find_map(|(k, s)| match s {
+            Slot::Shown(id) if *id == server_id => Some(*k),
+            _ => None,
+        })
+    }
+}
+
 #[cfg(test)]
 #[path = "notify_tests.rs"]
 mod tests;

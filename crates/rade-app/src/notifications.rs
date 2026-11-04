@@ -9,7 +9,7 @@ use adw::prelude::*;
 use gtk::{gio, glib};
 use gtk4 as gtk;
 use libadwaita as adw;
-use rade_core::notify::{desktop_decision, relative_time};
+use rade_core::notify::{desktop_decision, relative_time, DesktopCall, DesktopSlots};
 use rade_core::State;
 use serde_json::{json, Value};
 use std::cell::RefCell;
@@ -19,9 +19,6 @@ use std::rc::Rc;
 /// Rows shown in the panel; older ones stay in state.json (cap 500).
 /// ponytail: fixed window; add paging if anyone scrolls that far.
 const PANEL_ROWS: usize = 100;
-/// A banner is replaced no sooner than this after it was sent (see
-/// [`Desktop::after_update`]).
-const REPLACE_AFTER: std::time::Duration = std::time::Duration::from_millis(400);
 /// Entries kept in the `rade debug desktop` log.
 const LOG_MAX: usize = 200;
 
@@ -492,12 +489,25 @@ fn post_later(pane: String, message: Option<(Option<String>, String)>) {
 pub struct Desktop {
     /// Highest Notification id already considered.
     seen: std::cell::Cell<u64>,
-    /// Sent and not yet withdrawn, with the text sent and when.
-    sent: RefCell<Vec<(u64, String, std::time::Instant)>>,
-    /// A replacement is waiting for the server's answer to the first send.
-    retry: std::cell::Cell<bool>,
+    /// Sent and not yet withdrawn, with the text sent.
+    sent: RefCell<Vec<(u64, String)>>,
+    /// Per Notification: the server's id once known, the newest queued text.
+    slots: RefCell<DesktopSlots<Banner>>,
+    bus: RefCell<Option<gio::DBusConnection>>,
+    /// The last `ActivationToken` of a click, used by the focus that follows.
+    token: RefCell<Option<String>>,
     log: RefCell<Vec<Value>>,
 }
+
+/// What one desktop banner shows.
+struct Banner {
+    summary: String,
+    body: String,
+    pane: String,
+}
+
+const FDO_NAME: &str = "org.freedesktop.Notifications";
+const FDO_PATH: &str = "/org/freedesktop/Notifications";
 
 impl Desktop {
     /// Old Notifications (from state.json) never go to the desktop.
@@ -517,31 +527,16 @@ impl Desktop {
                 "reason": reason, "window_active": window_active, "on_screen": on_screen,
             }));
             if send {
-                show_desktop(app, &ws, n);
-                self.sent
-                    .borrow_mut()
-                    .push((n.id, n.text.clone(), std::time::Instant::now()));
+                self.show(&ws, n);
+                self.sent.borrow_mut().push((n.id, n.text.clone()));
             }
         }
         // A sent one that grew by coalescing (R3.1): replace its banner (same
-        // id), don't send a second.
-        // GLib replaces a banner only once the server answered its first
-        // send: a replacement right after it would be a second banner, so
-        // it waits a moment (an OSC arriving with its status hook).
-        for (id, text, at) in self.sent.borrow_mut().iter_mut() {
+        // id), never send a second. `DesktopSlots` queues the text while the
+        // server's id for the first send is still outstanding.
+        for (id, text) in self.sent.borrow_mut().iter_mut() {
             if let Some(n) = ws.notification(*id).filter(|n| !n.read && n.text != *text) {
-                if at.elapsed() < REPLACE_AFTER {
-                    if !self.retry.replace(true) {
-                        glib::timeout_add_local_once(REPLACE_AFTER, || {
-                            if let Some(app) = try_app() {
-                                app.desktop.retry.set(false);
-                                app.desktop.after_update(&app);
-                            }
-                        });
-                    }
-                    continue;
-                }
-                show_desktop(app, &ws, n);
+                self.show(&ws, n);
                 *text = n.text.clone();
                 self.push(json!({"event": "replace", "id": id, "pane": n.pane}));
             }
@@ -556,12 +551,15 @@ impl Desktop {
             .sent
             .borrow()
             .iter()
-            .map(|(id, _, _)| *id)
+            .map(|(id, _)| *id)
             .filter(|id| ws.notification(*id).is_none_or(|n| n.read))
             .collect();
         for id in done {
-            app.gtk_app.withdraw_notification(&format!("n-{id}"));
-            self.sent.borrow_mut().retain(|(x, _, _)| *x != id);
+            let call = self.slots.borrow_mut().withdraw(id);
+            if let Some(call) = call {
+                self.call(id, call);
+            }
+            self.sent.borrow_mut().retain(|(x, _)| *x != id);
             self.push(json!({"event": "withdraw", "id": id}));
         }
     }
@@ -575,13 +573,170 @@ impl Desktop {
 
     /// `rade debug desktop`: what was sent, skipped, replaced, withdrawn, and why.
     pub fn log(&self) -> Value {
-        let sent: Vec<u64> = self.sent.borrow().iter().map(|(id, _, _)| *id).collect();
+        let sent: Vec<u64> = self.sent.borrow().iter().map(|(id, _)| *id).collect();
         json!({"log": *self.log.borrow(), "sent": sent})
+    }
+
+    /// Show (or replace in place, or queue) the banner for `n`.
+    fn show(&self, ws: &State, n: &rade_core::notify::Notification) {
+        let banner = banner_for(ws, n);
+        let call = self.slots.borrow_mut().send(n.id, banner);
+        if let Some(call) = call {
+            self.call(n.id, call);
+        }
+    }
+
+    /// The session bus connection; the click signals are subscribed once.
+    // signal_subscribe: the new subscribe_to_signal unsubscribes on drop.
+    #[allow(deprecated)]
+    fn connection(&self) -> Option<gio::DBusConnection> {
+        if let Some(c) = self.bus.borrow().clone() {
+            return Some(c);
+        }
+        let conn = gio::bus_get_sync(gio::BusType::Session, None::<&gio::Cancellable>).ok()?;
+        let sub = |signal: &str, f: fn(&glib::Variant)| {
+            conn.signal_subscribe(
+                Some(FDO_NAME),
+                Some(FDO_NAME),
+                Some(signal),
+                Some(FDO_PATH),
+                None,
+                gio::DBusSignalFlags::NONE,
+                move |_, _, _, _, _, params| f(params),
+            );
+        };
+        sub("ActionInvoked", |p| {
+            if let Some((id, _action)) = p.get::<(u32, String)>() {
+                if let Some(app) = try_app() {
+                    app.desktop.clicked(&app, id);
+                }
+            }
+        });
+        sub("ActivationToken", |p| {
+            if let Some((_id, token)) = p.get::<(u32, String)>() {
+                if let Some(app) = try_app() {
+                    *app.desktop.token.borrow_mut() = Some(token);
+                }
+            }
+        });
+        *self.bus.borrow_mut() = Some(conn.clone());
+        Some(conn)
+    }
+
+    /// Make one call to the notification server.
+    fn call(&self, key: u64, call: DesktopCall<Banner>) {
+        let Some(conn) = self.connection() else {
+            return;
+        };
+        match call {
+            DesktopCall::Close(id) => {
+                conn.call(
+                    Some(FDO_NAME),
+                    FDO_PATH,
+                    FDO_NAME,
+                    "CloseNotification",
+                    Some(&(id,).to_variant()),
+                    None,
+                    gio::DBusCallFlags::NONE,
+                    -1,
+                    None::<&gio::Cancellable>,
+                    |_| {},
+                );
+                self.push(json!({"event": "close", "server_id": id}));
+            }
+            DesktopCall::Notify {
+                replaces_id,
+                content,
+            } => {
+                let app_id = try_app()
+                    .and_then(|a| a.gtk_app.application_id())
+                    .map(|s| s.to_string())
+                    .unwrap_or_default();
+                let target = format!("app.focus-pane('{}')", content.pane.replace('\'', "\\'"));
+                let actions = vec!["default".to_string(), String::new(), target, "Focus".into()];
+                let mut hints = HashMap::new();
+                hints.insert("desktop-entry", app_id.to_variant());
+                let params = (
+                    glib::application_name().map_or_else(|| "RADE".into(), |s| s.to_string()),
+                    replaces_id,
+                    String::new(),
+                    content.summary,
+                    content.body,
+                    actions,
+                    hints,
+                    -1i32,
+                )
+                    .to_variant();
+                conn.call(
+                    Some(FDO_NAME),
+                    FDO_PATH,
+                    FDO_NAME,
+                    "Notify",
+                    Some(&params),
+                    Some(glib::VariantTy::new("(u)").unwrap()),
+                    gio::DBusCallFlags::NONE,
+                    -1,
+                    None::<&gio::Cancellable>,
+                    move |res| {
+                        if replaces_id != 0 {
+                            return;
+                        }
+                        let Some(app) = try_app() else { return };
+                        let next = match res.ok().and_then(|v| v.get::<(u32,)>()) {
+                            Some((id,)) => app.desktop.slots.borrow_mut().replied(key, id),
+                            None => app.desktop.slots.borrow_mut().failed(key),
+                        };
+                        if let Some(next) = next {
+                            app.desktop.call(key, next);
+                        }
+                    },
+                );
+            }
+        }
+    }
+
+    /// The banner (or its Focus button) was clicked: raise RADE with the
+    /// click's activation token and focus the Pane.
+    fn clicked(&self, app: &App, server_id: u32) {
+        let Some(key) = self.slots.borrow().key_of(server_id) else {
+            return;
+        };
+        let Some(pane) = app.model.borrow().notification(key).map(|n| n.pane.clone()) else {
+            return;
+        };
+        if let Some(token) = self.token.borrow_mut().take() {
+            set_startup_id(&token);
+        }
+        app.gtk_app
+            .activate_action("focus-pane", Some(&pane.to_variant()));
     }
 }
 
-/// Send (or, with the same id, replace) the desktop notification for `n`.
-fn show_desktop(app: &App, ws: &State, n: &rade_core::notify::Notification) {
+/// Hand a desktop activation token to GDK so the Wayland compositor lets
+/// the window come forward (what GLib's own backend did for us).
+fn set_startup_id(token: &str) {
+    use std::ffi::CString;
+    extern "C" {
+        fn gdk_wayland_display_set_startup_notification_id(
+            display: *mut gtk::gdk::ffi::GdkDisplay,
+            id: *const std::os::raw::c_char,
+        );
+    }
+    let Some(display) = gtk::gdk::Display::default() else {
+        return;
+    };
+    if display.type_().name() != "GdkWaylandDisplay" {
+        return;
+    }
+    let Ok(id) = CString::new(token) else { return };
+    use glib::translate::ToGlibPtr;
+    unsafe {
+        gdk_wayland_display_set_startup_notification_id(display.to_glib_none().0, id.as_ptr())
+    };
+}
+
+/// The banner text for `n`.
+fn banner_for(ws: &State, n: &rade_core::notify::Notification) -> Banner {
     let path = ws.pane_path(&n.pane).unwrap_or_default();
     let (summary, body) = match &n.title {
         Some(t) => (t.clone(), format!("{}\n{path}", n.text)),
@@ -592,13 +747,11 @@ fn show_desktop(app: &App, ws: &State, n: &rade_core::notify::Notification) {
         Some(w) => format!("[{w}] {summary}"),
         None => summary,
     };
-    let g = gio::Notification::new(&summary);
-    g.set_body(Some(&body));
-    let target = n.pane.to_variant();
-    g.set_default_action_and_target_value("app.focus-pane", Some(&target));
-    g.add_button_with_target_value("Focus", "app.focus-pane", Some(&target));
-    app.gtk_app
-        .send_notification(Some(&format!("n-{}", n.id)), &g);
+    Banner {
+        summary,
+        body,
+        pane: n.pane.clone(),
+    }
 }
 
 /// `app.focus-pane(<pane>)`: the desktop notification's default action and

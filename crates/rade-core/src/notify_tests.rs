@@ -413,3 +413,74 @@ fn r3_1_a_status_never_merges_into_a_read_entry() {
     assert_ne!(s, first);
     assert_eq!(w.unread(&a), 1);
 }
+
+fn notify(replaces_id: u32, content: &'static str) -> Option<DesktopCall<&'static str>> {
+    Some(DesktopCall::Notify {
+        replaces_id,
+        content,
+    })
+}
+
+#[test]
+fn r3_1_first_send_is_a_new_banner_then_replaces_use_the_server_id() {
+    let mut s = DesktopSlots::default();
+    assert_eq!(s.send(1, "a"), notify(0, "a"));
+    assert_eq!(s.replied(1, 42), None);
+    assert_eq!(s.send(1, "b"), notify(42, "b"));
+    assert_eq!(s.key_of(42), Some(1));
+}
+
+#[test]
+fn r3_1_texts_before_the_reply_collapse_into_one_replace_with_the_latest() {
+    let mut s = DesktopSlots::default();
+    assert_eq!(s.send(1, "a"), notify(0, "a"));
+    assert_eq!(s.send(1, "b"), None);
+    assert_eq!(s.send(1, "c"), None);
+    assert_eq!(s.replied(1, 7), notify(7, "c"));
+    assert_eq!(s.send(1, "d"), notify(7, "d"));
+}
+
+#[test]
+fn r3_1_never_two_new_banners_for_one_event() {
+    let mut s = DesktopSlots::default();
+    let mut fresh = 0;
+    let mut count = |c: Option<DesktopCall<&str>>| {
+        if matches!(c, Some(DesktopCall::Notify { replaces_id: 0, .. })) {
+            fresh += 1;
+        }
+    };
+    count(s.send(1, "a"));
+    count(s.send(1, "b"));
+    count(s.replied(1, 3));
+    count(s.send(1, "c"));
+    assert_eq!(fresh, 1);
+}
+
+#[test]
+fn r3_1_withdraw_before_the_reply_closes_once_the_id_is_known() {
+    let mut s = DesktopSlots::default();
+    s.send(1, "a");
+    s.send(1, "b");
+    assert_eq!(s.withdraw(1), None);
+    assert_eq!(s.replied(1, 9), Some(DesktopCall::Close(9)));
+    assert_eq!(s.key_of(9), None);
+}
+
+#[test]
+fn r3_1_withdraw_after_the_reply_closes_at_once_and_forgets() {
+    let mut s = DesktopSlots::default();
+    s.send(1, "a");
+    s.replied(1, 9);
+    assert_eq!(s.withdraw(1), Some(DesktopCall::Close(9)));
+    assert_eq!(s.withdraw(1), None);
+}
+
+#[test]
+fn r3_1_a_failed_first_notify_retries_the_queued_text_as_new() {
+    let mut s = DesktopSlots::default();
+    s.send(1, "a");
+    s.send(1, "b");
+    assert_eq!(s.failed(1), notify(0, "b"));
+    assert_eq!(s.failed(1), None);
+    assert_eq!(s.send(1, "c"), notify(0, "c"));
+}
