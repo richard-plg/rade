@@ -15,6 +15,8 @@ Environment:
   FAKE_LSP_INDEX_MS  report indexing ($/progress) this long after start;
                      queries answer [] meanwhile
   FAKE_LSP_NO_CALLS  no callHierarchyProvider
+  FAKE_LSP_STOP_READING  stop reading stdin after `initialized` (the pipe
+                     fills, a client's write blocks: R140.3)
   FAKE_LSP_HANG_ON   a method name (e.g. `initialize`,
                      `textDocument/documentSymbol`): never answer it, and
                      nothing after it (a hung server, M29)
@@ -243,6 +245,9 @@ def main():
                 indexing = True
                 send({"jsonrpc": "2.0", "method": "$/progress", "params": {"token": "idx", "value": {"kind": "begin", "title": "Indexing"}}})
                 threading.Thread(target=finish_indexing, args=(ms,), daemon=True).start()
+            if os.environ.get("FAKE_LSP_STOP_READING"):
+                log("stop-reading", os.getpid())
+                time.sleep(3600)
         elif m == "textDocument/didOpen":
             DOCS[p["textDocument"]["uri"]] = p["textDocument"]["text"]
         elif m == "workspace/didChangeWatchedFiles":

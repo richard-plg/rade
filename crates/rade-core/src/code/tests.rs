@@ -271,6 +271,46 @@ fn r83_queued_requests_on_a_hung_server_each_wait_their_own_timeout() {
 }
 
 #[test]
+fn r140_d_a_server_that_stops_reading_is_hung_within_the_budget_and_restarted() {
+    let d = repo("stopreading");
+    // 1 MB after the line the query asks about: the write cannot fit the pipe.
+    let mut main = std::fs::read_to_string(d.join("src/main.rs")).unwrap();
+    main.push_str(&"// padding padding padding padding padding padding\n".repeat(22_000));
+    assert!(main.len() > 1 << 20);
+    std::fs::write(d.join("src/main.rs"), main).unwrap();
+    let pool = Mutex::new(Pool::default());
+    let mut c = ctx(
+        &d,
+        Query::Def,
+        "src/main.rs",
+        2,
+        18,
+        &[("FAKE_LSP_STOP_READING", "1")],
+    );
+    c.timeout = Duration::from_secs(3);
+    let t = std::time::Instant::now();
+    let a = run(&pool, &c);
+    assert_eq!(a.state, "error", "{a:?}");
+    assert!(a.hint.clone().unwrap().contains("hung"), "{:?}", a.hint);
+    assert!(a.text());
+    // The budget (3 s) plus the first-open settle (1.5 s), not for ever.
+    assert!(t.elapsed() < Duration::from_secs(8), "{:?}", t.elapsed());
+    // The next query starts a new server (this one reads).
+    let c2 = ctx(&d, Query::Def, "src/main.rs", 2, 18, &[]);
+    let b = run(&pool, &c2);
+    assert_eq!(b.state, "ready", "{b:?}");
+    let log = std::fs::read_to_string(d.with_extension("log")).unwrap();
+    assert_eq!(
+        log.lines().filter(|l| l.starts_with("start ")).count(),
+        2,
+        "{log}"
+    );
+    for s in pool.lock().unwrap().take_under(None) {
+        s.kill();
+    }
+}
+
+#[test]
 fn r83_a_server_hung_in_initialize_fails_fast_afterwards() {
     // M29 open item: every request waited out another 30 s start.
     let d = repo("inithang");
