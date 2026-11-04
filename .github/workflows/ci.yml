@@ -96,8 +96,9 @@ jobs:
             type=registry,ref=ghcr.io/richard-plg/rade-ci:cache-e2e
           cache-to: ${{ github.event_name == 'push' && 'type=registry,ref=ghcr.io/richard-plg/rade-ci:cache-check,mode=max' || '' }}
 
-  # The suites in three shards, split by their CI durations (greedy, slowest
-  # first; ~5 min of suites each). A new suite goes into the lightest shard.
+  # The suites in four shards, split by their CI durations (greedy, slowest
+  # first; ~5 min of suites each). A new suite goes into the lightest shard;
+  # scripts/check-ci-suites.sh (check stage) fails on a suite in none (R143.1).
   e2e:
     name: E2E ${{ matrix.shard }} (headless Weston)
     needs: commits
@@ -116,6 +117,8 @@ jobs:
             suites: m6 m8 m14b m11 m4 m9 titles m26 m15 m36 m5 m45 m47 m52
           - shard: c
             suites: m30 m28 m39 m15b m24 m31 m38 m16 run settings m46 m49 m51
+          - shard: d
+            suites: m35 m40 m43 m44 sysmon
     env:
       E2E_JOBS: 2 # a hosted runner has 4 vCPUs
       E2E_SKIP_PERF: 1 # ms budgets need real hardware (tests/e2e/lib.sh perf_check)
@@ -143,7 +146,7 @@ jobs:
           cache-from: |
             type=registry,ref=ghcr.io/richard-plg/rade-ci:cache-e2e
             type=registry,ref=ghcr.io/richard-plg/rade-ci:cache-check
-          # One shard writes; the three build the same layers.
+          # One shard writes; the others build the same layers.
           cache-to: ${{ github.event_name == 'push' && matrix.shard == 'a' && 'type=registry,ref=ghcr.io/richard-plg/rade-ci:cache-e2e,mode=max' || '' }}
       - name: Suites (each in a fresh container; ci/e2e.sh)
         run: ci/e2e.sh "rade-ci:e2e-$GITHUB_RUN_ID" ${{ matrix.suites }}
