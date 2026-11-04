@@ -106,9 +106,17 @@ start_app() {
     eventually 15 rade list || { echo "app did not start"; cat "$OUT/app.log"; exit 1; }
     sleep 0.5 # first frame
 }
-stop_app() {
-    rade debug quit >/dev/null || true
-    wait "$APP_PID" 2>/dev/null || true
+stop_app() { # quit, wait ≤ 10 s, then kill -9 (PRD R140.4: a suite never hangs here)
+    timeout 15 rade debug quit >/dev/null 2>&1 || true
+    if [[ -n ${APP_PID:-} ]]; then
+        local i
+        for i in $(seq 50); do kill -0 "$APP_PID" 2>/dev/null || break; sleep 0.2; done
+        if kill -0 "$APP_PID" 2>/dev/null; then
+            echo "  stop_app: the app did not quit within 10 s, killed"
+            kill -9 "$APP_PID" 2>/dev/null || true
+        fi
+        wait "$APP_PID" 2>/dev/null || true
+    fi
     APP_PID=
 }
 
@@ -117,12 +125,24 @@ norm() { jq -S 'del(.. | .ratio?)'; }
 
 # Raw socket call for debug methods without a CLI subcommand (M14):
 # `rpc debug.ui '{"op": "sidebar"}'` → the result JSON.
-rpc() { python3 - "$XDG_RUNTIME_DIR/rade/rade-dev.sock" "$1" "${2:-{\}}" <<'PY'
+# Ends on EOF or after RPC_TIMEOUT s (default 120) with the app log's tail (R140.4).
+rpc() { python3 - "$XDG_RUNTIME_DIR/rade/rade-dev.sock" "$1" "${2:-{\}}" "${RPC_TIMEOUT:-120}" "${OUT:-}/app.log" <<'PY'
 import json, socket, sys
-s = socket.socket(socket.AF_UNIX); s.connect(sys.argv[1])
-s.sendall((json.dumps({"jsonrpc": "2.0", "id": 1, "method": sys.argv[2], "params": json.loads(sys.argv[3])}) + "\n").encode())
-buf = b""
-while not buf.endswith(b"\n"): buf += s.recv(65536)
+def die(why):
+    try: tail = open(sys.argv[5], errors="replace").read().splitlines()[-20:]
+    except OSError: tail = []
+    print(f"rpc {sys.argv[2]}: {why}", *("  app.log: " + l for l in tail), sep="\n", file=sys.stderr); sys.exit(1)
+s = socket.socket(socket.AF_UNIX); s.settimeout(float(sys.argv[4]))
+try:
+    s.connect(sys.argv[1])
+    s.sendall((json.dumps({"jsonrpc": "2.0", "id": 1, "method": sys.argv[2], "params": json.loads(sys.argv[3])}) + "\n").encode())
+    buf = b""
+    while not buf.endswith(b"\n"):
+        chunk = s.recv(65536)
+        if not chunk: die("the app closed the connection")
+        buf += chunk
+except socket.timeout: die(f"no answer within {sys.argv[4]} s")
+except OSError as e: die(str(e))
 r = json.loads(buf); print(json.dumps(r.get("result", r.get("error"))))
 PY
 }
