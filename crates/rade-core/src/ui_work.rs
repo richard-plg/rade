@@ -100,7 +100,8 @@ use std::hash::Hasher;
 /// in the window: every Pane's name / status / title / Agent / account, the
 /// Tabs and their focus, the active place, the Notifications and the
 /// Fan-outs. It leaves out what a report changes without showing it (`hook_at`,
-/// `hook_statuses`, the invocation), so a repeated `running` is no change.
+/// `hook_statuses`), so a repeated `running` is no change. The invocation's
+/// argv is in: the Pane header's model text comes from it.
 /// Updates that change anything else (a spawn, a split, a Review) do not
 /// use it: they sync every part.
 pub fn hot_key(m: &State) -> u64 {
@@ -133,6 +134,7 @@ pub fn hot_key(m: &State) -> u64 {
                     &p.title,
                     &p.account,
                     &p.session_id,
+                    p.invocation.as_ref().map(|i| &i.argv),
                 )
                     .hash(&mut h);
             }

@@ -361,3 +361,21 @@ fn r142_1_a_repeated_report_changes_no_part_and_a_new_status_changes_the_window(
     w2.file_tree = !w2.file_tree;
     assert_ne!(inspector_key(&w2), inspector_key(&w));
 }
+
+#[test]
+fn r142_1_an_invocation_change_changes_the_window_key() {
+    use crate::preset::Invocation;
+    let (mut w, a, _) = two_panes();
+    let inv = |model: &str| Invocation {
+        argv: vec!["claude".into(), "--model".into(), model.into()],
+        env: Default::default(),
+    };
+    w.set_invocation(&a, inv("opus")).unwrap();
+    let hot = hot_key(&w);
+    // The same invocation again: nothing to show.
+    w.set_invocation(&a, inv("opus")).unwrap();
+    assert_eq!(hot_key(&w), hot);
+    // Another model: the Pane header's model text changes.
+    w.set_invocation(&a, inv("sonnet")).unwrap();
+    assert_ne!(hot_key(&w), hot);
+}
