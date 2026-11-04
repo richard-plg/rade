@@ -1722,6 +1722,7 @@ AC:
 3. `pane.wait --until <pattern>` and the setup's "type when settled" read only the screen text added since their last look.
 4. The Terminal tick runs while Ghostty asks for it (wakeup) and stops when idle.
 5. No `RefCell` borrow of the Terminals, the surface map or the Ghostty callbacks is held across a GTK call that can run another handler.
+6. **A Layout change moves only what changed**: only the Tab whose Layout changed is rebuilt, and in it only the Panes whose place in the split tree changed are taken out of their container; every other Pane frame and split widget stays (a Terminal taken out is unrealized and rebuilds its renderer). A Pane header's menu is built when it first opens: a menu model per header makes placing any widget in the window walk every header's action watchers.
 
 **Amendment to R4.3 and R111.3:** add "UI-thread stall p99 ≤ 16 ms with 60 Agents reporting" and "≤ 5 timer wakeups/s idle".
 
@@ -1732,6 +1733,8 @@ AC:
 - R142-d [M53] (e2e): Given a `git` that takes 5 s (a wrapper on `PATH`). When the window stays active for 12 s. Then at most one facts read was in flight at any time.
 - R142-e [M53] (unit): Given a status hook from a Pane whose config files did not change. When it is handled. Then the layered config is not read again (cache by file mtimes).
 - R142-f [M53] (unit): Given screen text with a pattern added after the last look. When the tail rule runs. Then it finds the pattern reading only the new text.
+- R142-g [M53] (e2e): Given 60 Agents spawned in one Source. When they report a status every 200 ms for 30 s. Then every spawn answered within 2 s, `rade list` answers within 2 s throughout, and the UI-thread stall p99 is ≤ 16 ms (timing skipped under E2E_SKIP_PERF).
+- R142-h [M53] (unit): Given a Tab of 40 Panes. When one more Pane splits its focused Pane, a Pane closes, or nothing but a status changes. Then only the split Pane and the new one (the closed Pane's sibling; none) move to a new place, and every other Pane frame and split widget is kept.
 
 ## R143 — Tests tell the truth (M53)
 
