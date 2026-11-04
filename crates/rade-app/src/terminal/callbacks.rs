@@ -293,15 +293,14 @@ pub(super) unsafe extern "C" fn ghostty_action_cb(
             if target.tag == GHOSTTY_TARGET_SURFACE {
                 let surface_key = unsafe { target.target.surface } as usize;
                 glib::idle_add_local_once(move || {
-                    SURFACE_MAP.with(|map| {
-                        if let Some(cb) = map
-                            .borrow()
+                    let cb = SURFACE_MAP.with(|map| {
+                        map.borrow()
                             .get(&surface_key)
-                            .and_then(|e| e.on_command_finished.as_ref())
-                        {
-                            cb();
-                        }
+                            .and_then(|e| e.on_command_finished.clone())
                     });
+                    if let Some(cb) = cb {
+                        cb();
+                    }
                 });
             }
             true
@@ -315,13 +314,17 @@ pub(super) unsafe extern "C" fn ghostty_action_cb(
                 let surface_key = unsafe { target.target.surface } as usize;
                 let code = unsafe { action.action.child_exited.exit_code };
                 glib::idle_add_local_once(move || {
-                    SURFACE_MAP.with(|map| {
-                        if let Some(entry) = map.borrow().get(&surface_key) {
-                            if let Some(cb) = &entry.on_child_exited {
-                                cb(code);
-                            }
-                        }
+                    // The handler runs `App::update`, which can create or
+                    // retire Terminals: call it with the map released
+                    // (R142.5).
+                    let cb = SURFACE_MAP.with(|map| {
+                        map.borrow()
+                            .get(&surface_key)
+                            .and_then(|e| e.on_child_exited.clone())
                     });
+                    if let Some(cb) = cb {
+                        cb(code);
+                    }
                 });
             }
             false

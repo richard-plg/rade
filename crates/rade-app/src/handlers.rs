@@ -495,7 +495,7 @@ fn handle(method: &str, p: Value) -> Result<Value> {
                 return Ok(json!({"pane": pane, "ignored": why}));
             }
             let inv = s.invocation.clone();
-            app.update(|m| -> Result<()> {
+            app.update_coalesced(|m| -> Result<()> {
                 m.set_status(&pane, status, sid, s.agent, now())?;
                 m.record_hook(&pane, status, now())?;
                 match s.invocation {
@@ -517,6 +517,8 @@ fn handle(method: &str, p: Value) -> Result<Value> {
             let n: Notify = params(p)?;
             let pane = target(&app, n.pane, n.caller)?;
             let status = n.status.as_deref().map(AgentStatus::parse).transpose()?;
+            // An explicit call, not a burst: the desktop decision is made
+            // before the call returns.
             let id = app.update(|m| -> Result<Option<u64>> {
                 if status.is_some() {
                     m.set_status(&pane, status, None, None, now())?;
@@ -844,6 +846,34 @@ thread_local! {
         Default::default();
 }
 
+thread_local! {
+    /// Pane → its process, from the last full scan (R142.2).
+    static PANE_PIDS: std::cell::RefCell<std::collections::HashMap<String, i32>> =
+        Default::default();
+}
+
+/// A Pane's process. A hook report asks for this: scanning the environment
+/// of every child of the app per report is thousands of reads a second with
+/// many Agents, so the last scan's answer is kept while that process still
+/// has the Pane's id in its environment (one read), and rescanned if not.
+fn pane_pid(pane: &str) -> Option<i32> {
+    let still = |pid: i32| {
+        std::fs::read(format!("/proc/{pid}/environ")).is_ok_and(|e| {
+            let want = format!("RADE_PANE_ID={pane}");
+            e.split(|b| *b == 0).any(|kv| kv == want.as_bytes())
+        })
+    };
+    if let Some(pid) = PANE_PIDS.with(|c| c.borrow().get(pane).copied()) {
+        if still(pid) {
+            return Some(pid);
+        }
+    }
+    let all = rade_core::process::pane_pids();
+    let pid = all.get(pane).copied();
+    PANE_PIDS.with(|c| *c.borrow_mut() = all);
+    pid
+}
+
 /// [`rade_core::model::State::foreign_report`] with the Pane's own Presets;
 /// the first drop of a session also writes an Activity line.
 fn foreign_report(
@@ -857,10 +887,9 @@ fn foreign_report(
     let (source, worktree) = app.model.borrow().pane_worktree(pane)?;
     let presets = app.config_for(&source, Some(&worktree)).presets().ok()?;
     // The program in the Pane's foreground now (R115.4), not the 3 s poll.
-    let foreground = rade_core::process::pane_pids()
-        .get(pane)
+    let foreground = pane_pid(pane)
         .and_then(|pid| {
-            rade_core::process::foreground_argv(std::path::Path::new("/proc"), *pid as u32)
+            rade_core::process::foreground_argv(std::path::Path::new("/proc"), pid as u32)
         })
         .and_then(|argv| rade_core::preset::detect(&presets, &argv));
     let (why, name, project) = {
@@ -1077,43 +1106,41 @@ pub(crate) fn plan_spawn(
 /// Prompt mode `type` (R16.1): once the new Terminal shows output that has
 /// not changed for 0.75 s (or after 15 s), paste the prompt and press Enter.
 /// With a Worktree `setup` running first (R12.2), only after it has ended.
-pub(crate) fn type_when_settled(pane: String, text: String, mut setup: bool) {
-    let mut last = String::new();
-    let (mut stable, mut ticks) = (0, 0);
-    glib::timeout_add_local(Duration::from_millis(250), move || {
+pub(crate) fn type_when_settled(pane: String, text: String, setup: bool) {
+    use rade_core::ui_work::{Settle, Settled, Tail, SETTLE_TICK_MS};
+    let mut settle = Settle::new(setup);
+    let mut tail = Tail::default();
+    glib::timeout_add_local(Duration::from_millis(SETTLE_TICK_MS), move || {
         let Some(app) = crate::app::try_app() else {
             return glib::ControlFlow::Break;
         };
-        let terms = app.terminals.borrow();
-        let Some(t) = terms.get(&pane) else {
+        // The handle, not the map: starting a Terminal can run another
+        // handler that changes the map (R142.5).
+        let Some(handle) = app.terminals.borrow().get(&pane).map(|t| t.handle.clone()) else {
             return glib::ControlFlow::Break; // Pane closed
         };
-        t.handle.ensure_started();
-        if setup {
-            let all = t.handle.read_text(GHOSTTY_POINT_SCREEN).unwrap_or_default();
-            if !all.contains(rade_core::worktree::SETUP_DONE) && !all.contains("rade setup failed")
-            {
-                return glib::ControlFlow::Continue;
+        handle.ensure_started();
+        // Only the rows added since the last tick (R142.3).
+        let ended = settle.awaiting_setup()
+            && handle.read_tail(&mut tail).is_some_and(|all| {
+                all.contains(rade_core::worktree::SETUP_DONE) || all.contains("rade setup failed")
+            });
+        let verdict = settle.tick(ended, || {
+            handle.read_text(GHOSTTY_POINT_VIEWPORT).unwrap_or_default()
+        });
+        match verdict {
+            Settled::Wait => glib::ControlFlow::Continue,
+            Settled::Type => {
+                handle.send_text(&text);
+                press_enter_later(handle);
+                glib::ControlFlow::Break
             }
-            setup = false;
+            // R140.5: a setup that never ends is not typed into.
+            Settled::GiveUp => {
+                eprintln!("rade: {pane}: setup did not end; the prompt was not typed");
+                glib::ControlFlow::Break
+            }
         }
-        let screen = t
-            .handle
-            .read_text(GHOSTTY_POINT_VIEWPORT)
-            .unwrap_or_default();
-        ticks += 1;
-        if !screen.trim().is_empty() && screen == last {
-            stable += 1;
-        } else {
-            stable = 0;
-            last = screen;
-        }
-        if stable < 3 && ticks < 60 {
-            return glib::ControlFlow::Continue;
-        }
-        t.handle.send_text(&text);
-        press_enter_later(t.handle.clone());
-        glib::ControlFlow::Break
     });
 }
 
@@ -1139,18 +1166,26 @@ fn wait(w: Wait) -> Result<Value> {
     };
     let mut last: Option<String> = None;
     let mut quiet_since = Instant::now();
+    // A regex wait reads only the rows added since its last look (R142.3).
+    let mut seen = Some(rade_core::ui_work::Tail::default());
     loop {
         let pid = id.clone();
-        let snap = on_main(move || {
+        let mut look = seen.take().unwrap_or_default();
+        let (snap, back) = on_main(move || {
             let app = app();
             let status = app.model.borrow().pane(&pid).map(|p| p.status);
-            let text = match (point, app.terminals.borrow().get(&pid)) {
+            let handle = app.terminals.borrow().get(&pid).map(|t| t.handle.clone());
+            let text = match (point, handle) {
                 // Same text `read` returns (no trailing cell padding).
-                (Some(pt), Some(t)) => tail(&t.handle.read_text(pt).unwrap_or_default(), None),
+                (Some(GHOSTTY_POINT_SCREEN), Some(h)) => {
+                    tail(&h.read_tail(&mut look).unwrap_or_default(), None)
+                }
+                (Some(pt), Some(h)) => tail(&h.read_text(pt).unwrap_or_default(), None),
                 _ => String::new(),
             };
-            Ok(status.map(|s| (s, text)))
+            Ok((status.map(|s| (s, text)), look))
         })?;
+        seen = Some(back);
         let Some((status, text)) = snap else {
             // The Pane closed: it can only have exited.
             return match until {

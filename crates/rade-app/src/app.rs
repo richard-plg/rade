@@ -21,6 +21,10 @@ use std::path::PathBuf;
 use std::rc::Rc;
 use std::time::Duration;
 
+/// What a layered config depends on besides its files: (Source, Worktree,
+/// the Source's trusted `.rade.toml` text, the Worktree's Project).
+type ConfigKey = (String, Option<String>, Option<String>, Option<String>);
+
 /// Save at most this long after a change (R11.1 asks for ≤ 5 s).
 const SAVE_DELAY: Duration = Duration::from_secs(1);
 
@@ -163,6 +167,19 @@ pub struct App {
     /// When the queue started (ms on the monotonic clock) and each Pane's
     /// start time since then, for `debug.restore`.
     restore_log: RefCell<(i64, Vec<(String, u64)>)>,
+    /// A coalesced sync waiting for the next frame (R142.1).
+    flush_pending: RefCell<Option<Flush>>,
+    /// The keys each part last synced under (R142.1).
+    gate: RefCell<rade_core::ui_work::Gate>,
+    /// The frame the last sync ran in (at most one per frame, R142.1).
+    last_sync_frame: Cell<i64>,
+}
+
+/// The two sources that run a pending coalesced sync: the frame clock's
+/// update phase, and a timer for a window that paints no frames.
+struct Flush {
+    tick: Option<gtk::TickCallbackId>,
+    fallback: Option<glib::SourceId>,
 }
 
 impl App {
@@ -206,30 +223,160 @@ impl App {
             desktop,
             restore: RefCell::default(),
             restore_log: RefCell::default(),
+            flush_pending: RefCell::default(),
+            gate: RefCell::default(),
+            last_sync_frame: Cell::new(-2),
         }
+    }
+
+    /// The model change of [`App::update`] / [`App::update_coalesced`].
+    fn mutate<R>(&self, f: impl FnOnce(&mut State) -> R) -> R {
+        let mut m = self.model.borrow_mut();
+        let shown = |m: &State| m.active_tab().map(|t| t.focused.clone());
+        let before = shown(&m);
+        let r = f(&mut m);
+        // A Pane that comes on screen focused (Tab or Source switch,
+        // close) is focused: its Notifications are read (R3.4).
+        if let Some(p) = shown(&m).filter(|p| Some(p) != before.as_ref()) {
+            m.mark_read(&p);
+        }
+        r
     }
 
     /// Mutate the model, then re-render, schedule a save, and send or
     /// withdraw desktop notifications.
     pub fn update<R>(&self, f: impl FnOnce(&mut State) -> R) -> R {
-        let r = {
-            let mut m = self.model.borrow_mut();
-            let shown = |m: &State| m.active_tab().map(|t| t.focused.clone());
-            let before = shown(&m);
-            let r = f(&mut m);
-            // A Pane that comes on screen focused (Tab or Source switch,
-            // close) is focused: its Notifications are read (R3.4).
-            if let Some(p) = shown(&m).filter(|p| Some(p) != before.as_ref()) {
-                m.mark_read(&p);
-            }
-            r
-        };
+        let r = self.mutate(f);
         self.schedule_save();
+        self.cancel_flush();
         self.sync();
+        self.after_sync();
+        r
+    }
+
+    /// [`App::update`] for the changes that arrive in bursts and that nobody
+    /// reads the widgets after: an Agent's hook report, a Notification, a
+    /// terminal title (R142.1). The model changes now; the widgets follow in
+    /// the next frame's update phase, with one `sync` for however many
+    /// changes came in between, and a part whose inputs did not change is
+    /// left alone.
+    ///
+    /// A change that raises a Notification syncs at once when no sync ran in
+    /// this frame yet: the desktop banner and the Toast are decided now, not
+    /// a frame later, so a hook's `finished` and the OSC 9 that follows it are
+    /// still two steps (R3.1), and never two syncs in one frame.
+    pub fn update_coalesced<R>(&self, f: impl FnOnce(&mut State) -> R) -> R {
+        let notes = |m: &State| (m.notifications.len(), m.notifications.last().map(|n| n.id));
+        let before = notes(&self.model.borrow());
+        let r = self.mutate(f);
+        self.schedule_save();
+        let raised = notes(&self.model.borrow()) != before;
+        if raised && self.last_sync_frame.get() != self.frame() {
+            self.cancel_flush();
+            self.run_flush();
+        } else {
+            self.schedule_flush();
+        }
+        r
+    }
+
+    /// The frame clock's frame number now (`-1` without a clock).
+    fn frame(&self) -> i64 {
+        self.window.frame_clock().map_or(-1, |c| c.frame_counter())
+    }
+
+    fn after_sync(&self) {
         self.desktop.after_update(self);
         self.chrome.after_update(&self.model.borrow());
         crate::activity_view::after_update(&self.model.borrow());
-        r
+    }
+
+    fn schedule_flush(&self) {
+        if self.flush_pending.borrow().is_some() {
+            return;
+        }
+        let tick = self.window.add_tick_callback(|_, _| {
+            if let Some(app) = try_app() {
+                app.flush(true);
+            }
+            glib::ControlFlow::Break
+        });
+        let fallback = glib::timeout_add_local_once(Duration::from_millis(100), || {
+            if let Some(app) = try_app() {
+                app.flush(false);
+            }
+        });
+        *self.flush_pending.borrow_mut() = Some(Flush {
+            tick: Some(tick),
+            fallback: Some(fallback),
+        });
+    }
+
+    /// Drop a pending coalesced sync (an immediate one is about to run).
+    fn cancel_flush(&self) {
+        if let Some(mut f) = self.flush_pending.borrow_mut().take() {
+            if let Some(t) = f.tick.take() {
+                t.remove();
+            }
+            if let Some(id) = f.fallback.take() {
+                id.remove();
+            }
+        }
+    }
+
+    /// The coalesced sync, run by the frame clock (`from_tick`) or the
+    /// fallback timer: the parts whose inputs changed since they last
+    /// synced, then the after-update work if the window changed.
+    fn flush(&self, from_tick: bool) {
+        let Some(mut pending) = self.flush_pending.borrow_mut().take() else {
+            return;
+        };
+        // The source that is running now ends itself; the other one goes.
+        if from_tick {
+            pending.tick = None;
+        } else {
+            pending.fallback = None;
+        }
+        if let Some(t) = pending.tick.take() {
+            t.remove();
+        }
+        if let Some(id) = pending.fallback.take() {
+            id.remove();
+        }
+        self.run_flush();
+    }
+
+    /// The parts whose inputs changed since they last synced.
+    fn run_flush(&self) {
+        let (window, inspector) = self.keys();
+        let (w, i) = {
+            let g = self.gate.borrow();
+            (
+                g.would_change(rade_core::ui_work::Part::Window, window),
+                g.would_change(rade_core::ui_work::Part::Inspector, inspector),
+            )
+        };
+        if w {
+            self.sync_with(i);
+            self.after_sync();
+        } else if i {
+            self.sync_inspector(&self.model.borrow());
+            self.record_keys();
+        }
+    }
+
+    fn keys(&self) -> (u64, u64) {
+        let m = self.model.borrow();
+        (
+            rade_core::ui_work::hot_key(&m),
+            rade_core::ui_work::inspector_key(&m),
+        )
+    }
+
+    /// Remember the keys the widgets now show.
+    fn record_keys(&self) {
+        let (w, i) = self.keys();
+        self.gate.borrow_mut().synced(w, i);
     }
 
     /// The keyboard went into Pane `id`'s widget (a click, Tab): make it the
@@ -318,11 +465,46 @@ impl App {
         dialog.present(Some(&self.window));
     }
 
+    /// The Inspector and the pages that follow the focused checkout.
+    fn sync_inspector(&self, model: &State) {
+        let (_, worktree) = model.active();
+        crate::layout_mode::show_inspector(
+            &self.files_split,
+            self.window.upcast_ref(),
+            model.file_tree,
+        );
+        self.files.set_root(&worktree.path, model.file_tree);
+        if let Some(c) = crate::changes::get() {
+            c.follow(&worktree.path, model.file_tree);
+            c.follow_project(model);
+        }
+        if let Some(s) = crate::search_view::get() {
+            s.follow(&worktree.path);
+            s.follow_scope(model);
+        }
+    }
+
     /// Reconcile all widgets with the model.
     pub fn sync(&self) {
+        self.sync_with(true);
+    }
+
+    /// [`App::sync`]; `inspector` = also the Inspector and the pages that
+    /// follow the focused checkout (a coalesced sync skips them when their
+    /// inputs did not change).
+    fn sync_with(&self, inspector: bool) {
         if self.syncing.replace(true) {
             return;
         }
+        let frame = self.frame();
+        self.last_sync_frame.set(frame);
+        crate::perf::sync_ran(frame);
+        let started = std::time::Instant::now();
+        let mut lap = started;
+        let mut stage = |name: &str| {
+            crate::perf::record(name, lap.elapsed(), false);
+            lap = std::time::Instant::now();
+        };
         let model = self.model.borrow();
 
         // 1. A Terminal for every Terminal Pane (started even if never
@@ -406,6 +588,7 @@ impl App {
             }
         }
 
+        stage("sync:panes");
         // 2. One view per Worktree; each reconciles its Tabs and Layouts.
         let unread = model.unread_counts();
         {
@@ -429,6 +612,7 @@ impl App {
             });
         }
 
+        stage("sync:views");
         // 3. Stop Terminals whose Pane is gone or paused (after layouts
         //    released them).
         let live: Vec<String> = model
@@ -491,6 +675,7 @@ impl App {
             keep
         });
 
+        stage("sync:retire");
         // 4. Show the active Worktree, sidebar, title, focus.
         let (_, worktree) = model.active();
         // Project home (R105) until the focus moves to a checkout.
@@ -505,8 +690,11 @@ impl App {
             self.stack.set_visible_child_name(&worktree.id);
         }
         crate::navdata::focus_moved(&model);
+        stage("sync:stack");
         self.sidebar.sync(&model, &unread);
+        stage("sync:navigator");
         self.chrome.sync(self, &model);
+        stage("sync:chrome");
         // The command palette (entry, form fields, drop-downs) keeps it.
         // So do menus (a popover has the keyboard: R19.1, R19.6).
         let typing = crate::palette::is_open()
@@ -516,33 +704,34 @@ impl App {
                     || crate::voice_view::holds(&w)
             });
         self.focus_pane_widget(&model, typing);
-        crate::layout_mode::show_inspector(
-            &self.files_split,
-            self.window.upcast_ref(),
-            model.file_tree,
-        );
-        self.files.set_root(&worktree.path, model.file_tree);
-        if let Some(c) = crate::changes::get() {
-            c.follow(&worktree.path, model.file_tree);
-            c.follow_project(&model);
+        stage("sync:focus");
+        if inspector {
+            self.sync_inspector(&model);
         }
-        if let Some(s) = crate::search_view::get() {
-            s.follow(&worktree.path);
-            s.follow_scope(&model);
-        }
+        stage("sync:inspector");
         drop(model);
         self.syncing.set(false);
+        self.record_keys();
         crate::home_view::refresh();
+        crate::perf::record("sync", started.elapsed(), false);
 
         // Realize Terminals in hidden Tabs so their processes start now;
         // restored ones wait for their turn in the queue (R130).
         glib::idle_add_local_once(|| {
             if let Some(app) = try_app() {
-                let queue = app.restore.borrow();
-                for (id, t) in app.terminals.borrow().iter() {
-                    if !queue.contains(id) {
-                        t.handle.ensure_started();
-                    }
+                // Handles first: starting a Terminal runs GTK code that can
+                // reach the map again (R142.5).
+                let handles: Vec<_> = {
+                    let queue = app.restore.borrow();
+                    app.terminals
+                        .borrow()
+                        .iter()
+                        .filter(|(id, _)| !queue.contains(id))
+                        .map(|(_, t)| t.handle.clone())
+                        .collect()
+                };
+                for h in handles {
+                    h.ensure_started();
                 }
             }
         });
@@ -583,8 +772,9 @@ impl App {
             use rade_core::restore_queue::Step;
             match step {
                 Step::Start(id) => {
-                    if let Some(t) = app.terminals.borrow().get(&id) {
-                        t.handle.ensure_started();
+                    let handle = app.terminals.borrow().get(&id).map(|t| t.handle.clone());
+                    if let Some(h) = handle {
+                        h.ensure_started();
                     }
                     app.restore_log.borrow_mut().1.push((id, now));
                     glib::idle_add_local_full(glib::Priority::LOW, pump);
@@ -608,8 +798,9 @@ impl App {
     /// out of the restore queue and start its Terminal.
     pub fn start_now(&self, id: &str) {
         if self.restore.borrow_mut().promote(id) {
-            if let Some(t) = self.terminals.borrow().get(id) {
-                t.handle.ensure_started();
+            let handle = self.terminals.borrow().get(id).map(|t| t.handle.clone());
+            if let Some(h) = handle {
+                h.ensure_started();
             }
             let now = ((glib::monotonic_time() - self.restore_log.borrow().0) / 1000) as u64;
             self.restore_log.borrow_mut().1.push((id.to_string(), now));
@@ -649,28 +840,39 @@ impl App {
             &focused,
         ) {
             // Unconditionally: see FocusAction::decide (A2 live bug).
+            // The widget is cloned out: grabbing focus runs other handlers
+            // (R142.5).
             (FocusAction::Terminal, Some((id, _))) => {
-                if let Some(t) = self.terminals.borrow().get(id) {
-                    t.handle.gl_area().grab_focus();
+                let area = self
+                    .terminals
+                    .borrow()
+                    .get(id)
+                    .map(|t| t.handle.gl_area().clone());
+                if let Some(a) = area {
+                    a.grab_focus();
                 }
             }
             (FocusAction::Viewer, Some((id, _))) => {
-                if let Some(v) = self.viewers.borrow().get(id) {
+                let v = self.viewers.borrow().get(id).cloned();
+                if let Some(v) = v {
                     v.focus();
                 }
             }
             (FocusAction::Review, Some((id, _))) => {
-                if let Some(v) = self.reviews.borrow().get(id) {
+                let v = self.reviews.borrow().get(id).cloned();
+                if let Some(v) = v {
                     v.focus();
                 }
             }
             (FocusAction::Diff, Some((id, _))) => {
-                if let Some(v) = self.diffs.borrow().get(id) {
+                let v = self.diffs.borrow().get(id).cloned();
+                if let Some(v) = v {
                     v.focus();
                 }
             }
             (FocusAction::Browser, Some((id, _))) => {
-                if let Some(v) = self.browsers.borrow().get(id) {
+                let v = self.browsers.borrow().get(id).cloned();
+                if let Some(v) = v {
                     v.focus();
                 }
             }
@@ -758,15 +960,48 @@ impl App {
     /// The layered config (R29.2) for a Source / Worktree: user file, its
     /// Workspace's, its Project's and its trusted `.rade.toml`. An unknown
     /// Source gets the user file's.
+    ///
+    /// Kept while the files it came from have the same modification time
+    /// and size, so a status hook does not read them again (R142-e).
     pub fn config_for(&self, source: &str, worktree: Option<&str>) -> Config {
-        let ctx = self
-            .model
-            .borrow()
-            .config_context(Some(source), worktree, None, None);
-        match ctx {
+        thread_local! {
+            static CONFIGS: RefCell<rade_core::ui_work::StampCache<ConfigKey, Config>> =
+                RefCell::default();
+        }
+        let model = self.model.borrow();
+        let load = || match model.config_context(Some(source), worktree, None, None) {
             Ok(c) => rade_core::layers::effective(&rade_core::layers::load(&self.paths.config, &c)),
             Err(_) => self.config.borrow().clone(),
+        };
+        let Ok(s) = model.find_source(source) else {
+            return load();
+        };
+        // What the layers depend on besides their files: which Source and
+        // Worktree, the trusted `.rade.toml` text, the Worktree's Project.
+        let wt_project = worktree.and_then(|w| {
+            s.worktrees
+                .iter()
+                .find(|x| x.id == w || x.name == w)
+                .and_then(|x| x.project.clone())
+        });
+        let key: ConfigKey = (
+            s.id.clone(),
+            worktree.map(String::from),
+            model.trusted_configs.get(&s.id).cloned(),
+            wt_project,
+        );
+        let mut files = vec![
+            self.paths.config.clone(),
+            s.path.join(rade_core::layers::SOURCE_FILE),
+        ];
+        let mut stamp = Vec::new();
+        if let Some(w) = model.source_workspace(&s.id) {
+            files.push(w.root.join(".rade/workspace.toml"));
+            // The Project files of the Workspace (a new one is a change).
+            stamp = rade_core::project::signature(&w.root);
         }
+        stamp.extend(rade_core::ui_work::stamp(&files));
+        CONFIGS.with(|c| c.borrow_mut().get(key, stamp, load))
     }
 
     /// A new Terminal's env: its Workspace's [`workspace_env`], then its

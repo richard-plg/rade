@@ -144,7 +144,7 @@ pub fn signal(pane: &str, s: Signal) {
         .ok()
         .flatten();
     if changed.is_some() {
-        app.update(|_| ());
+        app.update_coalesced(|_| ());
     }
 }
 

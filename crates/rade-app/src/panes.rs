@@ -99,11 +99,11 @@ pub fn create(
                 }
             }
         }),
-        on_child_exited: Box::new({
+        on_child_exited: std::rc::Rc::new({
             let id = id.clone();
             move |_code| {
                 let Some(app) = try_app() else { return };
-                app.update(|m| {
+                app.update_coalesced(|m| {
                     if m.pane(&id).is_some_and(|p| p.is_program()) {
                         let _ = m.set_status(&id, Some(AgentStatus::Exited), None, None, now());
                     }
@@ -124,7 +124,7 @@ pub fn create(
             move |_| crate::notifications::bell(&id)
         }),
         // A hand-started Agent's command ended in its shell (R10.2).
-        on_command_finished: Box::new({
+        on_command_finished: std::rc::Rc::new({
             let id = id.clone();
             // Not inside Ghostty's callback (its surface map is borrowed):
             // the model update re-renders.

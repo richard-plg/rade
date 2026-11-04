@@ -449,6 +449,21 @@ pub fn ui(app: &App, p: &Value) -> Result<Value> {
     // scroll [<frames>] (the Navigator, end to end) | usage (open the Usage
     // page, timed to its first frame with content) | new_menu (the same for
     // the + menu).
+    // R142 (test mode): `block` holds the UI thread `ms` ms right after the
+    // reply (R140-c); `wakeups` = RADE's loop wakeups since start (`arg`
+    // `reset` zeroes them).
+    if op == "block" {
+        let ms = p.get("ms").and_then(Value::as_u64).unwrap_or(1000);
+        glib::idle_add_local_once(move || std::thread::sleep(Duration::from_millis(ms)));
+        return Ok(json!({"blocked_ms": ms}));
+    }
+    if op == "force_active" {
+        crate::chrome::force_active(p.get("on").and_then(Value::as_bool).unwrap_or(true));
+        return Ok(json!({}));
+    }
+    if op == "wakeups" {
+        return Ok(crate::perf::wakeups(s("arg") == Some("reset")));
+    }
     if op == "perf" {
         let parts: Vec<&str> = s("arg").unwrap_or("").split_whitespace().collect();
         match parts.as_slice() {

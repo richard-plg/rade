@@ -162,7 +162,7 @@ fn detect(app: &crate::app::App) {
         })
         .collect();
     if !changes.is_empty() {
-        app.update(|m| {
+        app.update_coalesced(|m| {
             for (id, preset) in changes {
                 m.set_detected(&id, preset);
             }

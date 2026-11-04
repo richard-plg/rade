@@ -13,6 +13,7 @@ use rade_core::notify::{desktop_decision, relative_time};
 use rade_core::State;
 use serde_json::{json, Value};
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::rc::Rc;
 
 /// Rows shown in the panel; older ones stay in state.json (cap 500).
@@ -53,6 +54,8 @@ pub struct Panel {
     title: gtk::Label,
     ids: Rc<RefCell<Vec<u64>>>,
     rendered: RefCell<Option<Vec<RowData>>>,
+    /// The rows lag the model (the Inbox is not on screen).
+    stale: std::cell::Cell<bool>,
 }
 
 fn icon_button(icon: &str, tooltip: &str, op: &'static str) -> gtk::Button {
@@ -139,6 +142,12 @@ impl Panel {
             }
             glib::ControlFlow::Continue
         });
+        // The rows are built when the Inbox comes on screen.
+        root.connect_map(|_| {
+            if let Some(app) = try_app() {
+                app.sidebar.panel.sync(&app.model.borrow());
+            }
+        });
 
         Self {
             root,
@@ -149,13 +158,20 @@ impl Panel {
             title,
             ids,
             rendered: RefCell::default(),
+            stale: std::cell::Cell::new(true),
         }
     }
 
     pub fn sync(&self, ws: &State) {
         // The shown Workspace's (and closed Panes') Notifications (R23.4).
+        // Looked up once per Pane, not per Notification: a Pane finishing
+        // many turns has many (R142.1).
+        let memo: RefCell<HashMap<String, bool>> = RefCell::default();
         let shown = |n: &rade_core::notify::Notification| {
-            !ws.pane_exists(&n.pane) || ws.pane_visible(&n.pane)
+            *memo
+                .borrow_mut()
+                .entry(n.pane.clone())
+                .or_insert_with(|| !ws.pane_exists(&n.pane) || ws.pane_visible(&n.pane))
         };
         let total = ws
             .notifications
@@ -177,6 +193,17 @@ impl Panel {
         self.scroller.set_visible(!collapsed && any);
         self.empty.set_visible(!collapsed && !any);
 
+        // The rows are widgets: built when the Inbox is on screen (and by
+        // `debug.ui inbox`), not on every Notification (R142.1).
+        if !self.root.is_mapped() {
+            self.stale.set(true);
+            return;
+        }
+        self.render_rows(ws, &shown);
+    }
+
+    fn render_rows(&self, ws: &State, shown: &dyn Fn(&rade_core::notify::Notification) -> bool) {
+        self.stale.set(false);
         let t = now();
         let rows: Vec<RowData> = ws
             .notifications
@@ -232,6 +259,18 @@ fn label(text: &str, classes: &[&str]) -> gtk::Label {
 impl Panel {
     /// `debug.ui` `inbox`: the header and rows as shown.
     pub fn debug(&self) -> Value {
+        if self.stale.get() {
+            if let Some(app) = try_app() {
+                let ws = app.model.borrow();
+                let memo: RefCell<HashMap<String, bool>> = RefCell::default();
+                self.render_rows(&ws, &|n| {
+                    *memo
+                        .borrow_mut()
+                        .entry(n.pane.clone())
+                        .or_insert_with(|| !ws.pane_exists(&n.pane) || ws.pane_visible(&n.pane))
+                });
+            }
+        }
         let rows = self.rendered.borrow();
         json!({
             "title": self.title.label().as_str(),
@@ -440,7 +479,7 @@ fn post_later(pane: String, message: Option<(Option<String>, String)>) {
             return;
         }
         crate::status::signal(&pane, rade_core::status::Signal::Attention);
-        app.update(|m| match message {
+        app.update_coalesced(|m| match message {
             Some((title, text)) => m.notify(&pane, title, &text, now()),
             None => m.notify_bell(&pane, now()),
         });

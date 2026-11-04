@@ -84,10 +84,10 @@ struct SurfaceEntry {
     on_desktop_notification: Option<Box<DesktopNotificationCallback>>,
     on_bell: Option<Box<BellCallback>>,
     on_close: Option<Box<VoidCallback>>,
-    on_child_exited: Option<Box<ChildExitedCallback>>,
+    on_child_exited: Option<Rc<ChildExitedCallback>>,
     on_open_url: Option<Box<PwdChangedCallback>>,
     link_resolves: Option<Box<LinkResolves>>,
-    on_command_finished: Option<Box<VoidCallback>>,
+    on_command_finished: Option<Rc<VoidCallback>>,
     /// RADE (R19.5): the search bar Ghostty's search actions drive.
     search: SearchBar,
     clipboard_context: *mut ClipboardContext,
@@ -239,6 +239,9 @@ pub struct TerminalHandle {
     draw_count: Rc<Cell<u64>>,
     /// RADE (R19.5): the search bar over this Terminal.
     search: SearchBar,
+    /// Ghostty's scrollbar state: `upper` = every row (scrollback + active
+    /// area), `page_size` = the active area's rows (R142.3).
+    scrollbar_adjustment: gtk::Adjustment,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -495,11 +498,7 @@ impl TerminalHandle {
     /// (`GHOSTTY_POINT_VIEWPORT` = visible rows, `GHOSTTY_POINT_SCREEN` =
     /// scrollback + visible rows).
     pub fn read_text(&self, point_tag: c_int) -> Option<String> {
-        let Some(surface) = *self.surface_cell.borrow() else {
-            return Some(String::new());
-        };
-
-        let selection = ghostty_selection_s {
+        self.read_selection(ghostty_selection_s {
             top_left: ghostty_point_s {
                 tag: point_tag,
                 coord: GHOSTTY_POINT_COORD_TOP_LEFT,
@@ -513,6 +512,61 @@ impl TerminalHandle {
                 y: 0,
             },
             rectangle: false,
+        })
+    }
+
+    /// `(every row, rows of the active area)` as Ghostty last said; `(0, 0)`
+    /// before it said anything.
+    pub fn screen_rows(&self) -> (usize, usize) {
+        (
+            self.scrollbar_adjustment.upper().max(0.0) as usize,
+            self.scrollbar_adjustment.page_size().max(0.0) as usize,
+        )
+    }
+
+    /// Rows `from..to` of the screen (scrollback + active area).
+    fn read_rows(&self, from: usize, to: usize) -> Option<String> {
+        let surface = (*self.surface_cell.borrow())?;
+        let cols = unsafe { ghostty_surface_size(surface) }.columns.max(1) as u32;
+        self.read_selection(ghostty_selection_s {
+            top_left: ghostty_point_s {
+                tag: GHOSTTY_POINT_SCREEN,
+                coord: GHOSTTY_POINT_COORD_EXACT,
+                x: 0,
+                y: from as u32,
+            },
+            bottom_right: ghostty_point_s {
+                tag: GHOSTTY_POINT_SCREEN,
+                coord: GHOSTTY_POINT_COORD_EXACT,
+                x: cols - 1,
+                y: to.saturating_sub(1) as u32,
+            },
+            rectangle: false,
+        })
+    }
+
+    /// The screen text a waiter has not seen: the same text as
+    /// `read_text(GHOSTTY_POINT_SCREEN)` for what it searches, but only the
+    /// rows added since its last look are read (R142.3). Reads everything
+    /// when Ghostty has not said how many rows there are.
+    pub fn read_tail(&self, tail: &mut rade_core::ui_work::Tail) -> Option<String> {
+        let (total, rows) = self.screen_rows();
+        if rows == 0 || total < rows {
+            return self.read_text(GHOSTTY_POINT_SCREEN);
+        }
+        let plan = tail.plan(total, rows);
+        let scrolled = if plan.scrolled.1 > plan.scrolled.0 {
+            self.read_rows(plan.scrolled.0, plan.scrolled.1)?
+        } else {
+            String::new()
+        };
+        let active = self.read_text(GHOSTTY_POINT_ACTIVE)?;
+        Some(tail.text(plan, &scrolled, &active))
+    }
+
+    fn read_selection(&self, selection: ghostty_selection_s) -> Option<String> {
+        let Some(surface) = *self.surface_cell.borrow() else {
+            return Some(String::new());
         };
         let mut text = empty_ghostty_text();
 
@@ -893,15 +947,10 @@ pub fn init_ghostty() {
 
         let app = unsafe { ghostty_app_new(&runtime_config, config) };
 
-        // Ghostty's GTK apprt calls core_app.tick() on every GLib main
-        // loop iteration to drain the app mailbox (which includes
-        // redraw_surface messages from the renderer thread). The renderer
-        // thread pushes these messages but doesn't wake the app.
-        // We replicate this with a high-frequency timer (~8ms ≈ 120Hz).
-        glib::timeout_add_local(std::time::Duration::from_millis(8), move || {
-            unsafe { ghostty_app_tick(app) };
-            glib::ControlFlow::Continue
-        });
+        // Ghostty asks for a tick through `wakeup_cb` whenever it pushes to
+        // the app mailbox (redraw_surface from the renderer thread
+        // included), and again after a tick that left messages behind: the
+        // callback queues one idle tick (R142.4). Nothing ticks when idle.
 
         GhosttyState { app }
     });

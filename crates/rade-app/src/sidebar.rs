@@ -79,41 +79,116 @@ pub fn source_order(ws: &State) -> Vec<String> {
     ws.sidebar_order()
 }
 
-thread_local! {
-    /// A Source path's main branch (`git::default_branch`), read once.
-    // ponytail: cached for the app's lifetime; a changed origin/HEAD needs a restart.
-    static MAIN_BRANCH: RefCell<HashMap<PathBuf, Option<String>>> = RefCell::default();
+/// What the background check of branches found, by checkout folder.
+#[derive(Default, PartialEq)]
+struct BranchFacts {
+    /// Current branch.
+    current: HashMap<PathBuf, Option<String>>,
+    /// The Source's main branch (`git::default_branch`).
+    main: HashMap<PathBuf, Option<String>>,
 }
 
+type BranchCache = (
+    rade_core::ui_work::StampCache<PathBuf, Option<String>>,
+    rade_core::ui_work::StampCache<PathBuf, Option<String>>,
+);
+
+thread_local! {
+    /// The last check's answer, which the UI thread reads.
+    static BRANCH_FACTS: RefCell<BranchFacts> = RefCell::default();
+    static BRANCH_READER: RefCell<rade_core::ui_work::Reader<()>> = RefCell::default();
+    /// A check was asked for while one ran: the folders for the next one.
+    static BRANCH_AGAIN: RefCell<Option<(Vec<PathBuf>, Vec<PathBuf>)>> = const { RefCell::new(None) };
+}
+
+/// Values kept while `HEAD` / `origin/HEAD` of their checkout are unchanged
+/// (R142.2); used by the background check only.
+static BRANCH_CACHE: std::sync::Mutex<Option<BranchCache>> = std::sync::Mutex::new(None);
+
 /// Current branches of the shown Workspace's Worktrees and, for Projects
-/// on a Source's main branch, that branch: the Scratch suggestions.
+/// on a Source's main branch, that branch: the Scratch suggestions. From
+/// the last background check (a folder not seen yet shows nothing until the
+/// first check ends, which re-renders the Navigator): the UI thread reads
+/// no file here (R142.2).
 pub fn branches(ws: &State, projects: &[Project]) -> Branches {
     let mut br = Branches::default();
     if projects.is_empty() {
         return br;
     }
-    for s in ws.visible_sources() {
-        for w in &s.worktrees {
-            if let Some(b) = git::branch(&w.path) {
-                br.current.insert(w.id.clone(), b);
+    let (mut current, mut main) = (Vec::new(), Vec::new());
+    BRANCH_FACTS.with(|f| {
+        let f = f.borrow();
+        for s in ws.visible_sources() {
+            for w in &s.worktrees {
+                current.push(w.path.clone());
+                if let Some(Some(b)) = f.current.get(&w.path) {
+                    br.current.insert(w.id.clone(), b.clone());
+                }
+            }
+            let on_main = projects
+                .iter()
+                .any(|p| p.source(&s.id).is_some_and(|x| x.base.is_none()));
+            if let (true, Some(w)) = (on_main, s.worktrees.first()) {
+                main.push(w.path.clone());
+                if let Some(Some(m)) = f.main.get(&w.path) {
+                    br.main.insert(s.id.clone(), m.clone());
+                }
             }
         }
-        let on_main = projects
-            .iter()
-            .any(|p| p.source(&s.id).is_some_and(|x| x.base.is_none()));
-        if let (true, Some(w)) = (on_main, s.worktrees.first()) {
-            let main = MAIN_BRANCH.with(|c| {
-                c.borrow_mut()
-                    .entry(w.path.clone())
-                    .or_insert_with(|| git::default_branch(&w.path))
-                    .clone()
-            });
-            if let Some(m) = main {
-                br.main.insert(s.id.clone(), m);
-            }
-        }
-    }
+        // Every render asks (a `stat` per folder, off the UI thread): the
+        // answer is what a checkout or a fetch since the last one changed.
+        check_branches(current, main);
+    });
     br
+}
+
+/// Check the given folders' branches off the UI thread, one check at a
+/// time; a changed answer re-renders the Navigator.
+fn check_branches(current: Vec<PathBuf>, main: Vec<PathBuf>) {
+    if !BRANCH_READER.with(|r| r.borrow_mut().request(&())) {
+        BRANCH_AGAIN.with(|a| *a.borrow_mut() = Some((current, main)));
+        return;
+    }
+    crate::worktrees::in_background(
+        move || {
+            use rade_core::ui_work::{head_files, main_branch_files, stamp};
+            let mut guard = BRANCH_CACHE.lock().unwrap_or_else(|e| e.into_inner());
+            let (cur_cache, main_cache) = guard.get_or_insert_with(Default::default);
+            let mut facts = BranchFacts::default();
+            for p in current {
+                let v = cur_cache.get(p.clone(), stamp(&head_files(&p)), || git::branch(&p));
+                facts.current.insert(p, v);
+            }
+            for p in main {
+                let v = main_cache.get(p.clone(), stamp(&main_branch_files(&p)), || {
+                    git::default_branch(&p)
+                });
+                facts.main.insert(p, v);
+            }
+            facts
+        },
+        |facts| {
+            BRANCH_READER.with(|r| r.borrow_mut().done(&(), &()));
+            let Some(app) = try_app() else { return };
+            let changed = BRANCH_FACTS.with(|f| {
+                let mut f = f.borrow_mut();
+                // Folders no longer asked for stay: they cost nothing.
+                let mut merged = std::mem::take(&mut *f);
+                let before = (merged.current.clone(), merged.main.clone());
+                merged.current.extend(facts.current);
+                merged.main.extend(facts.main);
+                let changed = before != (merged.current.clone(), merged.main.clone());
+                *f = merged;
+                changed
+            });
+            if let Some((current, main)) = BRANCH_AGAIN.with(|a| a.borrow_mut().take()) {
+                check_branches(current, main);
+            }
+            if changed {
+                resync(&app);
+            }
+        },
+    );
 }
 
 fn label(text: &str, classes: &[&str]) -> gtk::Label {
@@ -646,6 +721,7 @@ impl Sidebar {
     pub fn sync(&self, ws: &State, _unread: &UnreadCounts) {
         let started = std::time::Instant::now();
         let wanted = Self::wanted(ws);
+        crate::perf::record("nav:wanted", started.elapsed(), false);
         // Only the rows that changed are rebuilt (R111-c).
         let change = navigator::splice(&self.rows.borrow(), &wanted);
         if let Some((start, removed, inserted)) = change {
@@ -660,9 +736,15 @@ impl Sidebar {
             *self.rows.borrow_mut() = wanted;
         }
         crate::perf::record("navigator_sync", started.elapsed(), change.is_some());
+        let t = std::time::Instant::now();
         self.sync_rail();
+        crate::perf::record("nav:rail", t.elapsed(), false);
+        let t = std::time::Instant::now();
         self.panel.sync(ws);
+        crate::perf::record("nav:panel", t.elapsed(), false);
+        let t = std::time::Instant::now();
         self.switcher.sync(ws);
+        crate::perf::record("nav:switcher", t.elapsed(), false);
         // The pill: the newest waiting Agent of the shown Workspace.
         let newest = ws
             .waiting_panes()
@@ -914,27 +996,52 @@ pub fn resync(app: &crate::app::App) {
 
 thread_local! {
     /// Last port scan (R18.4) and when: tooltips re-query on every motion.
-    static PORTS: RefCell<Option<(std::time::Instant, Vec<crate::browser::PortInfo>)>> =
-        const { RefCell::new(None) };
+    static PORTS: RefCell<(Option<std::time::Instant>, Vec<crate::browser::PortInfo>)> =
+        const { RefCell::new((None, Vec::new())) };
+    /// The scan in flight: at most one (R142.2).
+    static PORTS_READER: RefCell<rade_core::ui_work::Reader<()>> = RefCell::default();
 }
 
-/// The listening ports (R18.4), scanned at most every 2 s.
+/// The listening ports (R18.4) as of the last scan. Never scans here: a
+/// scan older than 2 s starts one in the background (a walk over every
+/// process's descriptors), and a changed result re-renders the Navigator
+/// and the Statusline (R142.2).
 pub fn ports() -> Vec<crate::browser::PortInfo> {
-    let Some(app) = try_app() else {
-        return Vec::new();
-    };
-    let fresh = |t: &std::time::Instant| t.elapsed() < Duration::from_secs(2);
-    PORTS.with(|c| {
-        let mut c = c.borrow_mut();
-        if !c.as_ref().is_some_and(|(t, _)| fresh(t)) {
-            let by_pane = crate::browser::scan_ports();
-            *c = Some((
-                std::time::Instant::now(),
-                crate::browser::label_ports(&app, by_pane),
-            ));
+    let stale = PORTS.with(|c| {
+        c.borrow()
+            .0
+            .is_none_or(|t| t.elapsed() >= Duration::from_secs(2))
+    });
+    if stale {
+        refresh_ports();
+    }
+    PORTS.with(|c| c.borrow().1.clone())
+}
+
+fn refresh_ports() {
+    if !PORTS_READER.with(|r| r.borrow_mut().request(&())) {
+        return;
+    }
+    crate::worktrees::in_background(crate::browser::scan_ports, |by_pane| {
+        PORTS_READER.with(|r| r.borrow_mut().done(&(), &()));
+        let Some(app) = try_app() else { return };
+        let labelled = crate::browser::label_ports(&app, by_pane);
+        let key = |v: &[crate::browser::PortInfo]| {
+            v.iter()
+                .map(|p| (p.port, p.pane.clone(), p.name.clone()))
+                .collect::<Vec<_>>()
+        };
+        let changed = PORTS.with(|c| {
+            let mut c = c.borrow_mut();
+            let changed = key(&c.1) != key(&labelled);
+            *c = (Some(std::time::Instant::now()), labelled);
+            changed
+        });
+        if changed {
+            resync(&app);
+            app.chrome.update_ports(&app.model.borrow());
         }
-        c.as_ref().unwrap().1.clone()
-    })
+    });
 }
 
 /// A Worktree row's menu: Review Changes, New Worktree…, Remove Worktree…
