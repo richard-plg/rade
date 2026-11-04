@@ -59,7 +59,6 @@ check() {
 }
 up() { rpc debug.update "{\"op\":\"$1\"${2:+,\"arg\":$2}}"; } # op [json arg] → info
 uq() { up info | jq -r "$1"; }
-ui() { rpc debug.ui "{\"op\":\"$1\"${2:+, \"arg\": \"$2\"}}"; }
 chrome() { ui chrome | jq -c .chrome; }
 reqs() { wc -l <"$GHLOG" | tr -d ' '; }
 want() { [[ -z ${ONLY:-} || " $ONLY " == *" $1 "* ]]; }

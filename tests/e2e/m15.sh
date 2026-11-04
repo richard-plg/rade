@@ -32,10 +32,7 @@ unset GH_CONFIG_DIR GH_TOKEN WS_NAME
 : >"$FAKE_GH_LOG"
 
 G() { git -c user.email=t@t -c user.name=t -c commit.gpgsign=false "$@"; }
-code() { set +e; "$@" >"$T/out" 2>"$T/err"; local c=$?; set -e; echo $c; }
 spawn() { rade spawn "$@" --json | jq -r .pane; }
-state() { rade debug state; }
-ui() { rpc debug.ui "{\"op\": \"$1\"${2:+, \"arg\": \"$2\"}}"; }
 shown_ws() { state | jq -r '.active_source as $a | .sources[] | select(.id==$a) | .workspace'; }
 # The Sources the Navigator shows (1.0.0, R104: links, Worktrees and Scratch rows name them).
 sidebar_sources() { ui sidebar | jq -r '[.sidebar[] | .target.source? // empty] | unique | join(",")'; }

@@ -14,7 +14,6 @@ CONFIG=$XDG_CONFIG_HOME/rade/config.toml
 mkdir -p "$XDG_CONFIG_HOME/rade"
 : > "$CONFIG"
 
-state() { rade debug state; }
 notes() { state | jq -c '.notifications // []'; }
 count_notes() { notes | jq length; }
 last_note() { notes | jq -c '.[-1]'; }

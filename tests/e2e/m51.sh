@@ -33,7 +33,6 @@ mkdir -p "$XDG_CONFIG_HOME/rade"
 printf 'idle_seconds = 1\n' >"$XDG_CONFIG_HOME/rade/config.toml"
 
 G() { git -c user.email=t@t -c user.name=t -c commit.gpgsign=false "$@"; }
-code() { set +e; "$@" >"$T/out" 2>"$T/err"; local c=$?; set -e; echo $c; }
 dlgop() { rpc debug.ui "$1" | jq -c .dialog; }
 dialog() { rade debug dialog; }
 respond() { rade debug dialog respond "$1" >/dev/null; }

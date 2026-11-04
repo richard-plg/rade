@@ -22,8 +22,6 @@ mkdir -p "$XDG_CONFIG_HOME/rade"
 printf 'idle_seconds = 1\n' >"$XDG_CONFIG_HOME/rade/config.toml"
 
 G() { git -c user.email=t@t -c user.name=t -c commit.gpgsign=false "$@"; }
-code() { set +e; "$@" >"$T/out" 2>"$T/err"; local c=$?; set -e; echo $c; }
-ui() { rpc debug.ui "{\"op\": \"$1\"${2:+, \"arg\": \"$2\"}}"; }
 # Navigator rows (1.0.0, R104): kind:title@depth; a section as «Scratch».
 rows() { ui sidebar | jq -r '[.sidebar[] | select(.kind != "agent") | if .kind == "section" then "«\(.title)»" else "\(.kind):\(.title)@\(.depth)" end] | join(" ")'; }
 # The depth-0 row a row sits under (its Project, or Scratch's rows).

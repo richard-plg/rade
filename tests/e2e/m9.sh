@@ -37,7 +37,6 @@ WTS=$XDG_DATA_HOME/rade-dev/worktrees/proj
 exit_code() { set +e; "$@" >/dev/null 2>"$T/err"; local c=$?; set -e; echo $c; }
 st() { rade fanout status "$1" --json | jq -r "$2"; }
 bar() { rade debug fanout "$1" info | jq -r "$2"; }
-state() { rade debug state; }
 
 echo "== start"
 start_app

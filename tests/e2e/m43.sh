@@ -21,10 +21,8 @@ resume = "$FAKE --resume {session_id}"
 EOF
 G() { git -c user.email=t@t -c user.name=t -c commit.gpgsign=false "$@"; }
 spawn() { rade spawn "$@" --json | jq -r .pane; }
-ui() { rpc debug.ui "{\"op\": \"$1\"${2:+, \"arg\": \"$2\"}}"; }
 ov() { rpc debug.ui "{\"op\": \"overview\", \"arg\": \"${1:-state}\"}"; }
 key() { rpc debug.ui "{\"op\": \"key\", \"keys\": \"$1\"}" >/dev/null; }
-state() { rade debug state; }
 shown_ws() { state | jq -r '.active_source as $a | .sources[] | select(.id==$a) | .workspace'; }
 focused() { state | jq -r '.active_source as $a | .sources[] | select(.id==$a) | .active_worktree as $w | .worktrees[] | select(.id==$w) | .active_tab as $t | .tabs[] | select(.id==$t) | .focused'; }
 bands() { ov | jq -c '[.sections[] | [.title, [.cards[].name]]]'; }

@@ -12,7 +12,6 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 OUT=$(cd "$HERE/../.." && pwd)/target/e2e-m12
 source "$HERE/lib.sh"
 
-state() { rade debug state; }
 exit_code() { set +e; "$@" >/dev/null 2>"$T/err"; local c=$?; set -e; echo $c; }
 browsers() { state | jq -c '[.. | objects | select(.kind?.type? == "browser") | {id, url: .kind.url}]'; }
 snap() { rade browser snapshot "$@"; }

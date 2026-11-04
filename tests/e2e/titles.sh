@@ -16,17 +16,6 @@ cat > "$XDG_CONFIG_HOME/rade/config.toml" <<EOF
 [agents.lead]
 command = "bash"
 EOF
-SOCK=$XDG_RUNTIME_DIR/rade/rade-dev.sock
-# Raw socket call (debug.tabs has no CLI subcommand).
-rpc() { python3 - "$SOCK" "$1" "${2:-{\}}" <<'PY'
-import json, socket, sys
-s = socket.socket(socket.AF_UNIX); s.connect(sys.argv[1])
-s.sendall((json.dumps({"jsonrpc": "2.0", "id": 1, "method": sys.argv[2], "params": json.loads(sys.argv[3])}) + "\n").encode())
-buf = b""
-while not buf.endswith(b"\n"): buf += s.recv(65536)
-r = json.loads(buf); print(json.dumps(r.get("result", r.get("error"))))
-PY
-}
 tabs() { rpc debug.tabs; }
 label() { tabs | jq -r --arg t "$1" '.tabs[] | select(.tab==$t) | .label'; }
 tooltip() { tabs | jq -r --arg t "$1" '.tabs[] | select(.tab==$t) | .tooltip'; }

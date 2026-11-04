@@ -17,15 +17,6 @@ command = "env FAKE_AGENT=codex $FAKE"
 command = "env FAKE_AGENT=claude $FAKE"
 EOC
 SOCK=$XDG_RUNTIME_DIR/rade/rade-dev.sock
-rpc() { python3 - "$SOCK" "$1" "${2:-{\}}" <<'PY'
-import json, socket, sys
-s = socket.socket(socket.AF_UNIX); s.connect(sys.argv[1])
-s.sendall((json.dumps({"jsonrpc": "2.0", "id": 1, "method": sys.argv[2], "params": json.loads(sys.argv[3])}) + "\n").encode())
-buf = b""
-while not buf.endswith(b"\n"): buf += s.recv(65536)
-r = json.loads(buf); print(json.dumps(r.get("result", r.get("error"))))
-PY
-}
 info() { rade list --json | jq -r --arg p "$1" ".panes[] | select(.pane==\$p) | .$2"; }
 marks_of() { rpc debug.tabs | jq -c --arg t "$1" '.tabs[] | select(.tab==$t) | .marks'; }
 

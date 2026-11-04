@@ -46,7 +46,6 @@ export PATH=$T/fakebin:$PATH FAKE_GH_LOG=$T/gh.log FAKE_GH_PR_URL=https://exampl
 
 G() { git -c user.email=t@t -c user.name=t -c commit.gpgsign=false -c init.defaultBranch=main "$@"; }
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
-ui() { rpc debug.ui "{\"op\": \"$1\"${2:+, \"arg\": \"$2\"}}"; }
 nav() { ui sidebar | jq -c '.sidebar'; }
 # Navigator rows as `kind:text@depth` (+ ! drift, ~ also in).
 rows() { ui sidebar | jq -r '[.sidebar[] | "\(.kind):\(.text)@\(.depth)\(if .drift then "!" else "" end)\(if .also_in then "~" else "" end)"] | join(" | ")'; }

@@ -28,7 +28,6 @@ prompt = "type"
 command = "bash"
 EOF
 
-state() { rade debug state; }
 pane_of() { rade list --json | jq -r --arg n "$1" '[.panes[] | select(.name==$n)][0].pane'; }
 info() { rade list --json | jq -r --arg p "$1" ".panes[] | select(.pane==\$p) | .$2"; }
 tab_json() { state | jq --arg p "$1" '[.. | objects | select(has("layout")) | select([.. | objects | select(.id?==$p)] | length > 0)][0]'; }

@@ -28,10 +28,8 @@ preset_cmd() { # the claude Preset's command (R108-j changes it)
 preset_cmd "$FAKE"
 
 G() { git -c user.email=t@t -c user.name=t -c commit.gpgsign=false "$@"; }
-code() { set +e; "$@" >"$T/out" 2>"$T/err"; local c=$?; set -e; echo $c; }
 as_pane() { local p=$1; shift; RADE_PANE_ID=$p "$@"; }
 npanes() { rade list --all --json | jq '.panes | length'; }
-state() { rade debug state; }
 acct_of() { jq -r --arg p "$1" '.. | objects | select(.id? == $p) | .account // "none"' "$STATE"; }
 # A Pane's variable, read from its processes' environment (/proc).
 penv() { python3 - "$1" "$2" <<'PY'

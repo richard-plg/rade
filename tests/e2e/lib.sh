@@ -120,6 +120,19 @@ stop_app() { # quit, wait ≤ 10 s, then kill -9 (PRD R140.4: a suite never hang
     APP_PID=
 }
 
+# A TCP port the kernel has just handed out (bind to 0, read it, close): a
+# fixed port can be taken by a parallel suite or a leftover process.
+free_port() { python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])'; }
+
+# Helpers every suite used to copy (a suite with a different one defines its own after sourcing).
+state() { rade debug state; }
+# The exit code of a command, its output in $T/out and $T/err.
+code() { set +e; "$@" >"$T/out" 2>"$T/err"; local c=$?; set -e; echo $c; }
+# `ui <op> [arg]` → debug.ui result.
+ui() { rpc debug.ui "{\"op\": \"$1\"${2:+, \"arg\": \"$2\"}}"; }
+# `field <pane> <key>` → a key of that Pane in `rade list --json`.
+field() { rade list --json | jq -r --arg p "$1" ".panes[] | select(.pane==\$p) | .$2"; }
+
 # Strip volatile fields (split ratios move with window size).
 norm() { jq -S 'del(.. | .ratio?)'; }
 

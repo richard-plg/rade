@@ -33,7 +33,6 @@ FIX=$ROOT/crates/rade-core/tests/fixtures/usage
 FAKE_TOKEN=sk-ant-oat01-M39-FAKE-E2E-TOKEN-7f3a9c
 
 G() { git -c user.email=t@t -c user.name=t -c commit.gpgsign=false "$@"; }
-code() { set +e; "$@" >"$T/out" 2>"$T/err"; local c=$?; set -e; echo $c; }
 sha8() { printf %s "$(realpath "$1")" | sha256sum | cut -c1-8; }
 activity() { rpc debug.ui '{"op":"activity"}' | jq -r '.activity[].line'; }
 # Lines of the Activity tab equal to $1.
@@ -256,7 +255,6 @@ echo "== Part 2: scene E / F written into the store (tests/e2e/usage-scene.py)"
 SOCK=$XDG_RUNTIME_DIR/rade/rade-dev.sock
 TOKENS=$ROOT/crates/rade-app/src/tokens.toml
 geo() { rpc debug.ui "{\"op\":\"geometry\",\"widget\":\"$1\"${2:+, $2}}"; }
-ui() { rpc debug.ui "{\"op\": \"$1\"${2:+, \"arg\": \"$2\"}}"; }
 usage() { ui usage "${1:-}" | jq -c .usage; }
 nm() { rpc debug.ui "{\"op\":\"new_menu\"${1:+, $1}}"; }
 key() { rpc debug.ui "{\"op\":\"key\",\"keys\":\"$1\"}"; }

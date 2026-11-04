@@ -38,7 +38,7 @@ source "$HERE/lib.sh"
 SOCK=$XDG_RUNTIME_DIR/rade/rade-dev.sock
 TOKENS=$ROOT/crates/rade-app/src/tokens.toml
 STYLE=$ROOT/crates/rade-app/src/style.css
-PORT=18178 DEADPORT=18179
+PORT=$(free_port)
 export TMPDIR=$T/tmp
 mkdir -p "$TMPDIR" "$T/fakebin" "$XDG_CONFIG_HOME/rade" "$XDG_CONFIG_HOME/gtk-4.0"
 # A steady caret: the goldens must not depend on the blink phase.
@@ -108,7 +108,6 @@ vq() { vinfo | jq -r "$1"; }
 vop() { rpc debug.voice "{\"op\":\"$1\"${2:+,$2}}"; }
 vkey() { rpc debug.ui "{\"op\":\"key\",\"keys\":\"$1\"}" >/dev/null; }
 geo() { rpc debug.ui "{\"op\":\"geometry\",\"widget\":\"$1\"${2:+, $2}}"; }
-ui() { rpc debug.ui "{\"op\":\"$1\"${2:+, \"arg\": \"$2\"}}"; }
 pst() { rade list --json | jq -r --arg p "$1" '.panes[] | select(.pane==$p) | "\(.status) \(.status_since)"'; }
 alive() { local s; s=$(ps -o stat= -p "$1" 2>/dev/null); [[ -n $s && $s != Z* ]]; }
 voice_procs() { pgrep -f "fake-voice-agent.py" | wc -l; }
