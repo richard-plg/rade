@@ -1755,7 +1755,7 @@ AC:
 
 ## R145 — Release and Viewer fixes (M53)
 
-1. `scripts/release.sh` orders versions by SemVer (`1.6.0` is above `1.6.0-rc.1`), with `rade_core::update::Version`.
+1. `scripts/release.sh` orders versions by SemVer precedence (`1.6.0` is above `1.6.0-rc.1`; `scripts/semver.sh`, the rules of `rade_core::update::Version`).
 2. The Viewer gives an HTML page without its own styles the theme's text and background colours.
 
 AC:
