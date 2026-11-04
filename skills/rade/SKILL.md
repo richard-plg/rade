@@ -22,7 +22,7 @@ Works only inside RADE. Check first: `[ -n "$RADE_SOCKET" ] && rade list >/dev/n
 ## Notes
 - Presets: `claude`, `codex`, `agy` (Antigravity), `opencode`. Any other program: `rade spawn --cmd "cargo test" --name tests`, then `rade wait tests --until exited` or `--until '/test result/'` (a `/regex/` over the screen).
 - `rade list --tree` shows panes, their parents and status. Names resolve in your worktree first; if a name is ambiguous (exit 4), use the pane id that `spawn` printed.
-- Limits: at most 8 live subagents per agent and depth 3 (exit 5 = limit). Exit 6 = `wait` timed out: `rade read` it to see what it is doing (a first-run trust or login prompt never reports `done`).
+- Limits: at most 8 live subagents per agent and depth 3 (exit 5 = limit). Exit 6 = `wait` timed out: `rade read` it to see what it is doing (a first-run trust or login prompt never reports `done`). Exit 6 from any other call = the app did not answer within 30 s: retry, or raise `--call-timeout <secs>` (`0` = no limit).
 - Prefer `wait` over polling `read`. `--until idle` = no output for 5 s.
 - Long prompts: write them to a file and prompt "Read /path/task.md and do what it says".
 - Best of N: `rade fanout --agents codex,codex,claude "task"` gives each Agent its own git worktree (one Fan-out Tab), `rade fanout wait fanout-1`, `rade fanout judge fanout-1` (a read-only Judge compares the diffs), `rade fanout wait fanout-1 --until judged`, then leave the choice to the user or `rade fanout choose fanout-1 [<label>] --cleanup` (stages the Winner on the current branch, never commits). `rade close` refuses a Fan-out agent (end the Fan-out with `rade fanout discard fanout-1`).

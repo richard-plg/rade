@@ -19,6 +19,7 @@ use serde_json::{json, Value};
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 use std::time::Duration;
 
 #[derive(Parser)]
@@ -27,6 +28,10 @@ struct Cli {
     /// Print the raw JSON result.
     #[arg(long, global = true)]
     json: bool,
+    /// Seconds the app may take to answer a call (default 30, longer for
+    /// calls that wait or run git by design; `RADE_TIMEOUT`; 0 = no limit).
+    #[arg(long, global = true, value_name = "SECS")]
+    call_timeout: Option<u64>,
     #[command(subcommand)]
     cmd: Cmd,
 }
@@ -886,7 +891,21 @@ fn call_at(
         )
     };
     let mut stream = UnixStream::connect(socket).map_err(not_running)?;
-    let io = |e: std::io::Error| Error::internal(format!("socket: {e}"));
+    let io = |e: std::io::Error| {
+        if let (true, Some(t)) = (
+            matches!(
+                e.kind(),
+                std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+            ),
+            timeout,
+        ) {
+            return Error::new(
+                ErrorKind::Timeout,
+                format!("the app did not answer within {} s ({method})", t.as_secs()),
+            );
+        }
+        Error::internal(format!("socket: {e}"))
+    };
     stream.set_read_timeout(timeout).map_err(io)?;
     stream.set_write_timeout(timeout).map_err(io)?;
     if let Some(caller) = paths::process_env("RADE_PANE_ID") {
@@ -905,12 +924,50 @@ fn call_at(
     resp.into_result()
 }
 
+/// `--call-timeout`, set once by `main`.
+static CALL_TIMEOUT: OnceLock<Option<u64>> = OnceLock::new();
+
+/// How long the app may take to answer `method` (R140.2, API "Call limits"):
+/// the flag, else `RADE_TIMEOUT`, else the method's default; `0` = none.
+fn call_limit(
+    method: &str,
+    params: &Value,
+    flag: Option<u64>,
+    env: Option<&str>,
+) -> Option<Duration> {
+    let secs = flag
+        .or_else(|| env.and_then(|v| v.trim().parse().ok()))
+        .unwrap_or_else(|| default_limit(method, params));
+    (secs > 0).then(|| Duration::from_secs(secs))
+}
+
+/// The per-method default, in seconds.
+fn default_limit(method: &str, params: &Value) -> u64 {
+    let n = |k: &str, d: u64| params[k].as_u64().unwrap_or(d);
+    match method {
+        // Wait by design: their own limit plus 10 s.
+        "pane.wait" | "fanout.wait" => n("timeout", 600) + 10,
+        m if m.starts_with("code.") => n("wait", 60) + 10,
+        // git-heavy.
+        "worktree.add" | "worktree.remove" | "worktree.move" | "fanout.start" | "source.add" => 300,
+        "pane.spawn" if params["worktree"] == "new" => 300,
+        _ => 30,
+    }
+}
+
 fn call(method: &str, params: Value) -> Result<Value, Error> {
+    let env = std::env::var("RADE_TIMEOUT").ok();
+    let limit = call_limit(
+        method,
+        &params,
+        CALL_TIMEOUT.get().copied().flatten(),
+        env.as_deref(),
+    );
     call_at(
         &paths::socket_path(&paths::process_env),
         method,
         params,
-        None,
+        limit,
     )
 }
 
@@ -1157,6 +1214,7 @@ fn main() {
         std::process::exit(e.kind.exit_code());
     }
     let cli = Cli::parse();
+    let _ = CALL_TIMEOUT.set(cli.call_timeout);
     let result = match &cli.cmd {
         Cmd::Status {
             statusline: true,
@@ -1235,6 +1293,73 @@ fn is_clone_spec(spec: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn r140_g_call_limit_is_the_flag_else_the_variable_else_the_method_default() {
+        let secs = |m: &str, p: Value, f: Option<u64>, e: Option<&str>| {
+            call_limit(m, &p, f, e).map(|d| d.as_secs())
+        };
+        let none = json!({});
+        // Defaults.
+        assert_eq!(secs("pane.list", none.clone(), None, None), Some(30));
+        assert_eq!(
+            secs("pane.wait", json!({"timeout": 600}), None, None),
+            Some(610)
+        );
+        assert_eq!(
+            secs("fanout.wait", json!({"timeout": 5}), None, None),
+            Some(15)
+        );
+        assert_eq!(secs("code.def", json!({"wait": 20}), None, None), Some(30));
+        assert_eq!(secs("code.impact", none.clone(), None, None), Some(70));
+        for m in [
+            "worktree.add",
+            "worktree.remove",
+            "worktree.move",
+            "fanout.start",
+            "source.add",
+        ] {
+            assert_eq!(secs(m, none.clone(), None, None), Some(300), "{m}");
+        }
+        assert_eq!(
+            secs("pane.spawn", json!({"worktree": "new"}), None, None),
+            Some(300)
+        );
+        assert_eq!(
+            secs("pane.spawn", json!({"worktree": "wt-1"}), None, None),
+            Some(30)
+        );
+        // The variable beats the default, the flag beats the variable.
+        assert_eq!(secs("pane.list", none.clone(), None, Some("7")), Some(7));
+        assert_eq!(secs("worktree.add", none.clone(), None, Some("7")), Some(7));
+        assert_eq!(secs("pane.list", none.clone(), Some(2), Some("7")), Some(2));
+        // 0 = no limit, from either; a bad variable is ignored.
+        assert_eq!(secs("pane.list", none.clone(), Some(0), Some("7")), None);
+        assert_eq!(secs("pane.wait", none.clone(), None, Some("0")), None);
+        assert_eq!(secs("pane.list", none, None, Some("soon")), Some(30));
+    }
+
+    #[test]
+    fn r140_b_a_silent_app_ends_the_call_with_timeout() {
+        let dir = std::env::temp_dir().join(format!("rade-r140-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let sock = dir.join("s.sock");
+        let _ = std::fs::remove_file(&sock);
+        let l = std::os::unix::net::UnixListener::bind(&sock).unwrap();
+        let h = std::thread::spawn(move || {
+            let (c, _) = l.accept().unwrap();
+            std::thread::sleep(Duration::from_secs(3));
+            drop(c);
+        });
+        let t = std::time::Instant::now();
+        let e = call_at(&sock, "pane.list", json!({}), Some(Duration::from_secs(1))).unwrap_err();
+        assert_eq!(e.kind, ErrorKind::Timeout);
+        assert_eq!(e.kind.exit_code(), 6);
+        assert_eq!(e.message, "the app did not answer within 1 s (pane.list)");
+        assert!(t.elapsed() < Duration::from_secs(2));
+        h.join().unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn r31_b_project_flag_is_gone_and_clone_specs() {
