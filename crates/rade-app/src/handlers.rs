@@ -50,6 +50,9 @@ pub fn dispatch(req: Request) -> Response {
         crate::worktrees::open_on_link(s("project"), s("source"))
     } else if req.method == "pane.wait" {
         params(req.params).and_then(wait)
+    } else if req.method == "pane.set_status" {
+        // The `/proc` reads of a report run here, not on the UI thread (R142.2).
+        params(req.params).and_then(set_status_request)
     } else if req.method.starts_with("project.") || req.method.starts_with("config.") {
         crate::projects::dispatch(&req.method, req.params)
     } else if req.method.starts_with("account.") || req.method.starts_with("usage.") {
@@ -474,45 +477,6 @@ fn handle(method: &str, p: Value) -> Result<Value> {
             Ok(json!({ "panes": panes }))
         }
         "pane.spawn" => spawn(&app, params(p)?),
-        "pane.set_status" => {
-            let s: SetStatus = params(p)?;
-            let pane = target(&app, s.pane, s.caller)?;
-            let status = s.status.as_deref().map(AgentStatus::parse).transpose()?;
-            if status == Some(AgentStatus::Interrupted) {
-                return Err(Error::usage(
-                    "'interrupted' is set only by Session Restore (a turn cut off by a restart)",
-                ));
-            }
-            let sid = s.session_id.filter(|x| !x.is_empty());
-            // R128: a report from another Agent than the Pane's is dropped whole.
-            if let Some(why) = foreign_report(
-                &app,
-                &pane,
-                s.agent.as_deref(),
-                s.reporter.as_ref(),
-                sid.as_deref(),
-            ) {
-                return Ok(json!({"pane": pane, "ignored": why}));
-            }
-            let inv = s.invocation.clone();
-            app.update_coalesced(|m| -> Result<()> {
-                m.set_status(&pane, status, sid, s.agent, now())?;
-                m.record_hook(&pane, status, now())?;
-                match s.invocation {
-                    Some(inv) => m.set_invocation(&pane, inv),
-                    None => Ok(()),
-                }
-            })?;
-            // R125.4: a hand-started Agent's account, from its config dir.
-            if let Some(inv) = inv {
-                crate::accounts::detect(&app, &pane, &inv);
-            }
-            // A turn ended: read its account's usage now (R109.2).
-            if matches!(status, Some(AgentStatus::Done | AgentStatus::Waiting)) {
-                crate::accounts::turn_ended(&app.model.borrow(), &pane);
-            }
-            Ok(json!({"pane": pane}))
-        }
         "notify.post" => {
             let n: Notify = params(p)?;
             let pane = target(&app, n.pane, n.caller)?;
@@ -846,10 +810,66 @@ thread_local! {
         Default::default();
 }
 
-thread_local! {
-    /// Pane → its process, from the last full scan (R142.2).
-    static PANE_PIDS: std::cell::RefCell<std::collections::HashMap<String, i32>> =
-        Default::default();
+/// Pane → its process, from the last full scan (R142.2); read by the socket
+/// threads, which also hold the lock for a rescan, so only one runs.
+static PANE_PIDS: std::sync::Mutex<Option<std::collections::HashMap<String, i32>>> =
+    std::sync::Mutex::new(None);
+
+/// `pane.set_status` on the socket thread: a report from an Agent process
+/// (R128) needs the program in the Pane's foreground, read from `/proc`
+/// here; the model work runs on the main loop with the answer.
+fn set_status_request(s: SetStatus) -> Result<Value> {
+    let foreground = if s.reporter.is_some() {
+        let (pane, caller) = (s.pane.clone(), s.caller.clone());
+        let pane = on_main(move || target(&app(), pane, caller))?;
+        pane_pid(&pane).and_then(|pid| {
+            rade_core::process::foreground_argv(std::path::Path::new("/proc"), pid as u32)
+        })
+    } else {
+        None
+    };
+    on_main(move || set_status(&app(), s, foreground))
+}
+
+/// `foreground`: the argv of the program in the Pane's foreground now.
+fn set_status(app: &App, s: SetStatus, foreground: Option<Vec<String>>) -> Result<Value> {
+    let pane = target(app, s.pane, s.caller)?;
+    let status = s.status.as_deref().map(AgentStatus::parse).transpose()?;
+    if status == Some(AgentStatus::Interrupted) {
+        return Err(Error::usage(
+            "'interrupted' is set only by Session Restore (a turn cut off by a restart)",
+        ));
+    }
+    let sid = s.session_id.filter(|x| !x.is_empty());
+    // R128: a report from another Agent than the Pane's is dropped whole.
+    if let Some(why) = foreign_report(
+        app,
+        &pane,
+        s.agent.as_deref(),
+        s.reporter.as_ref(),
+        sid.as_deref(),
+        foreground.as_deref(),
+    ) {
+        return Ok(json!({"pane": pane, "ignored": why}));
+    }
+    let inv = s.invocation.clone();
+    app.update_coalesced(|m| -> Result<()> {
+        m.set_status(&pane, status, sid, s.agent, now())?;
+        m.record_hook(&pane, status, now())?;
+        match s.invocation {
+            Some(inv) => m.set_invocation(&pane, inv),
+            None => Ok(()),
+        }
+    })?;
+    // R125.4: a hand-started Agent's account, from its config dir.
+    if let Some(inv) = inv {
+        crate::accounts::detect(app, &pane, &inv);
+    }
+    // A turn ended: read its account's usage now (R109.2).
+    if matches!(status, Some(AgentStatus::Done | AgentStatus::Waiting)) {
+        crate::accounts::turn_ended(&app.model.borrow(), &pane);
+    }
+    Ok(json!({"pane": pane}))
 }
 
 /// A Pane's process. A hook report asks for this: scanning the environment
@@ -863,14 +883,15 @@ fn pane_pid(pane: &str) -> Option<i32> {
             e.split(|b| *b == 0).any(|kv| kv == want.as_bytes())
         })
     };
-    if let Some(pid) = PANE_PIDS.with(|c| c.borrow().get(pane).copied()) {
+    let mut cache = PANE_PIDS.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(pid) = cache.as_ref().and_then(|c| c.get(pane).copied()) {
         if still(pid) {
             return Some(pid);
         }
     }
     let all = rade_core::process::pane_pids();
     let pid = all.get(pane).copied();
-    PANE_PIDS.with(|c| *c.borrow_mut() = all);
+    *cache = Some(all);
     pid
 }
 
@@ -882,16 +903,13 @@ fn foreign_report(
     agent: Option<&str>,
     reporter: Option<&rade_core::agents::Reporter>,
     session: Option<&str>,
+    foreground_argv: Option<&[String]>,
 ) -> Option<&'static str> {
     reporter?;
     let (source, worktree) = app.model.borrow().pane_worktree(pane)?;
     let presets = app.config_for(&source, Some(&worktree)).presets().ok()?;
     // The program in the Pane's foreground now (R115.4), not the 3 s poll.
-    let foreground = pane_pid(pane)
-        .and_then(|pid| {
-            rade_core::process::foreground_argv(std::path::Path::new("/proc"), pid as u32)
-        })
-        .and_then(|argv| rade_core::preset::detect(&presets, &argv));
+    let foreground = foreground_argv.and_then(|argv| rade_core::preset::detect(&presets, argv));
     let (why, name, project) = {
         let m = app.model.borrow();
         let why = m.foreign_report(pane, agent, reporter, foreground.as_deref(), &presets)?;

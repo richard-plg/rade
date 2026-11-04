@@ -134,38 +134,64 @@ pub fn watch() {
     });
 }
 
+thread_local! {
+    /// At most one `/proc` scan in flight (R142.2).
+    static READER: std::cell::RefCell<rade_core::ui_work::Reader<()>> = Default::default();
+}
+
+/// The model's candidates are listed here; the `/proc` scan (every child of
+/// the app, then each shell's foreground) runs off the UI thread, and its
+/// result applies only to a Pane that is still a candidate with the same
+/// `detected` (a hook or a spawn since made it an Agent: left alone).
 fn detect(app: &crate::app::App) {
     let Ok(presets) = app.config.borrow().presets() else {
         return;
     };
-    let panes: Vec<(String, Option<String>)> = {
-        let m = app.model.borrow();
-        m.worktrees()
-            .flat_map(|(_, w)| w.tabs.iter().flat_map(|t| t.panes()))
-            .filter(|p| p.agent.is_none() && matches!(p.kind, rade_core::PaneKind::Terminal { .. }))
-            .map(|p| (p.id.clone(), p.detected.clone()))
-            .collect()
-    };
-    if panes.is_empty() {
+    let panes = candidates(app);
+    if panes.is_empty() || !READER.with(|r| r.borrow_mut().request(&())) {
         return;
     }
-    let pids = rade_core::process::pane_pids();
-    let proc = Path::new("/proc");
-    let changes: Vec<(String, Option<String>)> = panes
-        .into_iter()
-        .filter_map(|(id, was)| {
-            let now = pids
-                .get(&id)
-                .and_then(|pid| rade_core::process::foreground_argv(proc, *pid as u32))
-                .and_then(|argv| rade_core::preset::detect(&presets, &argv));
-            (now != was).then_some((id, now))
-        })
-        .collect();
-    if !changes.is_empty() {
-        app.update_coalesced(|m| {
-            for (id, preset) in changes {
-                m.set_detected(&id, preset);
+    crate::worktrees::in_background(
+        move || {
+            let pids = rade_core::process::pane_pids();
+            let proc = Path::new("/proc");
+            panes
+                .into_iter()
+                .filter_map(|(id, was)| {
+                    let now = pids
+                        .get(&id)
+                        .and_then(|pid| rade_core::process::foreground_argv(proc, *pid as u32))
+                        .and_then(|argv| rade_core::preset::detect(&presets, &argv));
+                    (now != was).then_some((id, was, now))
+                })
+                .collect::<Vec<_>>()
+        },
+        |found| {
+            READER.with(|r| r.borrow_mut().done(&(), &()));
+            let Some(app) = try_app() else { return };
+            let now: std::collections::HashMap<_, _> = candidates(&app).into_iter().collect();
+            let changes: Vec<(String, Option<String>)> = found
+                .into_iter()
+                .filter(|(id, was, _)| now.get(id) == Some(was))
+                .map(|(id, _, now)| (id, now))
+                .collect();
+            if !changes.is_empty() {
+                app.update_coalesced(|m| {
+                    for (id, preset) in changes {
+                        m.set_detected(&id, preset);
+                    }
+                });
             }
-        });
-    }
+        },
+    );
+}
+
+/// Shell Terminals no hook or spawn made an Agent, with their detected Preset.
+fn candidates(app: &crate::app::App) -> Vec<(String, Option<String>)> {
+    let m = app.model.borrow();
+    m.worktrees()
+        .flat_map(|(_, w)| w.tabs.iter().flat_map(|t| t.panes()))
+        .filter(|p| p.agent.is_none() && matches!(p.kind, rade_core::PaneKind::Terminal { .. }))
+        .map(|p| (p.id.clone(), p.detected.clone()))
+        .collect()
 }
