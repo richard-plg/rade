@@ -1340,7 +1340,7 @@ mod tests {
     }
 
     #[test]
-    fn r140_b_a_silent_app_ends_the_call_with_timeout() {
+    fn r140_c_a_silent_app_ends_the_call_with_timeout() {
         let dir = std::env::temp_dir().join(format!("rade-r140-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let sock = dir.join("s.sock");

@@ -79,6 +79,22 @@ fn r136_a_cron_parse_forms_and_errors() {
     assert!(Cron::parse("*/0 * * * *").is_err());
 }
 
+#[test]
+fn r140_e_a_step_past_the_field_is_a_parse_error_naming_it_not_a_panic() {
+    for (expr, field) in [
+        ("1/4294967295 * * * *", "minute"),
+        ("* 0-5/4294967295 * * *", "hour"),
+        ("* * */32 * *", "day-of-month"),
+        ("* * * 1/13 *", "month"),
+        ("* * * * */4294967295", "day-of-week"),
+    ] {
+        let e = Cron::parse(expr).unwrap_err();
+        assert!(e.contains(field) && e.contains("step"), "{expr}: {e}");
+    }
+    // The largest steps that still fit their fields.
+    assert!(Cron::parse("*/60 */24 */31 */12 */8").is_ok());
+}
+
 fn sched(tz: &TimeZone) -> Schedule {
     Schedule {
         name: "s".into(),
