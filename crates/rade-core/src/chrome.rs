@@ -676,7 +676,90 @@ pub const USAGE_CHART_LARGE: i32 = 160;
 /// content is `content` px wide: when the list beside it would be narrower
 /// than 560 px (964 − 16 − 440 = 508 at 1280 px), or with large text.
 pub fn usage_detail_below(content: i32, mode: LayoutMode) -> bool {
-    mode.large_text || content - USAGE_GAP - USAGE_DETAIL_WIDTH < USAGE_LIST_MIN
+    mode.large_text || !USAGE_PAGE.side_by_side(content)
+}
+
+/// The docked Inspector's width (spec A).
+pub const INSPECTOR_WIDTH: i32 = 340;
+
+/// A full page that lays a list and a detail card side by side (R110.2,
+/// M53 amendment): the list's least width, the gap, the card's width and
+/// the page's padding left + right.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ListDetail {
+    pub list_min: i32,
+    pub gap: i32,
+    pub detail: i32,
+    pub pad: i32,
+}
+
+impl ListDetail {
+    /// Whether list and detail fit side by side in `content` px.
+    pub fn side_by_side(&self, content: i32) -> bool {
+        content - self.gap - self.detail >= self.list_min
+    }
+}
+
+/// The Usage page (spec E.2, E.8, E "1280 px").
+pub const USAGE_PAGE: ListDetail = ListDetail {
+    list_min: USAGE_LIST_MIN,
+    gap: USAGE_GAP,
+    detail: USAGE_DETAIL_WIDTH,
+    pad: 48,
+};
+
+/// The Schedules page (R139.1: list–detail like the Usage page).
+pub const SCHEDULES_PAGE: ListDetail = ListDetail {
+    list_min: 660,
+    gap: 16,
+    detail: 400,
+    pad: 48,
+};
+
+/// Where the Inspector is (R111.1, R110.2 M53 amendment).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum InspectorPlace {
+    /// Beside the center, shown.
+    Docked,
+    /// Not on screen (closed, or stepped aside until asked for).
+    Hidden,
+    /// Over the center's right edge (narrow window, or stepped aside and
+    /// shown with its toggle).
+    Floating,
+}
+
+/// Whether the Inspector floats instead of docking: in the narrow and rail
+/// layouts (R111.1), and while a list–detail `page` is open whose list and
+/// detail fit side by side in a `width` px window only without the docked
+/// Inspector (it steps aside; closing the page docks it again).
+pub fn inspector_floats(width: i32, mode: LayoutMode, page: Option<ListDetail>) -> bool {
+    if mode.inspector_overlay {
+        return true;
+    }
+    let Some(p) = page else { return false };
+    let nav = if mode.rail {
+        RAIL_WIDTH
+    } else {
+        NAVIGATOR_WIDTH
+    };
+    let content = width - nav - p.pad;
+    !p.side_by_side(content - INSPECTOR_WIDTH) && p.side_by_side(content)
+}
+
+/// Where the Inspector goes for a `width` px window in `mode` with `page`
+/// open (`None`: Panes or a page without a list–detail grid) and the
+/// Inspector toggle `shown`.
+pub fn inspector_place(
+    width: i32,
+    mode: LayoutMode,
+    page: Option<ListDetail>,
+    shown: bool,
+) -> InspectorPlace {
+    match (shown, inspector_floats(width, mode, page)) {
+        (false, _) => InspectorPlace::Hidden,
+        (true, true) => InspectorPlace::Floating,
+        (true, false) => InspectorPlace::Docked,
+    }
 }
 
 /// The gap between Project home KPI cards (spec B.6).
@@ -1339,6 +1422,49 @@ mod tests {
             usage_detail_below(2000, layout_mode(1440, 2.0)),
             "one column at large text"
         );
+    }
+
+    #[test]
+    fn r110_m_inspector_steps_aside_for_a_list_detail_page() {
+        use InspectorPlace::*;
+        let wide = layout_mode(1440, 1.0);
+        // 1440, Panes: docked as the user left it.
+        assert_eq!(inspector_place(1440, wide, None, true), Docked);
+        assert_eq!(inspector_place(1440, wide, None, false), Hidden);
+        // 1440, Usage page: 1124 − 340 = 784 leaves a 328 px list → it
+        // steps aside (hidden), and its toggle shows it floating.
+        assert!(inspector_floats(1440, wide, Some(USAGE_PAGE)));
+        assert_eq!(inspector_place(1440, wide, Some(USAGE_PAGE), false), Hidden);
+        assert_eq!(
+            inspector_place(1440, wide, Some(USAGE_PAGE), true),
+            Floating
+        );
+        assert!(USAGE_PAGE.side_by_side(1124), "E.8: 668 + 16 + 440");
+        // Schedules: 784 − 16 − 400 < 660, 1124 fits.
+        assert!(inspector_floats(1440, wide, Some(SCHEDULES_PAGE)));
+        // Wide enough for both: 2000 − 268 − 48 − 340 = 1344 ≥ 1016 / 1076.
+        let big = layout_mode(2000, 1.0);
+        assert!(!inspector_floats(2000, big, Some(USAGE_PAGE)));
+        assert!(!inspector_floats(2000, big, Some(SCHEDULES_PAGE)));
+        assert_eq!(inspector_place(2000, big, Some(USAGE_PAGE), true), Docked);
+        // The edge: 268 + 48 + 340 + 1016 = 1672 docks, 1671 steps aside.
+        assert!(!inspector_floats(1672, wide, Some(USAGE_PAGE)));
+        assert!(inspector_floats(1671, wide, Some(USAGE_PAGE)));
+        // Narrow and large text float anyway (R111.1), with or without a page.
+        let narrow = layout_mode(1280, 1.0);
+        assert!(inspector_floats(1280, narrow, None));
+        assert_eq!(
+            inspector_place(1280, narrow, Some(USAGE_PAGE), true),
+            Floating
+        );
+        assert!(inspector_floats(
+            1440,
+            layout_mode(1440, 2.0),
+            Some(USAGE_PAGE)
+        ));
+        // A width where the page does not fit even without it (never in the
+        // wide layout, which starts at 1440): no reason to step aside.
+        assert!(!inspector_floats(1000, wide, Some(USAGE_PAGE)));
     }
 
     #[test]

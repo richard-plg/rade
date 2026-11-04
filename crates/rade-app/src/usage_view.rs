@@ -76,7 +76,7 @@ thread_local! {
 }
 
 /// The page's padding left and right (spec E.2: 24 px each side).
-const PAGE_PAD: i32 = 48;
+const PAGE_PAD: i32 = rade_core::chrome::USAGE_PAGE.pad;
 
 /// How the page lays out now (R111): the detail below the list, large text.
 fn shape() -> (bool, bool) {

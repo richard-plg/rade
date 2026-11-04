@@ -4,13 +4,17 @@
 //! window's width and GTK's `gtk-xft-dpi` (GNOME's text-scaling factor) and
 //! applies them: the Inspector floats over the center (narrow), the
 //! Navigator becomes a 48 px icon rail and the center shows one Pane
-//! (large text), and RADE's px font sizes follow the text scale.
+//! (large text), and RADE's px font sizes follow the text scale. A
+//! list–detail page (Usage, Schedules) whose list and detail fit side by
+//! side only without the docked Inspector makes it step aside the same way
+//! while it is open (R110.2, M53 amendment; `rade_core::chrome::inspector_floats`).
 
 use adw::prelude::*;
 use gtk4 as gtk;
 use libadwaita as adw;
 use rade_core::chrome::{
-    layout_mode, scale_sheet, text_scale_of_dpi, LayoutMode, NAVIGATOR_WIDTH, RAIL_WIDTH,
+    inspector_floats, inspector_place, layout_mode, scale_sheet, text_scale_of_dpi, InspectorPlace,
+    LayoutMode, ListDetail, NAVIGATOR_WIDTH, RAIL_WIDTH,
 };
 use serde_json::{json, Value};
 use std::cell::{Cell, RefCell};
@@ -22,8 +26,8 @@ struct Ui {
     rail: gtk::Widget,
     provider: gtk::CssProvider,
     css: String,
-    /// The model's Inspector toggle from before the window went narrow,
-    /// given back when it is wide again.
+    /// The model's Inspector toggle from before it floated (the window went
+    /// narrow, or a list–detail page opened), given back when it docks again.
     saved_inspector: Cell<Option<bool>>,
 }
 
@@ -34,6 +38,18 @@ thread_local! {
     static WIDTH: Cell<i32> = const { Cell::new(0) };
     static HEIGHT: Cell<i32> = const { Cell::new(0) };
     static QUEUED: Cell<bool> = const { Cell::new(false) };
+    /// The list–detail page shown (`None`: Panes or another page).
+    static PAGE: Cell<Option<ListDetail>> = const { Cell::new(None) };
+    /// Whether the Inspector floats now (narrow, rail or stepped aside).
+    static FLOATS: Cell<bool> = const { Cell::new(false) };
+}
+
+/// The center shows `page` now (`chrome.rs` after every sync): the
+/// Inspector steps aside or docks again on the next idle.
+pub fn set_page(page: Option<ListDetail>) {
+    if PAGE.with(|p| p.replace(page)) != page {
+        queue();
+    }
 }
 
 /// The layout in force.
@@ -176,6 +192,8 @@ fn update() {
     let new = layout_mode(width, scale);
     let old = MODE.with(|m| m.replace(new));
     let old_scale = SCALE.with(|s| s.replace(scale));
+    let floats = inspector_floats(width, new, PAGE.with(Cell::get));
+    let old_floats = FLOATS.with(|f| f.replace(floats));
     UI.with(|u| {
         let u = u.borrow();
         let Some(u) = u.as_ref() else { return };
@@ -192,13 +210,16 @@ fn update() {
             });
         }
         if old != new {
-            apply(u, old, new);
+            apply(u, new);
+        }
+        if old_floats != floats {
+            float_inspector(u, floats);
         }
     });
     // Widths inside the titlebar, the Statusline and the pages follow the
     // window on every change, not only a mode change.
     if let Some(app) = crate::app::try_app() {
-        if old != new {
+        if old != new || old_floats != floats {
             app.sync();
         }
         app.chrome.fit();
@@ -208,43 +229,44 @@ fn update() {
     crate::schedules_view::relayout();
 }
 
-fn apply(u: &Ui, old: LayoutMode, new: LayoutMode) {
-    // The Navigator: the rail, the full one floating over it on demand.
-    u.rail.set_visible(new.rail);
-    for (split, class, on) in [
-        (&u.nav, "navigator-overlay", new.rail),
-        (&u.inspector, "inspector-overlay", new.inspector_overlay),
-    ] {
-        if let Some(w) = split.sidebar() {
-            if on {
-                w.add_css_class(class);
-            } else {
-                w.remove_css_class(class);
-            }
+fn set_class(split: &adw::OverlaySplitView, class: &str, on: bool) {
+    if let Some(w) = split.sidebar() {
+        if on {
+            w.add_css_class(class);
+        } else {
+            w.remove_css_class(class);
         }
     }
+}
+
+fn apply(u: &Ui, new: LayoutMode) {
+    // The Navigator: the rail, the full one floating over it on demand.
+    u.rail.set_visible(new.rail);
+    set_class(&u.nav, "navigator-overlay", new.rail);
     u.nav.set_collapsed(new.rail);
     u.nav.set_show_sidebar(!new.rail);
-    // The Inspector floats, hidden until asked for; wide again, it comes
-    // back as the user left it.
-    if new.inspector_overlay != old.inspector_overlay {
-        let Some(app) = crate::app::try_app() else {
-            u.inspector.set_collapsed(new.inspector_overlay);
-            return;
-        };
-        let shown = app.model.borrow().file_tree;
-        if new.inspector_overlay {
-            u.saved_inspector.set(Some(shown));
-            u.inspector.set_collapsed(true);
-            if shown {
-                app.update(|m| m.file_tree = false);
-            }
-        } else {
-            u.inspector.set_collapsed(false);
-            if let Some(was) = u.saved_inspector.take() {
-                if was != shown {
-                    app.update(|m| m.file_tree = was);
-                }
+}
+
+/// The Inspector floats, hidden until asked for (its toggle shows it over
+/// the center); docked again, it comes back as the user left it.
+fn float_inspector(u: &Ui, floats: bool) {
+    set_class(&u.inspector, "inspector-overlay", floats);
+    let Some(app) = crate::app::try_app() else {
+        u.inspector.set_collapsed(floats);
+        return;
+    };
+    let shown = app.model.borrow().file_tree;
+    if floats {
+        u.saved_inspector.set(Some(shown));
+        u.inspector.set_collapsed(true);
+        if shown {
+            app.update(|m| m.file_tree = false);
+        }
+    } else {
+        u.inspector.set_collapsed(false);
+        if let Some(was) = u.saved_inspector.take() {
+            if was != shown {
+                app.update(|m| m.file_tree = was);
             }
         }
     }
@@ -308,6 +330,16 @@ pub fn close_navigator() {
     });
 }
 
+/// `docked`, `hidden` or `floating` (`debug.ui layout`).
+fn place_name() -> &'static str {
+    let shown = crate::app::try_app().is_some_and(|a| a.model.borrow().file_tree);
+    match inspector_place(window_width(), mode(), PAGE.with(Cell::get), shown) {
+        InspectorPlace::Docked => "docked",
+        InspectorPlace::Hidden => "hidden",
+        InspectorPlace::Floating => "floating",
+    }
+}
+
 /// `debug.ui layout` / `chrome`: what the layout is now.
 pub fn debug() -> Value {
     let m = mode();
@@ -324,6 +356,10 @@ pub fn debug() -> Value {
         "width": window_width(),
         "text_scale": text_scale(),
         "inspector_overlay": m.inspector_overlay,
+        // R110.2 (M53): floating also while a list–detail page needs the room.
+        "inspector_floats": FLOATS.with(Cell::get),
+        "inspector_place": place_name(),
+        "page_list_detail": PAGE.with(Cell::get).is_some(),
         "rail": m.rail,
         "one_pane": m.one_pane,
         "large_text": m.large_text,

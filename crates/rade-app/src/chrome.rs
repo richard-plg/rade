@@ -23,7 +23,7 @@ use std::time::Duration;
 pub const PAGES: [(&str, &str); 3] = INSPECTOR_TABS;
 
 /// Width of the Inspector (spec A.53).
-pub const INSPECTOR_WIDTH: i32 = 340;
+pub const INSPECTOR_WIDTH: i32 = rade_core::chrome::INSPECTOR_WIDTH;
 
 /// An empty state (R103.6): one mono line, then its key hints as key caps.
 pub fn empty_state(e: &Empty) -> gtk::Box {
@@ -1057,6 +1057,15 @@ impl Chrome {
     /// After every sync: breadcrumb, Inspector toggle, Statusline.
     pub fn sync(&self, app: &App, ws: &State) {
         self.titlebar.inspector.set_active(ws.file_tree);
+        // A list–detail page may need the docked Inspector's room (R110.2).
+        let page = if crate::usage_view::is_shown(ws) {
+            Some(rade_core::chrome::USAGE_PAGE)
+        } else if crate::schedules_view::is_shown(ws) {
+            Some(rade_core::chrome::SCHEDULES_PAGE)
+        } else {
+            None
+        };
+        crate::layout_mode::set_page(page);
         let want = self
             .bar_shown
             .get()

@@ -313,7 +313,11 @@ rpc debug.ui '{"op":"layout","width":1440,"height":900}' >/dev/null
 # Part 1's Panes go: scenes E and F start from the same Navigator either way.
 for p in $(rade list --all --json | jq -r '.panes[].pane'); do rade close --force "$p" >/dev/null 2>&1 || true; done
 # Scenes E and F have no Inspector (part 1 opened it for its Activity shot).
-[[ $(chrome | jq -r .inspector.shown) == true ]] && key ctrl+shift+e >/dev/null
+# The toggle is the model's (restored with state.json); `.inspector.shown` is
+# the widget's mapping, still false while the relaunched window settles.
+eventually 5 is "chrome | jq -r .layout.width" 1440 || true
+[[ $(chrome | jq -r .right_panel.toggle) == true ]] && rade debug action toggle_file_tree >/dev/null
+eventually 3 is "chrome | jq -r .right_panel.toggle" false || echo "    (the Inspector is still on)"
 rpc usage.refresh '{"workspace":"acme"}' >/dev/null
 
 echo "== R110-g the forecast Toast (spec F.17, F.18)"
@@ -473,7 +477,8 @@ for th in dark light; do
     sleep 0.5
     check "R110-d $th: every spec E Measurements row within tolerance" spec_e "$th"
     { grep -E '^FAIL' "$OUT/spec-e-$th.txt" || true; } | sed 's/^/    /'
-    masks "$OUT/masks-e-$th.json" usage-updated usage-reset-time usage-reset-forecast usage-limit-reset toast
+    # The chart's day letters follow today's weekday (usage-scene.py: 7 days back).
+    masks "$OUT/masks-e-$th.json" usage-updated usage-reset-time usage-reset-forecast usage-limit-reset usage-chart-day toast
     shot "e-$th"
 done
 dark
@@ -525,6 +530,41 @@ sleep 0.5
 key escape >"$OUT/usage-esc.json"
 check "R110-l Esc closes it" eventually 3 is "usage | jq -r .shown" false
 check "R110-l …and the keyboard is back in the Pane it came from" eventually 3 is "rpc debug.window '{}' | jq -r '.focus.pane'" "$planner"
+
+echo "== R110-m the Inspector steps aside for the Usage page and docks again (M53)"
+place() { chrome | jq -r '"\(.layout.width) \(.layout.inspector_place) \(.inspector.shown)"'; }
+side_by_side() { # E.8: list 668, detail 440, gap 16, tops aligned (±1 px)
+    local a d
+    a=$(geo usage-accounts) d=$(geo usage-detail)
+    jq -en --argjson a "$a" --argjson d "$d" '
+        def near($v; $w): ($v - $w | fabs) <= 1;
+        near($a.width; 668) and near($d.width; 440)
+        and near($d.x - ($a.x + $a.width); 16) and near($d.y; $a.y)' >/dev/null
+}
+export -f place side_by_side
+[[ $(place) == "1440 docked true" ]] || { rade debug action toggle_file_tree >/dev/null; sleep 0.5; }
+check "R110-m given: the Inspector docked at 1440 × 900" eventually 3 is place "1440 docked true"
+ui usage open >/dev/null
+eventually 5 loaded || true
+sleep 0.5
+place >"$OUT/r110-m-open.txt"
+check "R110-m the page opens → the Inspector is hidden, list and detail side by side (E.8)" \
+    eventually 3 bash -c "[[ \$(place) == '1440 hidden false' ]] && side_by_side"
+check "R110-m …the toggle off, the page sub-line whole (E.3: its natural width)" \
+    bash -c "[[ \$(chrome | jq -r .right_panel.toggle) == false && \$(usage | jq -r .header.sub) == '7 accounts · limits from each CLI · tokens from local session logs' ]] && geo usage-sub | jq -e '.natural.width - .width <= 1' >/dev/null"
+rade debug action toggle_file_tree >/dev/null
+check "R110-m the toggle → the Inspector floats over the page, which keeps list and detail side by side" \
+    eventually 3 bash -c "[[ \$(place) == '1440 floating true' && \$(chrome | jq -r .layout.inspector_overlay_shown) == true && \$(usage | jq -r .shown) == true ]] && side_by_side"
+shot "r110-m-floating"
+ui usage close >/dev/null
+check "R110-m the page closes → the Inspector is docked again (center 1440 − 268 − 340)" \
+    eventually 3 bash -c "[[ \$(place) == '1440 docked true' && \$(chrome | jq -r .layout.center_width) == 832 ]]"
+# Closed on the page without the toggle: still docked again as it was.
+ui usage open >/dev/null
+eventually 3 is "usage | jq -r .shown" true || true
+ui usage close >/dev/null
+check "R110-m …also when the toggle was never pressed on the page" eventually 3 is place "1440 docked true"
+rade debug action toggle_file_tree >/dev/null
 
 echo "== Goldens E and F (tests/e2e/golden/m39/)"
 GOLD=$HERE/golden/m39
