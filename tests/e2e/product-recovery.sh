@@ -84,7 +84,7 @@ check "state was saved as current version" test "$(jq .version "$STATE")" = 3
 shot saved-session
 stop_app
 
-# Inject the real ENOSPC errno only on writes to this isolated state's temp file.
+# Inject the real ENOSPC errno only on writes to this isolated state's temp files (.state.json.<unique>.tmp, R141).
 # No mounts, disk filling, or interference with other app/agent writes.
 cat > "$T/enospc.c" <<'C'
 #define _GNU_SOURCE
@@ -104,14 +104,15 @@ ssize_t write(int fd, const void *buf, size_t count) {
         ssize_t n = readlink(link, path, sizeof(path) - 1);
         if (n >= 0) {
             path[n] = 0;
-            if (strcmp(path, target) == 0) { errno = ENOSPC; return -1; }
+            size_t tl = strlen(target);
+            if (n > (ssize_t)tl + 4 && strncmp(path, target, tl) == 0 && strcmp(path + n - 4, ".tmp") == 0) { errno = ENOSPC; return -1; }
         }
     }
     return real_write(fd, buf, count);
 }
 C
 cc -shared -fPIC "$T/enospc.c" -ldl -o "$T/enospc.so"
-env LD_PRELOAD="$T/enospc.so" RADE_TEST_ENOSPC_PATH="$STATE_DIR/.state.json.tmp" \
+env LD_PRELOAD="$T/enospc.so" RADE_TEST_ENOSPC_PATH="$STATE_DIR/.state.json." \
     RADE_TEST_ENOSPC_MARKER="$T/disk-full" "$BIN/rade-app" >>"$OUT/app.log" 2>&1 &
 APP_PID=$!
 check "fault-injection app started" eventually 15 rade list
