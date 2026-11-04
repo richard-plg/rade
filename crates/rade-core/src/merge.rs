@@ -20,11 +20,11 @@ pub fn snapshot(dir: &Path) -> Result<String> {
             .map_err(|e| Error::internal(format!("index copy: {e}")))?;
     }
     let with_tmp = |args: &[&str]| -> Result<String> {
-        let out = command(dir)
-            .args(args)
-            .env("GIT_INDEX_FILE", &tmp)
-            .output()
-            .map_err(|e| Error::internal(format!("cannot run git: {e}")))?;
+        let out = git::exec(
+            command(dir).args(args).env("GIT_INDEX_FILE", &tmp),
+            args[0],
+            crate::proc::GIT_LOCAL,
+        )?;
         if !out.status.success() {
             return Err(Error::internal(format!(
                 "git {}: {}",
@@ -39,15 +39,17 @@ pub fn snapshot(dir: &Path) -> Result<String> {
     let head = run(dir, &["rev-parse", "--verify", "HEAD"])?;
     // An object only (no ref, never signed or hooked): a fixed identity
     // works in repositories without user.name.
-    let out = command(dir)
-        .args(["commit-tree", "--no-gpg-sign", &tree, "-p", head.trim()])
-        .args(["-m", "RADE fan-out snapshot"])
-        .env("GIT_AUTHOR_NAME", "RADE")
-        .env("GIT_AUTHOR_EMAIL", "rade@localhost")
-        .env("GIT_COMMITTER_NAME", "RADE")
-        .env("GIT_COMMITTER_EMAIL", "rade@localhost")
-        .output()
-        .map_err(|e| Error::internal(format!("cannot run git: {e}")))?;
+    let out = git::exec(
+        command(dir)
+            .args(["commit-tree", "--no-gpg-sign", &tree, "-p", head.trim()])
+            .args(["-m", "RADE fan-out snapshot"])
+            .env("GIT_AUTHOR_NAME", "RADE")
+            .env("GIT_AUTHOR_EMAIL", "rade@localhost")
+            .env("GIT_COMMITTER_NAME", "RADE")
+            .env("GIT_COMMITTER_EMAIL", "rade@localhost"),
+        "commit-tree",
+        crate::proc::GIT_LOCAL,
+    )?;
     if !out.status.success() {
         return Err(Error::internal(format!(
             "git commit-tree: {}",
@@ -128,15 +130,17 @@ pub fn check_squash(t: &Target, changed: usize, winner: &str) -> Result<String> 
 /// committed. Conflicts are left for the user (returned); any other
 /// failure is an error and leaves the checkout as git left it.
 pub fn squash(repo: &Path, commit: &str) -> Result<Vec<String>> {
-    let out = command(repo)
-        // A user's `merge.ff = only` would refuse a diverged squash.
-        .args(["-c", "merge.ff=true", "merge", "--squash", commit])
-        // A three-way merge wants a committer even though a squash makes no
-        // commit; a repository without user.name must still work.
-        .env("GIT_COMMITTER_NAME", "RADE")
-        .env("GIT_COMMITTER_EMAIL", "rade@localhost")
-        .output()
-        .map_err(|e| Error::internal(format!("cannot run git: {e}")))?;
+    let out = git::exec(
+        command(repo)
+            // A user's `merge.ff = only` would refuse a diverged squash.
+            .args(["-c", "merge.ff=true", "merge", "--squash", commit])
+            // A three-way merge wants a committer even though a squash makes no
+            // commit; a repository without user.name must still work.
+            .env("GIT_COMMITTER_NAME", "RADE")
+            .env("GIT_COMMITTER_EMAIL", "rade@localhost"),
+        "merge",
+        crate::proc::GIT_LOCAL,
+    )?;
     if out.status.success() {
         return Ok(Vec::new());
     }

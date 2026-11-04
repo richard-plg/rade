@@ -3,9 +3,11 @@
 //! branch, dirty checks. Parsing is pure and unit-tested; the runners are
 //! thin wrappers tested against real temp repositories.
 
-use crate::rpc::{Error, Result};
+use crate::proc;
+use crate::rpc::{Error, ErrorKind, Result};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::{Command, Output, Stdio};
+use std::time::Duration;
 
 /// Branch name from `<repo>/.git/HEAD` (following a `.git` file for worktrees),
 /// a short commit hash when detached, `None` if not a git checkout.
@@ -26,8 +28,10 @@ pub fn branch(repo: &Path) -> Option<String> {
     }
 }
 
-/// A `git` command in `dir`: C locale (stable messages), never prompts,
-/// never takes optional locks (the Agent working there owns the index).
+/// A `git` command in `dir`: C locale (stable messages), never prompts
+/// (no terminal prompt, no askpass helper), never takes optional locks (the
+/// Agent working there owns the index). Run it with [`exec`] or [`run`] so
+/// it has a time limit (R140.1).
 pub fn command(dir: &Path) -> Command {
     let mut c = Command::new("git");
     c.arg("-C")
@@ -36,17 +40,65 @@ pub fn command(dir: &Path) -> Command {
         .env("LC_ALL", "C")
         .env("GIT_OPTIONAL_LOCKS", "0")
         .env("GIT_TERMINAL_PROMPT", "0")
+        .env("SSH_ASKPASS_REQUIRE", "never")
+        .env_remove("SSH_ASKPASS")
+        .env_remove("GIT_ASKPASS")
         .stdin(Stdio::null());
     c
 }
 
+/// What ssh runs as when the user chose nothing: never asks, gives up
+/// connecting after 10 s (R140.1).
+pub const SSH_DEFAULT: &str = "ssh -o BatchMode=yes -o ConnectTimeout=10";
+
+/// The `GIT_SSH_COMMAND` a network command in `dir` should get: `None`
+/// when the user set `GIT_SSH_COMMAND` / `GIT_SSH` (in the environment or
+/// in `env`, the Workspace env) or `core.sshCommand`.
+pub fn ssh_command(dir: &Path, env: &[(String, String)]) -> Option<&'static str> {
+    let set = |k: &str| {
+        env.iter().any(|(n, _)| n == k) || std::env::var_os(k).is_some_and(|v| !v.is_empty())
+    };
+    if set("GIT_SSH_COMMAND") || set("GIT_SSH") {
+        return None;
+    }
+    let mut c = command(dir);
+    c.args(["config", "--get", "core.sshCommand"]);
+    let configured = proc::output(&mut c, proc::PROBE)
+        .is_ok_and(|o| o.status.success() && !o.stdout.trim_ascii().is_empty());
+    (!configured).then_some(SSH_DEFAULT)
+}
+
+/// Run a command made by [`command`] under `limit` (`what` names it in a
+/// timeout: a `TIMEOUT` error).
+pub fn exec(cmd: &mut Command, what: &str, limit: Duration) -> Result<Output> {
+    proc::output(cmd, limit).map_err(|e| timeout_or(e, what, limit))
+}
+
+/// [`exec`] with a full [`proc::Spec`] (input, output cap).
+pub fn exec_spec(cmd: &mut Command, what: &str, spec: &proc::Spec) -> Result<proc::Done> {
+    proc::run(cmd, spec).map_err(|e| timeout_or(e, what, spec.limit))
+}
+
+fn timeout_or(e: std::io::Error, what: &str, limit: Duration) -> Error {
+    if proc::is_timeout(&e) {
+        Error::new(
+            ErrorKind::Timeout,
+            format!("git {what} did not finish within {} s", limit.as_secs()),
+        )
+    } else {
+        Error::internal(format!("cannot run git: {e}"))
+    }
+}
+
 /// Run `git args` in `dir`; stdout on success, else an error carrying
-/// git's own message (so the UI and CLI can show it).
+/// git's own message (so the UI and CLI can show it). 30 s limit.
 pub fn run(dir: &Path, args: &[&str]) -> Result<String> {
-    let out = command(dir)
-        .args(args)
-        .output()
-        .map_err(|e| Error::internal(format!("cannot run git: {e}")))?;
+    run_limit(dir, args, proc::GIT_LOCAL)
+}
+
+/// [`run`] under another limit.
+pub fn run_limit(dir: &Path, args: &[&str], limit: Duration) -> Result<String> {
+    let out = exec(command(dir).args(args), args.first().unwrap_or(&""), limit)?;
     if out.status.success() {
         return Ok(String::from_utf8_lossy(&out.stdout).into_owned());
     }
@@ -59,12 +111,7 @@ pub fn run(dir: &Path, args: &[&str]) -> Result<String> {
 }
 
 pub(crate) fn ok(dir: &Path, args: &[&str]) -> bool {
-    command(dir)
-        .args(args)
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .is_ok_and(|s| s.success())
+    proc::output(command(dir).args(args), proc::GIT_LOCAL).is_ok_and(|o| o.status.success())
 }
 
 /// Top level of the checkout containing `dir`; `None` outside git.

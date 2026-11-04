@@ -39,6 +39,7 @@ pub mod paste;
 pub mod paths;
 pub mod ports;
 pub mod preset;
+pub mod proc;
 pub mod process;
 pub mod project;
 pub mod restore_queue;

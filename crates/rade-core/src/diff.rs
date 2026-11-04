@@ -10,11 +10,10 @@
 //! is HEAD, i.e. uncommitted work only; before the first commit, everything.
 
 use crate::git;
+use crate::proc::{self, Spec};
 use crate::rpc::{Error, Result};
 use serde::Serialize;
-use std::io::Write;
 use std::path::Path;
-use std::process::Stdio;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -341,56 +340,37 @@ pub fn since(
         copy_index(&index, &tmp).map_err(|e| Error::internal(format!("index copy: {e}")))?;
     }
     if !untracked.is_empty() {
-        let mut c = git::command(dir)
-            .args([
-                "add",
-                "--intent-to-add",
-                "--pathspec-from-file=-",
-                "--pathspec-file-nul",
-            ])
-            .env("GIT_INDEX_FILE", &tmp)
-            // Names like `:x` or `a*` are paths, not pathspec magic.
-            .env("GIT_LITERAL_PATHSPECS", "1")
-            .stdin(Stdio::piped())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()
-            .map_err(|e| Error::internal(format!("cannot run git: {e}")))?;
-        let mut stdin = c.stdin.take().unwrap();
-        let _ = stdin.write_all(untracked.join("\0").as_bytes());
-        drop(stdin);
-        let _ = c.wait();
+        let mut c = git::command(dir);
+        c.args([
+            "add",
+            "--intent-to-add",
+            "--pathspec-from-file=-",
+            "--pathspec-file-nul",
+        ])
+        .env("GIT_INDEX_FILE", &tmp)
+        // Names like `:x` or `a*` are paths, not pathspec magic.
+        .env("GIT_LITERAL_PATHSPECS", "1");
+        let input = untracked.join("\0");
+        git::exec_spec(&mut c, "add", &Spec::new(proc::GIT_LOCAL).input(input.as_bytes()))?;
     }
-    let mut child = git::command(dir)
-        .args(["diff", "-M", "--no-color", "--no-ext-diff"])
+    // At most the limit is read (a huge untracked file must not fill memory).
+    let mut c = git::command(dir);
+    c.args(["diff", "-M", "--no-color", "--no-ext-diff"])
         .args(ignore_space.then_some("-w"))
         .args(["--src-prefix=a/", "--dst-prefix=b/", &base])
-        .env("GIT_INDEX_FILE", &tmp)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|e| Error::internal(format!("cannot run git: {e}")))?;
-    // Read at most the limit (a huge untracked file must not fill memory).
-    let mut bytes = Vec::new();
-    let mut stdout = child.stdout.take().unwrap();
-    use std::io::Read;
-    let _ = (&mut stdout)
-        .take(MAX_PATCH_BYTES as u64 + 1)
-        .read_to_end(&mut bytes);
-    let truncated = bytes.len() > MAX_PATCH_BYTES;
-    drop(stdout);
-    if truncated {
-        let _ = child.kill();
-    }
-    let mut err = String::new();
-    if let Some(mut e) = child.stderr.take() {
-        let _ = e.read_to_string(&mut err);
-    }
-    let status = child
-        .wait()
-        .map_err(|e| Error::internal(format!("git diff: {e}")))?;
-    if !truncated && !status.success() {
-        return Err(Error::internal(format!("git diff: {}", err.trim())));
+        .env("GIT_INDEX_FILE", &tmp);
+    let done = git::exec_spec(
+        &mut c,
+        "diff",
+        &Spec::new(proc::GIT_LOCAL).cap(MAX_PATCH_BYTES + 1),
+    )?;
+    let truncated = done.truncated || done.stdout.len() > MAX_PATCH_BYTES;
+    let mut bytes = done.stdout;
+    if !truncated && !done.status.success() {
+        return Err(Error::internal(format!(
+            "git diff: {}",
+            String::from_utf8_lossy(&done.stderr).trim()
+        )));
     }
     if truncated {
         bytes.truncate(MAX_PATCH_BYTES);

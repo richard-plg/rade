@@ -3,8 +3,7 @@
 //! Agents installed in ~/.local/bin are "not found" in Agent Panes.
 
 use std::path::Path;
-use std::process::{Command, Stdio};
-use std::sync::mpsc;
+use std::process::Command;
 use std::time::Duration;
 
 /// Variables describing the probe shell itself, not the user's environment.
@@ -48,7 +47,7 @@ pub fn probe(
         cmd.env_remove(k);
     }
     cmd.envs(set.iter().map(|(k, v)| (k, v)));
-    let out = bounded_output(&mut cmd, Duration::from_secs(5)).ok()?;
+    let out = bounded_output(&mut cmd, crate::proc::PROBE).ok()?;
     let env = parse_env0(&out.stdout);
     (out.status.success() && !env.is_empty()).then_some(env)
 }
@@ -59,55 +58,10 @@ pub fn probe(
 /// `limit` every process of that session is killed (an interactive shell's
 /// jobs get process groups of their own). A timeout is `TimedOut`.
 pub fn bounded_output(cmd: &mut Command, limit: Duration) -> std::io::Result<std::process::Output> {
-    use std::os::unix::process::CommandExt;
-    // SAFETY: setsid is async-signal-safe.
-    unsafe {
-        cmd.pre_exec(|| {
-            libc::setsid();
-            crate::process::no_inherit();
-            Ok(())
-        });
-    }
-    let child = cmd
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()?;
-    let pid = child.id() as i32;
-    let (tx, rx) = mpsc::channel();
-    // Read on a thread so a large output cannot fill the pipe and stall.
-    std::thread::spawn(move || {
-        let _ = tx.send(child.wait_with_output());
-    });
-    match rx.recv_timeout(limit) {
-        Ok(out) => out,
-        Err(_) => {
-            kill_session(pid);
-            Err(std::io::Error::new(
-                std::io::ErrorKind::TimedOut,
-                format!("timed out after {} s", limit.as_secs_f32()),
-            ))
-        }
-    }
+    crate::proc::output_session(cmd, limit)
 }
 
-/// SIGKILL every process whose session id is `sid` (from `/proc`).
-pub fn kill_session(sid: i32) {
-    unsafe { libc::killpg(sid, libc::SIGKILL) };
-    for e in std::fs::read_dir("/proc").into_iter().flatten().flatten() {
-        let Ok(pid) = e.file_name().to_string_lossy().parse::<i32>() else {
-            continue;
-        };
-        // `pid (comm) state ppid pgrp session …`: comm may hold spaces.
-        let stat = std::fs::read_to_string(e.path().join("stat")).unwrap_or_default();
-        let sess = stat
-            .rsplit_once(')')
-            .and_then(|(_, rest)| rest.split_whitespace().nth(3)?.parse::<i32>().ok());
-        if sess == Some(sid) {
-            unsafe { libc::kill(pid, libc::SIGKILL) };
-        }
-    }
-}
+pub use crate::proc::kill_session;
 
 #[cfg(test)]
 mod tests {
