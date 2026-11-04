@@ -64,6 +64,7 @@ enum BrowserCmd {
     /// Set a text field / select / editable element's value by ref.
     Fill {
         r#ref: String,
+        #[arg(allow_hyphen_values = true)] // R144.1: text may start with "-"
         text: String,
         #[command(flatten)]
         at: At,

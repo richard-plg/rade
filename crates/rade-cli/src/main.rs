@@ -75,11 +75,13 @@ enum Cmd {
         #[arg(long)]
         source: Option<String>,
         /// Prompt for the Agent.
+        #[arg(allow_hyphen_values = true)] // R144.1: text may start with "-"
         prompt: Option<String>,
     },
     /// Type text into a Pane.
     Send {
         pane: String,
+        #[arg(allow_hyphen_values = true)] // R144.1: text may start with "-"
         text: String,
         /// Press Enter after the text.
         #[arg(long)]
@@ -163,6 +165,7 @@ enum Cmd {
     },
     /// Raise a Notification on a Pane.
     Notify {
+        #[arg(allow_hyphen_values = true)] // R144.1: text may start with "-"
         text: String,
         #[arg(long)]
         title: Option<String>,
@@ -383,6 +386,7 @@ enum ReviewCmd {
     /// Comment on new-file lines: `path:line` or `path:line-end`.
     Add {
         target: String,
+        #[arg(allow_hyphen_values = true)] // R144.1: text may start with "-"
         text: String,
         #[command(flatten)]
         at: WtArgs,
@@ -1293,6 +1297,172 @@ fn is_clone_spec(spec: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn parse(args: &[&str]) -> Result<Cli, clap::Error> {
+        Cli::try_parse_from(std::iter::once("rade").chain(args.iter().copied()))
+    }
+
+    #[test]
+    fn r144_a_free_text_may_start_with_a_hyphen() {
+        match parse(&["send", "rev", "- also check tests", "--enter"])
+            .unwrap()
+            .cmd
+        {
+            Cmd::Send {
+                pane, text, enter, ..
+            } => {
+                assert_eq!(
+                    (pane.as_str(), text.as_str(), enter),
+                    ("rev", "- also check tests", true)
+                )
+            }
+            _ => panic!("not send"),
+        }
+        match parse(&["spawn", "--agent", "codex", "-v is broken"])
+            .unwrap()
+            .cmd
+        {
+            Cmd::Spawn { prompt, .. } => assert_eq!(prompt.as_deref(), Some("-v is broken")),
+            _ => panic!("not spawn"),
+        }
+        match parse(&["send", "rev", "--", "-x"]).unwrap().cmd {
+            Cmd::Send { text, enter, .. } => assert_eq!((text.as_str(), enter), ("-x", false)),
+            _ => panic!("not send"),
+        }
+        match parse(&["send", "rev", "--enter", "--", "--paste"])
+            .unwrap()
+            .cmd
+        {
+            Cmd::Send {
+                text, enter, paste, ..
+            } => {
+                assert_eq!((text.as_str(), enter, paste), ("--paste", true, false))
+            }
+            _ => panic!("not send"),
+        }
+        match parse(&["notify", "- done"]).unwrap().cmd {
+            Cmd::Notify { text, .. } => assert_eq!(text, "- done"),
+            _ => panic!("not notify"),
+        }
+        for args in [
+            &["review", "add", "src/a.rs:3", "- rename this"][..],
+            &["fanout", "--agents", "claude,codex", "- fix the bug"][..],
+            &[
+                "schedule",
+                "add",
+                "n",
+                "--dir",
+                "/tmp",
+                "--cron",
+                "0 9 * * *",
+                "- check deps",
+            ][..],
+            &["browser", "fill", "e3", "-42"][..],
+        ] {
+            parse(args).unwrap_or_else(|e| panic!("{args:?}: {e}"));
+        }
+        // A real flag is still a flag.
+        match parse(&["send", "rev", "hi", "--paste"]).unwrap().cmd {
+            Cmd::Send { text, paste, .. } => assert_eq!((text.as_str(), paste), ("hi", true)),
+            _ => panic!("not send"),
+        }
+    }
+
+    /// Shell words of one example (quotes, backslash escapes); `None` on an
+    /// unclosed quote.
+    fn words(line: &str) -> Option<Vec<String>> {
+        let (mut out, mut cur, mut quote, mut any) = (Vec::new(), String::new(), None, false);
+        let mut it = line.chars();
+        while let Some(c) = it.next() {
+            match (quote, c) {
+                (None, '\'' | '"') => (quote, any) = (Some(c), true),
+                (Some(q), _) if c == q => quote = None,
+                (None | Some('"'), '\\') => cur.extend(it.next()),
+                (None, c) if c.is_whitespace() => {
+                    if any || !cur.is_empty() {
+                        out.push(std::mem::take(&mut cur));
+                    }
+                    any = false;
+                }
+                _ => cur.push(c),
+            }
+        }
+        if quote.is_some() {
+            return None;
+        }
+        if any || !cur.is_empty() {
+            out.push(cur);
+        }
+        Some(out)
+    }
+
+    #[test]
+    fn r144_b_every_skill_example_parses() {
+        let skills = [
+            ("rade", include_str!("../../../skills/rade/SKILL.md")),
+            (
+                "rade-config",
+                include_str!("../../../skills/rade-config/SKILL.md"),
+            ),
+            (
+                "rade-workspace",
+                include_str!("../../../skills/rade-workspace/SKILL.md"),
+            ),
+        ];
+        let mut checked = 0;
+        let mut bad = Vec::new();
+        for (name, text) in skills {
+            assert!(
+                !text.to_lowercase().contains("named base"),
+                "{name}: Named Bases were removed in 1.0.0"
+            );
+            // Lines of fenced blocks, backslash continuations joined.
+            let (mut fenced, mut lines, mut acc) = (false, Vec::new(), String::new());
+            for l in text.lines() {
+                if l.trim_start().starts_with("```") {
+                    fenced = !fenced;
+                    continue;
+                }
+                if !fenced {
+                    continue;
+                }
+                match l.trim_end().strip_suffix('\\') {
+                    Some(head) => acc.push_str(head),
+                    None => lines.push(std::mem::take(&mut acc) + l),
+                }
+            }
+            for line in lines {
+                let code = line.split(" #").next().unwrap_or("");
+                for seg in code.split(['|', ';', '·']).flat_map(|s| s.split("&&")) {
+                    let seg = seg.trim().trim_start_matches("$(").trim_end_matches(')');
+                    let Some(rest) = seg.strip_prefix("rade ") else {
+                        continue;
+                    };
+                    // Placeholders and alternatives are prose, not commands.
+                    if ['<', '[', '…', '{'].iter().any(|c| rest.contains(*c))
+                        || rest.contains("...")
+                    {
+                        continue;
+                    }
+                    let Some(w) = words(rest) else { continue };
+                    let args: Vec<&str> = w.iter().map(String::as_str).collect();
+                    checked += 1;
+                    if let Err(e) = parse(&args) {
+                        bad.push(format!(
+                            "{name}: rade {rest}\n  {}",
+                            e.to_string().lines().next().unwrap_or("")
+                        ));
+                    }
+                }
+            }
+        }
+        assert!(checked >= 40, "only {checked} examples found");
+        assert!(
+            bad.is_empty(),
+            "skill examples that don't parse:\n{}",
+            bad.join("\n")
+        );
+    }
 
     #[test]
     fn r140_g_call_limit_is_the_flag_else_the_variable_else_the_method_default() {
