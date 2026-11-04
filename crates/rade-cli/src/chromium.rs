@@ -50,7 +50,8 @@ pub fn call(method: &str, mut params: Value, headed: bool) -> Result<Value> {
     if method == "browser.open" {
         params["headed"] = json!(headed);
     }
-    match crate::call_at(&sock, method, params.clone(), None) {
+    let limit = crate::limit_for(method, &params);
+    match crate::call_at(&sock, method, params.clone(), limit) {
         Err(e) if e.kind == ErrorKind::NotRunning => match method {
             "browser.open" => {
                 ensure_daemon(
@@ -58,7 +59,7 @@ pub fn call(method: &str, mut params: Value, headed: bool) -> Result<Value> {
                     || std::os::unix::net::UnixStream::connect(&sock).is_ok(),
                     || start(&sock, headed),
                 )?;
-                crate::call_at(&sock, method, params, None)
+                crate::call_at(&sock, method, params, limit)
             }
             "browser.close" => Ok(json!({"pane": PANE, "closed": false})),
             _ => Err(Error::not_found(

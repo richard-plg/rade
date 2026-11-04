@@ -947,10 +947,21 @@ fn call_limit(
 
 /// The per-method default, in seconds.
 fn default_limit(method: &str, params: &Value) -> u64 {
-    let n = |k: &str, d: u64| params[k].as_u64().unwrap_or(d);
+    // Whatever the JSON type (the CLI sends `--wait` as a float).
+    let n = |k: &str, d: u64| {
+        params[k]
+            .as_f64()
+            .filter(|v| *v >= 0.0)
+            .map_or(d, |v| v.ceil() as u64)
+    };
     match method {
         // Wait by design: their own limit plus 10 s.
-        "pane.wait" | "fanout.wait" => n("timeout", 600) + 10,
+        "pane.wait" => n("timeout", 600) + 10,
+        "fanout.wait" => n("timeout", 1800) + 10,
+        "browser.wait" => n("timeout", 30) + 10,
+        // Wait for a page load (up to 30 s) before answering.
+        "browser.open" | "browser.back" | "browser.forward" | "browser.reload"
+        | "browser.click" | "browser.press" => 30 + 10,
         m if m.starts_with("code.") => n("wait", 60) + 10,
         // git-heavy.
         "worktree.add" | "worktree.remove" | "worktree.move" | "fanout.start" | "source.add" => 300,
@@ -959,14 +970,20 @@ fn default_limit(method: &str, params: &Value) -> u64 {
     }
 }
 
-fn call(method: &str, params: Value) -> Result<Value, Error> {
+/// The limit of a call to `method` with the global flag and `RADE_TIMEOUT`
+/// applied (also for the Chromium daemon's calls).
+fn limit_for(method: &str, params: &Value) -> Option<Duration> {
     let env = std::env::var("RADE_TIMEOUT").ok();
-    let limit = call_limit(
+    call_limit(
         method,
-        &params,
+        params,
         CALL_TIMEOUT.get().copied().flatten(),
         env.as_deref(),
-    );
+    )
+}
+
+fn call(method: &str, params: Value) -> Result<Value, Error> {
+    let limit = limit_for(method, &params);
     call_at(
         &paths::socket_path(&paths::process_env),
         method,
@@ -1482,6 +1499,20 @@ mod tests {
         );
         assert_eq!(secs("code.def", json!({"wait": 20}), None, None), Some(30));
         assert_eq!(secs("code.impact", none.clone(), None, None), Some(70));
+        // The CLI sends `--wait` as a float.
+        assert_eq!(
+            secs("code.impact", json!({"wait": 200.0}), None, None),
+            Some(210)
+        );
+        assert_eq!(secs("code.def", json!({"wait": 0.5}), None, None), Some(11));
+        assert_eq!(
+            secs("browser.wait", json!({"timeout": 90}), None, None),
+            Some(100)
+        );
+        assert_eq!(secs("browser.wait", none.clone(), None, None), Some(40));
+        assert_eq!(secs("browser.open", none.clone(), None, None), Some(40));
+        assert_eq!(secs("browser.snapshot", none.clone(), None, None), Some(30));
+        assert_eq!(secs("fanout.wait", none.clone(), None, None), Some(1810));
         for m in [
             "worktree.add",
             "worktree.remove",
