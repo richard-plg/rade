@@ -2,4 +2,3 @@
 #   <suite>  <reason, with a link to where it is written down>
 # Any other suite that fails is a failure, even if it would pass on a retry.
 # Empty when M53 closes.
-m6  GLib's freedesktop backend may send a second banner under parallel load (docs/RELEASING.md "Flaky E2E")
