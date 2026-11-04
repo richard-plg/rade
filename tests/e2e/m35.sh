@@ -165,7 +165,9 @@ labels=$(tabs | jq -r '.tabs[].label')
 check "R103-d no label matches 'Tab [0-9]+' ($(echo $labels))" bash -c "[[ -n '$labels' ]] && ! grep -Eq '^Tab [0-9]+' <<<'$labels'"
 check "R103-d the open Tab has the 2 px acc bar over its full width" test "$(geo 'tab-activebar' '"all":true' | jq -r --arg a "$(tok dark acc)" '[.[] | select(.background==$a) | .height] | join(",")')" = 2
 geo 'tab led' '"all":true' > "$OUT/tab-leds.json"
-check "R103-d / R115 the lead Agent's glyph in the waiting colour: claude, 14 × 14" test "$(geo 'tab-glyph' '"all":true' | jq -r '[.[] | select(.classes | index("glyph-waiting")) | "\(.classes | map(select(startswith("mark-"))) | join(""))/\(.width)x\(.height)"] | join(",")')" = mark-claude/14x14
+# R115.3 (M49): each kind's glyph in that kind's worst status — the lead `planner` (claude) done, then `tests` (codex) waiting.
+check "R103-d / R115.3 the lead Agent's glyph in its kind's status: claude done, 14 × 14" test "$(geo 'tab-glyph' '"all":true' | jq -r '[.[] | select(.classes | index("mark-claude")) | "\(.classes | map(select(startswith("glyph-"))) | join(""))/\(.width)x\(.height)"] | join(",")')" = glyph-done/14x14
+check "R103-d / R115.3 then the other kind's glyph in the waiting colour: codex, 12 × 12" test "$(geo 'tab-glyph-extra' '"all":true' | jq -r '[.[] | select(.classes | index("glyph-waiting")) | "\(.classes | map(select(startswith("mark-"))) | join(""))/\(.width)x\(.height)"] | join(",")')" = mark-codex/12x12
 
 echo "== R103-e Pane headers and the focus glow"
 panes=$(geo pane '"all":true')

@@ -269,9 +269,14 @@ if not RANGES:
     tg = geo("tab-glyph")
     if found("A.43", tg, "tab-glyph"):
         near("A.43", "tab glyph width", tg["width"], 14, 0)
-        # `agents 2`: its lead `planner` (claude), the Tab's worst status waiting.
+        # `agents 2`: its lead `planner` (claude) in claude's worst status
+        # (done), then `tests` (codex) waiting (R115.3, M49).
         eq("A.43", "tab glyph is the lead's (claude)", "mark-claude" in tg["classes"], True)
-        eq("A.43", "tab glyph color (waiting)", tg["color"], tok("wait"))
+        eq("A.43", "tab glyph color (done)", tg["color"], tok("ok"))
+        tx = geo("tab-glyph-extra")
+        if found("A.43", tx, "tab-glyph-extra"):
+            eq("A.43", "extra glyph is codex", "mark-codex" in tx["classes"], True)
+            eq("A.43", "extra glyph color (waiting)", tx["color"], tok("wait"))
     ti = geo("tab-icon")
     if ti.get("found", True):
         near("A.43", "tab-icon width", ti["natural"]["width"], 13)
