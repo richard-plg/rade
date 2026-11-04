@@ -5,6 +5,9 @@
 #   R142-a  60 fake Agents each reporting a status every 200 ms for 30 s (tests/e2e/hook-load.py):
 #           UI-thread stall p99 <= 16 ms and no frame with two `sync`s (`debug.ui {"op":"perf"}`;
 #           the timing is skipped under E2E_SKIP_PERF)
+#   R142-g  60 fake Agents spawned in ONE Source (a new Tab every 3rd, as part a; `rade spawn` places
+#           them), reporting as in R142-a: every spawn answered within 2 s, `rade list` within 2 s
+#           throughout (a prober every 0.5 s), stall p99 <= 16 ms (timing skipped under E2E_SKIP_PERF)
 #   R142.3  `rade wait --until /regex/` finds text that scrolled off the screen, before or after it began
 #   R142-d  a `git` that takes 5 s (a wrapper first on PATH): with the window in front for 12 s, at
 #           most one facts read was in flight at any time
@@ -16,7 +19,7 @@
 #           without a Chromium)
 # The numbers are written to target/e2e-m53/numbers.txt (docs/internals/checks/M53.md quotes them).
 # Usage: tests/e2e/m53.sh   (NO_BUILD=1 to skip the build, KEEP=1 to keep the temp dir,
-#        PARTS="b a f d c s k" to pick parts, AGENTS=60 to use fewer Agents in part a)
+#        PARTS="b a o f d c s k" to pick parts, AGENTS=60 to use fewer Agents in parts a and o)
 set -euo pipefail
 [[ -n ${DEBUG_M53:-} ]] && set -x
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -49,7 +52,7 @@ repo() { mkdir -p "$1" && git -C "$1" init -q -b main && git -C "$1" -c user.ema
 perf() { rpc debug.ui '{"op":"perf"}'; }
 wakeups() { rpc debug.ui "{\"op\":\"wakeups\",\"arg\":\"$1\"}"; }
 note() { echo "$*" | tee -a "$NUMBERS"; }
-want() { [[ " ${PARTS:-b a f d c s k} " == *" $1 "* ]]; }
+want() { [[ " ${PARTS:-b a o f d c s k} " == *" $1 "* ]]; }
 fresh() { rm -rf "$XDG_DATA_HOME/rade-dev"; } # no session to restore
 
 repo "$T/src/app"
@@ -101,6 +104,65 @@ if want a; then
     check "R142-a sync ran at most once per frame (same_frame $same)" test "$same" = 0
     check "R142-a the model still follows the reports" is 'rade list --json | jq "[.panes[] | select(.status == \"running\" or .status == \"done\")] | length"' "$N"
     shot a-agents
+    stop_app
+fi
+
+if want o; then
+    echo "== R142-g: $N Agents in one Source, reporting every 200 ms for 30 s"
+    fresh
+    start_app
+    repo "$T/src/one"
+    rade source add "$T/src/one" >/dev/null
+    # `rade list` every 0.5 s while the Agents start and report: "<seconds> <exit>" per call.
+    : >"$T/o-list.txt"
+    rm -f "$T/o-stop"
+    (
+        while [[ ! -e $T/o-stop ]]; do
+            t0=$(date +%s.%N) rc=0
+            rade list --call-timeout 10 >/dev/null 2>&1 || rc=$?
+            echo "$(echo "$(date +%s.%N) - $t0" | bc) $rc" >>"$T/o-list.txt"
+            sleep 0.5
+        done
+    ) &
+    PROBER=$!
+    : >"$T/o-spawn.txt"
+    t_all=$(date +%s.%N)
+    for i in $(seq "$N"); do
+        # A wedged app: stop after 5 min (the check below fails on the missing spawns).
+        (( $(echo "$(date +%s.%N) - $t_all > 300" | bc) )) && { echo "999 124" >>"$T/o-spawn.txt"; break; }
+        tab=current; (((i - 1) % 3 == 0)) && tab=new
+        t0=$(date +%s.%N) rc=0
+        rade spawn --call-timeout 30 --agent claude --source one --name "a$i" --tab "$tab" "hello $i" >/dev/null 2>&1 || rc=$?
+        echo "$(echo "$(date +%s.%N) - $t0" | bc) $rc" >>"$T/o-spawn.txt"
+    done
+    spawn_all=$(echo "$(date +%s.%N) - $t_all" | bc)
+    spawn_max=$(sort -n "$T/o-spawn.txt" | tail -1 | cut -d' ' -f1)
+    spawn_bad=$(awk '$2 != 0' "$T/o-spawn.txt" | wc -l)
+    tabs=$(rade tab list --json --call-timeout 30 2>/dev/null | jq -c '[.tabs[] | .panes | length]' 2>/dev/null || echo "?")
+    note "R142-g $N spawns in one Source: $spawn_all s in all, slowest $spawn_max s, $spawn_bad failed; Panes per Tab: $tabs"
+    check "R142-g every spawn answered within 2 s (slowest $spawn_max s, $spawn_bad failed)" \
+        test "$(echo "$spawn_max <= 2" | bc)$spawn_bad" = 10
+    # 90 s of wall clock (a wedged app would make `eventually`'s polls 30 s each).
+    done_n='rade list --json --call-timeout 5 | jq "[.panes[] | select(.status == \"done\")] | length"'
+    until is "$done_n" "$N" || ((SECONDS > ${o_deadline:=$((SECONDS + 90))})); do sleep 0.5; done
+    check "R142-g $N Agents finished their first turn" is "$done_n" "$N"
+    PANES=$(rade list --json --call-timeout 10 | jq -r '.panes[] | select(.agent != null) | .pane' || true)
+    sleep 1
+    rpc debug.ui '{"op":"perf","arg":"reset"}' >/dev/null || true
+    python3 "$HERE/hook-load.py" "$SOCK" $PANES --every 200 --for 30 >"$OUT/o-load.json"
+    p=$(RPC_TIMEOUT=60 perf || echo '{"stall": {"p50": 99999, "p99": 99999, "max": 99999}}')
+    touch "$T/o-stop"
+    wait "$PROBER" 2>/dev/null || true
+    echo "$p" >"$OUT/o-perf.json"
+    p99=$(jq -r '.stall.p99' <<<"$p"); pmax=$(jq -r '.stall.max' <<<"$p")
+    list_max=$(sort -n "$T/o-list.txt" | tail -1 | cut -d' ' -f1)
+    list_bad=$(awk '$2 != 0' "$T/o-list.txt" | wc -l)
+    note "R142-g load: $(jq -c . "$OUT/o-load.json"); stall p50=$(jq -r '.stall.p50' <<<"$p") p99=$p99 max=$pmax ms; rade list: $(wc -l <"$T/o-list.txt") calls, slowest $list_max s, $list_bad failed"
+    check "R142-g every report was answered" test "$(jq .errors "$OUT/o-load.json")" = 0 -a "$(jq .calls "$OUT/o-load.json")" -ge $((N * 130))
+    check "R142-g rade list answered within 2 s throughout (slowest $list_max s, $list_bad failed)" \
+        test "$(echo "$list_max <= 2" | bc)$list_bad" = 10
+    perf_check "R142-g UI-thread stall p99 $p99 ms (<= 16)" test "$(echo "$p99 <= 16" | bc)" = 1
+    shot o-agents
     stop_app
 fi
 
