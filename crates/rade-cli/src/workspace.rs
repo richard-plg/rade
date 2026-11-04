@@ -7,6 +7,7 @@
 use crate::local::{on_path, show_diff, stamp};
 use crate::{call, clone};
 use clap::{Args, Subcommand, ValueEnum};
+use rade_core::fs_atomic;
 use rade_core::model::slug;
 use rade_core::paths::{self, process_env};
 use rade_core::rpc::{Error, ErrorKind};
@@ -276,6 +277,18 @@ fn read_opt(path: &Path) -> Result<Option<String>, Error> {
     }
 }
 
+/// The advisory lock on `workspace.toml` (R141.3), held from reading it to
+/// writing the new text so an account the app adds in between is not lost.
+/// None for a dry run (it writes nothing, so it creates no folder either).
+fn lock_toml(dry: bool, path: &Path) -> Result<Option<fs_atomic::Lock>, Error> {
+    if dry {
+        return Ok(None);
+    }
+    fs_atomic::Lock::acquire(path)
+        .map(Some)
+        .map_err(|e| Error::internal(format!("{}: {e}", path.display())))
+}
+
 fn change(path: PathBuf, old: Option<String>, new: String) -> Option<Change> {
     (old.as_deref() != Some(new.as_str())).then_some(Change {
         path,
@@ -417,6 +430,13 @@ fn setup_ws(a: &SetupArgs) -> Result<Value, Error> {
     }
     // workspace.toml: flags must agree with the file; defaults fill gaps.
     let toml_path = workspace_toml(&root);
+    // The lock makes a `.rade` folder; without one the lock waits until the
+    // folder is made below (and the file must still be as it was read).
+    let mut lock = if root.join(".rade").is_dir() {
+        lock_toml(run.dry, &toml_path)?
+    } else {
+        None
+    };
     let old = read_opt(&toml_path)?;
     let file = WorkspaceFile::parse(old.as_deref().unwrap_or(""))
         .map_err(|e| Error::usage(format!("{}: {e}", toml_path.display())))?;
@@ -488,12 +508,22 @@ fn setup_ws(a: &SetupArgs) -> Result<Value, Error> {
     }
     run.mkdir(&root.join(".rade"))?;
     run.mkdir(&root.join(".worktrees"))?;
+    if lock.is_none() {
+        lock = lock_toml(run.dry, &toml_path)?;
+        if lock.is_some() && read_opt(&toml_path)? != old {
+            return Err(Error::usage(format!(
+                "{} changed while setting up: run the command again",
+                toml_path.display()
+            )));
+        }
+    }
     // Files: workspace.toml, <root>/.gitconfig, the ~/.gitconfig block.
     let mut changes: Vec<Change> = change(toml_path.clone(), old, text).into_iter().collect();
     let (rg, kept) = root_gitconfig(&root.join(".gitconfig"), &wsu::gitconfig_keys(idn, &home))?;
     changes.extend(rg);
     changes.extend(home_gitconfig(&id, &root)?);
     run.files(&changes)?;
+    drop(lock);
     for k in kept {
         println!("note: kept {k} in {}/.gitconfig", root.display());
     }
@@ -696,6 +726,7 @@ fn import(root: &Path, env_flags: &[String], dry: bool) -> Result<Value, Error> 
         entries.push(("clone", "default_owner", o));
     }
     let toml_path = workspace_toml(&root);
+    let lock = lock_toml(dry, &toml_path)?;
     let old = read_opt(&toml_path)?;
     let flags: Vec<(String, String)> = parse_env(env_flags)?;
     let flag_entries: Vec<(&str, &str, String)> = flags
@@ -718,6 +749,7 @@ fn import(root: &Path, env_flags: &[String], dry: bool) -> Result<Value, Error> 
     };
     let changes: Vec<Change> = change(toml_path, old, text).into_iter().collect();
     run.files(&changes)?;
+    drop(lock);
     register(&mut run, &root, None);
     if dry {
         println!("\n(dry run: nothing written)");
@@ -1358,4 +1390,42 @@ fn rc_files(home: &Path) -> Vec<(PathBuf, String)> {
         .into_iter()
         .filter_map(|p| std::fs::read_to_string(&p).ok().map(|t| (p, t)))
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn r141_c_workspace_setup_holds_the_lock_from_its_read_to_its_write() {
+        let d = std::env::temp_dir().join(format!("rade-ws-lock-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(d.join(".rade")).unwrap();
+        let toml = workspace_toml(&d);
+        let lock = lock_toml(false, &toml).unwrap();
+        assert!(lock.is_some());
+        // The app adding an account waits until setup has written.
+        let t = toml.clone();
+        let app = std::thread::spawn(move || {
+            fs_atomic::with_lock(&t, fs_atomic::Mode::Private, |cur| {
+                Ok::<_, std::io::Error>(Some(format!("{cur}[[account]]\n")))
+            })
+            .unwrap();
+        });
+        std::thread::sleep(Duration::from_millis(300));
+        assert!(!app.is_finished(), "the app's edit ran inside setup's lock");
+        std::fs::write(&toml, "name = \"x\"\n").unwrap();
+        drop(lock);
+        app.join().unwrap();
+        assert_eq!(
+            std::fs::read_to_string(&toml).unwrap(),
+            "name = \"x\"\n[[account]]\n"
+        );
+        // A dry run takes no lock and makes no folder.
+        assert!(lock_toml(true, &d.join("none/.rade/workspace.toml"))
+            .unwrap()
+            .is_none());
+        assert!(!d.join("none").exists());
+        let _ = std::fs::remove_dir_all(&d);
+    }
 }
