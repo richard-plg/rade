@@ -74,6 +74,8 @@ AC:
    - Idle CPU < 1% with 20 open Terminals.
    - Keypress-to-glyph latency within 1 frame of standalone Ghostty.
 
+**M53 amendment (R142):** add to 3: the UI thread never stalls over 16 ms (p99) with 60 Agents reporting, and an idle app's own timers wake ≤ 5 times/s.
+
 AC: a benchmark script in `bench/` records the numbers above; M0 and every milestone after M4 re-run it. The Intel-iGPU target is N/A on machines whose display is attached to the discrete GPU (cross-GPU dmabuf import fails in Mutter, see docs/internals/checks/M0.md row 4).
 
 ## R5 — Image paste
@@ -1083,6 +1085,8 @@ AC:
 
 ## R111 — Hardening (M40)
 
+**M53 amendment (R142):** the budgets of 3 also hold with 60 Agents reporting a status every 200 ms (R142-a).
+
 1. **1280 px**: every screen at 1280 × 800 follows the `1280 px` section of its spec sheet; no horizontal scroll anywhere.
 2. **Text scale 200 %**: every screen follows the `Text scale 200 %` section of its sheet (Navigator as a 48 px icon rail, one main Pane); no clipped text.
 3. **Performance**: 200 Navigator rows, 20 accounts and a 1 GB log folder stay within the budgets below; live checks on the real desktop.
@@ -1678,6 +1682,85 @@ AC:
 - R139-d [M52] (e2e): Given a Schedule with run Panes. When Delete… is confirmed with the check box off. Then the Schedule is gone and its Panes stay.
 - R139-e [M52] (e2e): Given the page on a Schedule with a closed Run and an open one. When the closed Run's Resume, then (page opened again) the open Run's Show, are pressed. Then each time the page closes and the focused Pane is the resumed Pane, then the open Run's Pane.
 - R139-f [M52] (unit): Given times around now and Runs of each outcome and Agent status. When shown on the page. Then times read `in 25m` / `in 2h 10m` / `in 1d 6h` / `5m ago` / `just now`, and a Run's chip is `running`, `needs input`, `done`, `error`, `interrupted`, `started` (open, no status yet), `ended`, `skipped`, `missed` or `failed`.
+
+## R140 — Nothing waits forever (M53, ADR-0052)
+
+1. **One process runner** (`rade-core/src/proc.rs`): null stdin, its own session, a time limit that kills the process group, done on exit even when a grandchild still holds stdout, an output cap. Every child process RADE starts goes through it: shell probes, git (local 30 s, network `fetch` / `pull` / `push` 120 s), `gh`, curl, setup commands keep their own documented limits. git runs with `LC_ALL=C`, `GIT_TERMINAL_PROMPT=0` and, unless the user set `GIT_SSH_COMMAND` or `core.sshCommand`, `ssh -o BatchMode=yes -o ConnectTimeout=10`; a background timer (auto-fetch, git facts) never opens a password prompt.
+2. **`rade` calls time out.** A socket call the app doesn't answer within 30 s exits 6 `TIMEOUT` with `rade: the app did not answer within 30 s`. `--call-timeout <secs>` (global) or `RADE_TIMEOUT` changes it; `0` = no limit. Methods that wait by design keep their own limit plus 10 s: `pane.wait` / `fanout.wait` (`--timeout`), `code.*` (its query budget), and the git-heavy ones (`worktree.add|remove|move`, `pane.spawn` with `worktree: "new"`, `fanout.start`, `source.add`) get 300 s.
+3. **Language servers**: writes to a server go through a writer thread with a bounded queue; a server that stops reading is reported `hung` within the query budget (R88) and restarted on the next query; LSP header lines are capped at 8 KB.
+4. **E2E harness**: `rpc` fails on EOF with the app's last log lines; `stop_app` waits 10 s then kills; each suite in `ci/e2e.sh` runs under a 20 min limit.
+5. A cron step larger than its field's range is a parse error (R136.5); one Chromium daemon per socket (a lock while starting); a Worktree setup's "type when settled" (R13) gives up at the setup's time limit.
+
+AC:
+- R140-a [M53] (unit): Given a child that ignores SIGTERM and whose grandchild keeps stdout open. When it runs under a 1 s limit. Then the call returns within 2 s with a timeout error and the whole group is gone.
+- R140-b [M53] (unit): Given a git remote (a fake `ssh` that never answers). When `scm::fetch` runs with a 2 s network limit. Then it returns a timeout error and `GIT_TERMINAL_PROMPT=0` / `BatchMode=yes` were in its env.
+- R140-c [M53] (e2e): Given a test-mode app whose UI thread is held by `debug.ui block`. When `rade list --call-timeout 2` runs. Then it exits 6 within 3 s naming the limit, and `RADE_TIMEOUT=0 rade list` answers once the block ends.
+- R140-d [M53] (unit): Given a fake language server that stops reading after `initialize`. When a 1 MB file is opened and a query runs. Then the query answers `hung` within its budget and the next query starts a new server.
+- R140-e [M53] (unit): Given the cron `1/4294967295 * * * *`. When it is parsed. Then it is a `USAGE` error naming the field, no panic.
+- R140-f [M53] (e2e): Given no Chromium daemon. When two `rade browser --engine chromium open` run at once. Then one daemon runs and both calls answer (skipped with the reason without a Chromium).
+- R140-g [M53] (unit): Given the CLI. When `--call-timeout`, `RADE_TIMEOUT` and the method are given. Then the limit is the flag, else the variable, else the method's default above.
+
+## R141 — Files with secrets stay private (M53, ADR-0052)
+
+1. **One atomic writer** (`rade-core/src/fs_atomic.rs`): a unique temp file in the same folder, fsync of the file and the folder, rename. `Mode::Private` writes `0600`; `Mode::Keep` keeps the target's mode. A symlinked target is written through (the link stays, its target changes). Every writer of RADE's own files uses it.
+2. `0600`: `state.json` and every backup of it (`.v1.bak`, `.v2.bak`, recovery copies), `accounts.toml`, `.rade/workspace.toml`, the Usage store, the update cache. Mode kept: `config.toml`, `project.toml`, the Agent config files `rade setup` edits.
+3. Read-change-write of `accounts.toml`, `workspace.toml`, `project.toml` and `config.toml` holds an advisory lock (`flock` on a sibling `.<name>.lock`), so the CLI and the app never drop each other's edit.
+4. A trusted `.rade.toml` layer is built from the same bytes its trust was checked on.
+
+AC:
+- R141-a [M53] (unit): Given each `0600` file above, first created `0644`. When RADE writes it. Then its mode is `0600`.
+- R141-b [M53] (unit): Given `accounts.toml` as a symlink to a dotfiles repo. When an account is added. Then it is still a symlink and the target holds the account.
+- R141-c [M53] (unit): Given two threads each adding a different account to the same `accounts.toml`. When they run at once. Then both accounts are in the file.
+- R141-d [M53] (unit): Given a trusted `.rade.toml`. When its bytes change between the trust check and the layer build. Then the layer is the checked bytes or untrusted, never the new bytes as trusted.
+- R141-e [M53] (e2e): Given the app. When Settings → Accounts adds a variable and `rade account add` runs. Then `stat -c %a` of `accounts.toml`, `workspace.toml` and `state.json` is `600`.
+
+## R142 — The UI thread stays free (M53, ADR-0052)
+
+1. **One sync per frame**: model changes within a frame cause one `sync` on the next frame, and each part (Navigator, chrome, Files root, Changes, Search, Project home) syncs only when its inputs changed.
+2. **No git, `/proc` or config file reads on the UI thread** on a timer or a hook: the focused checkout's git facts, listening ports, Worktree branches and the main branch, the layered config for a hook's status run off it, at most one read in flight per kind; a result for a checkout that is no longer focused is dropped.
+3. `pane.wait --until <pattern>` and the setup's "type when settled" read only the screen text added since their last look.
+4. The Terminal tick runs while Ghostty asks for it (wakeup) and stops when idle.
+5. No `RefCell` borrow of the Terminals, the surface map or the Ghostty callbacks is held across a GTK call that can run another handler.
+
+**Amendment to R4.3 and R111.3:** add "UI-thread stall p99 ≤ 16 ms with 60 Agents reporting" and "≤ 5 timer wakeups/s idle".
+
+AC:
+- R142-a [M53] (e2e): Given 60 fake Agents each reporting a status every 200 ms for 30 s. When `debug.ui perf` is read. Then the UI-thread stall p99 is ≤ 16 ms and `sync` ran at most once per frame (skipped under `E2E_SKIP_PERF`, recorded on the reference machine).
+- R142-b [M53] (e2e): Given an idle app with 4 Terminals for 10 s. When `debug.ui wakeups` is read. Then RADE's own timers woke ≤ 50 times.
+- R142-c [M53] (unit): Given a git facts read for checkout A in flight. When the focus moves to B and A's result arrives. Then A's result is dropped and B's facts are shown.
+- R142-d [M53] (e2e): Given a `git` that takes 5 s (a wrapper on `PATH`). When the window stays active for 12 s. Then at most one facts read was in flight at any time.
+- R142-e [M53] (unit): Given a status hook from a Pane whose config files did not change. When it is handled. Then the layered config is not read again (cache by file mtimes).
+- R142-f [M53] (unit): Given screen text with a pattern added after the last look. When the tail rule runs. Then it finds the pattern reading only the new text.
+
+## R143 — Tests tell the truth (M53)
+
+1. Every E2E suite runs in CI (`.github/workflows/ci.yml` shards); a suite not in a shard fails the `check` stage.
+2. A suite that passes only on the serial retry fails the job, except the suites named in `ci/flaky.txt` with a reason; the file is empty when M53 closes.
+3. Known failures carried from M44–M52 are fixed (fixture dates computed from now, free ports instead of fixed ones, checks following renamed labels, the test app's own socket for font checks, a deterministic fake language server).
+4. Shared E2E helpers (`ui`, `state`, `code` and the like) live in `tests/e2e/lib.sh`; a fixed `sleep` waiting for a state becomes a poll.
+
+AC:
+- R143-a [M53] (unit): Given `ci.yml` and `tests/e2e/`. When `scripts/check-ci-suites.sh` runs. Then it exits 0, and exits 1 naming a suite file added outside every shard.
+- R143-b [M53] (unit): Given an AC whose only proving check is in a suite outside every CI shard. When `scripts/trace.sh --strict` runs. Then it fails naming the AC and the suite (self-test in `scripts/trace_test.sh`).
+- R143-c [M53] (unit): Given `ci/e2e.sh`'s retry rule. When a suite fails then passes serially. Then the job fails unless the suite is in `ci/flaky.txt`.
+
+## R144 — Agents get what they type (M53)
+
+1. Free-text arguments (`rade send <text>`, `rade spawn [prompt]`, `rade fanout` prompts, `rade schedule add|edit` prompts, `rade notify <text>`) accept values starting with `-`; `--` works after the flags.
+2. The skills (`skills/*/SKILL.md`) teach only commands and flags that exist: Named Bases are gone from `skills/rade`; every `rade …` example line parses with the real CLI.
+
+AC:
+- R144-a [M53] (unit): Given the CLI parser. When `send rev "- also check tests" --enter`, `spawn --agent codex "-v is broken"` and `send rev -- "-x"` are parsed. Then each parses with that text and no error.
+- R144-b [M53] (unit): Given the three skills. When every `rade …` example line is parsed by the CLI (no app). Then each parses, and none mentions Named Bases.
+
+## R145 — Release and Viewer fixes (M53)
+
+1. `scripts/release.sh` orders versions by SemVer (`1.6.0` is above `1.6.0-rc.1`), with `rade_core::update::Version`.
+2. The Viewer gives an HTML page without its own styles the theme's text and background colours.
+
+AC:
+- R145-a [M53] (unit): Given the last tag `v1.6.0-rc.1`. When the release version check runs for `1.6.0` and `1.5.9`. Then `1.6.0` is accepted and `1.5.9` refused.
+- R145-b [M53] (e2e): Given an HTML file without a `<style>` or `style=`. When it opens in the Viewer in dark. Then its text colour is the theme's `fg`, not black.
 
 ## Non-goals (v1)
 

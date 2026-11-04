@@ -1,6 +1,6 @@
 # RADE — CLI and socket contract
 
-Implements [PRD](internals/PRD.md) R2, R3, R7, R10, R12, R13, R15, R16, R18, R19, R23, R24, R25, R26, R29, R31, R97–R101, R108–R110, R131–R133 (R21 / R22 add only hidden `debug.*` methods: ADR-0013; M45 (R120–R123, ADR-0045) adds the Diff Pane kind and hidden `debug.scm` / `debug.diff` shapes; R102 adds `debug.ui geometry`). **1.0.0 is a breaking release** after 0.7.1 and the first stable one (ADR-0041): see [Breaking changes in 1.0.0](#breaking-changes-in-100). From 1.0.0 an incompatible change to this contract needs a new major version; `debug.*` methods and `rade debug …` are not part of it. This file is the contract: changing it is a deliberate, reviewed change. The CLI is also the end-to-end test driver (ADR-0006).
+Implements [PRD](internals/PRD.md) R2, R3, R140, R144, R7, R10, R12, R13, R15, R16, R18, R19, R23, R24, R25, R26, R29, R31, R97–R101, R108–R110, R131–R133 (R21 / R22 add only hidden `debug.*` methods: ADR-0013; M45 (R120–R123, ADR-0045) adds the Diff Pane kind and hidden `debug.scm` / `debug.diff` shapes; R102 adds `debug.ui geometry`). **1.0.0 is a breaking release** after 0.7.1 and the first stable one (ADR-0041): see [Breaking changes in 1.0.0](#breaking-changes-in-100). From 1.0.0 an incompatible change to this contract needs a new major version; `debug.*` methods and `rade debug …` are not part of it. This file is the contract: changing it is a deliberate, reviewed change. The CLI is also the end-to-end test driver (ADR-0006).
 
 ## Breaking changes in 1.0.0
 
@@ -116,8 +116,10 @@ A **paused** Source (PRD R19.3) takes no new Panes: anything that would add one 
 | 3 | `NOT_RUNNING` | socket missing / refused |
 | 4 | `NOT_FOUND` / `AMBIGUOUS` | pane/source/worktree lookup |
 | 5 | `LIMIT` | spawn depth or child count exceeded |
-| 6 | `TIMEOUT` | `wait` timed out |
+| 6 | `TIMEOUT` | `wait` timed out; or (1.6.0, PRD R140.2) the app did not answer a call within its limit |
 | 7 | `FORBIDDEN` | an Agent Account not declared in the Workspace of the Pane being created, or a Preset / recorded-invocation `VAR=value` prefix that would run the account's Pane under another config dir (1.0.0, PRD R108.3, R108.7; decided in `rade-core`) |
+
+**Call limits** (1.6.0, PRD R140.2, ADR-0052): every socket call ends. Default 30 s; `pane.wait` / `fanout.wait` their `--timeout` + 10 s; `code.*` their query budget + 10 s; `worktree.add|remove|move`, `pane.spawn` with `"worktree": "new"`, `fanout.start`, `source.add` 300 s. The global `--call-timeout <secs>` or `RADE_TIMEOUT=<secs>` replaces the limit (`0` = none). Over it: exit 6, stderr `rade: the app did not answer within <n> s (<method>)`. The app may still finish the call.
 
 JSON-RPC errors carry `{"code": <int>, "message": <string>, "data": {"kind": "<ERROR>"}}`; `code` is the exit code above (application errors, not the reserved -32xxx range). Unknown methods and malformed requests are `USAGE`; a method removed in 1.0.0 is `USAGE` with `"data": {"kind": "USAGE", "removed": "1.0.0"}` (see [Removed in 1.0.0](#removed-in-080-prd-r101-adr-0033)).
 
