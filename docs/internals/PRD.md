@@ -1083,6 +1083,10 @@ AC:
 
 - R110-l [M51] (e2e): Given the Usage page open from `planner`. When the header is read, `✕` clicked, the page opened again, Add account opened and `Esc` pressed, the dialog closed and `Esc` pressed again. Then the header has the `Close (Esc)` button, `✕` closes the page, the first `Esc` leaves it open, the second closes it and the keyboard is back in `planner`.
 
+**M53 amendment (R110.2, owner 2026-11-04):** the Inspector steps aside for a list–detail page. While the Usage page (or the Schedules page, R139.1, same grid) is open and the window is too narrow for its list and detail side by side with the Inspector docked (Usage: list ≥ 560 + 16 + 440 px of content; Schedules: 660 + 16 + 400; at 1440 px only 784 px are left), the Inspector is hidden and its toggle shows it floating over the page's right edge, as in the narrow layout (R111.1); the page keeps spec E.8. Closing the page docks the Inspector again as the user left it. A window wide enough for both (1672 px and up for Usage) keeps it docked; the narrow and rail layouts float it anyway.
+
+- R110-m [M53] (e2e): Given the Inspector docked at 1440 × 900. When the Usage page opens, the Inspector toggle is pressed, and the page closes. Then the Inspector is hidden with list and detail side by side (E.8), then floats over the page, then is docked again.
+
 ## R111 — Hardening (M40)
 
 **M53 amendment (R142):** the budgets of 3 also hold with 60 Agents reporting a status every 200 ms (R142-a).
