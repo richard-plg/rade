@@ -446,12 +446,12 @@ scene_checks() {
     check "$ac $tag $th B: no horizontal scroll, no label clipped" bash -c "$(declare -f noscroll noclip); noscroll $W && noclip"
     if [[ $large == false ]]; then
         check "$ac $tag $th B: KPI cards in one row, equal widths" \
-            bash -c "geo kpi '\"all\":true' | jq -e 'length == 3 and (map(.y) | unique | length == 1) and ((map(.width) | max) - (map(.width) | min) <= 1)' >/dev/null"
+            bash -c "geo kpi '\"all\":true' | jq -e 'length == 4 and (map(.y) | unique | length == 1) and ((map(.width) | max) - (map(.width) | min) <= 1)' >/dev/null"
         check "$ac $tag $th B: link table keeps every column; lower grid two columns" \
             bash -c "[[ \$(geo link-table-col '\"all\":true' | jq length) == 6 && \$(geo home-worktrees | jq .y) == \$(geo home-activity | jq .y) ]]"
     else
         check "$ac $tag $th B: KPI cards one per line exactly when a card is narrower than its value + detail" \
-            bash -c "geo kpi '\"all\":true' | jq -e '(((1392 - 56 - 40) / 3) < (map(.natural.width) | max)) as \$one | if \$one then (map(.x) | unique | length == 1) else (map(.y) | unique | length == 1) end' >/dev/null"
+            bash -c "geo kpi '\"all\":true' | jq -e 'length == 4 and ((((1392 - 56 - 30) / 4) | floor) < (map(.natural.width) | max)) as \$one | if \$one then (map(.x) | unique | length == 1) else (map(.y) | unique | length == 1) end' >/dev/null"
         check "$ac $tag $th B: CHECKOUT and VS BASE on a second line of each row" \
             bash -c "[[ \$(geo link-table-col '\"all\":true' | jq '[.[].label]' -c) == '[\"SOURCE\",\"BASE\",\"HEAD\",\"STATE\"]' && \$(geo link-row-second '\"all\":true' | jq length) == 3 ]]"
         check "$ac $tag $th B: lower grid one column (Worktrees, then Recent activity)" \
