@@ -268,7 +268,7 @@ The Right Panel's Changes page for the active Worktree, VS Code-like. RADE runs 
 3. **Per hunk.** In a shown diff of a modified file each hunk has Stage / Unstage / Discard (asks), applied with `git apply --cached` / `--cached -R` / `-R` of that hunk alone. Added, deleted, renamed, binary and untracked files are handled whole.
 4. **Commit.** A message box with Commit (and `Ctrl+Enter` in the box) commits the staged changes only (`git commit -F -`); disabled with an empty message or nothing staged. git's own refusal (a hook, no identity) is shown in the page.
 5. **Branch.** The branch with `↑ahead ↓behind` against its upstream; Pull (`git pull --ff-only`) and Push. Push asks first, naming the remote, branch and commit count; without an upstream it runs `git push -u <remote> <branch>` (remote `origin`, else the only one).
-6. **Create PR.** A dialog with title, body and base (default: the Source's main branch); creating it pushes the branch first when it has no upstream or unpushed commits (the dialog says so), then runs `gh pr create --base --title --body`; the PR URL shows in a Toast. `gh` missing or not logged in → its message in the page.
+6. **Create PR.** A dialog with title, body and base (default: the Source's main branch); creating it pushes the branch first when it has no upstream or unpushed commits (the dialog says so), then runs `gh pr create --base --title --body`; the PR URL shows in a Toast. `gh` missing or not logged in → its message in the page. M54 (R146.5): the PR's number and URL are recorded on the Worktree and its status read at once.
 7. **Generate.** Next to the commit message and in the PR dialog: runs `[scm] draft_command` (config; default `claude -p --tools "" --no-session-persistence`) in the Worktree with a prompt on stdin — the staged diff (commit) or the branch's diff against its base and commit list (PR), cut at 60 KB; the repository's `CLAUDE.md`, `AGENTS.md`, `CONTRIBUTING.md` and PR template (each cut at 8 KB); the last 10 commit subjects — and fills the box with its output (PR: first line = title, the rest = body). Off the UI thread, at most 120 s, cancellable. Never commits or creates anything itself.
 8. **Freshness.** git runs off the UI thread. The page refreshes when shown, on a Worktree switch, when the window gets focus, after its own actions, when `.git` changes, and every 3 s while the page is on screen and the window active; an unchanged status rebuilds nothing (open diffs stay open). A list shows at most 500 files ("… and N more"; Stage All still takes them all).
 9. **Keys.** `Ctrl+Shift+M` shows the Changes page (opening the Right Panel); palette Show Changes, Commit Staged Changes (focuses the message), Pull, Push, Create Pull Request….
@@ -1771,6 +1771,88 @@ AC:
 - R145-a [M53] (unit): Given the last tag `v1.6.0-rc.1`. When the release version check runs for `1.6.0` and `1.5.9`. Then `1.6.0` is accepted and `1.5.9` refused.
 - R145-b [M53] (e2e): Given an HTML file without a `<style>` or `style=`. When it opens in the Viewer in dark. Then its text colour is the theme's `fg`, not black.
 
+## R146 — PR status of a Worktree (M54, ADR-0053)
+
+1. **Read.** For a Worktree on a branch, `gh pr list --head <branch> --state all --limit 5 --json number,title,url,state,isDraft,baseRefName,headRefOid,reviewDecision,mergeStateStatus,statusCheckRollup` runs in the Worktree with the Workspace env (its `GH_CONFIG_DIR` / account, R23), `GH_PROMPT_DISABLED=1`, a 20 s limit (`rade_core::proc`). The PR shown: the newest open one, else the newest merged, else the newest closed. Checks (`statusCheckRollup`, `CheckRun` conclusions and `StatusContext` states): any `FAILURE` / `ERROR` / `TIMED_OUT` / `CANCELLED` / `ACTION_REQUIRED` / `STARTUP_FAILURE` → **failing**; else any not completed (`QUEUED`, `IN_PROGRESS`, `PENDING`, `EXPECTED`, `WAITING`) → **pending**; else ≥ 1 check → **passing**; else **none**. **Stale** when `headRefOid` ≠ the Worktree's `HEAD`.
+2. **When.** Only Worktrees whose branch has an upstream or a recorded PR (5). The shown Workspace while the window is active: every 60 s, every 20 s while a PR's checks are pending; otherwise every 10 min. At once: at start (after the first frame), after a Push / Publish / Sync / Create PR from RADE (R21, R120), on the Worktree's `HEAD` change (R104.4 monitors), on `rade pr status --refresh`. At most one `gh` call per Workspace in flight, off the UI thread (ADR-0052). `gh` missing, not logged in, failing or over its limit → that Workspace's state is `unavailable` with gh's message (first line), no call for 10 min, one Activity row. `[scm] pr_status = true` (default; layered, a Settings row); `false` → RADE never runs `gh` for status.
+3. **Shown.** Navigator Worktree row (R104.2): a chip after the name — `#482 ✓` (`ok`), `#482 ✗` (`error`), `#482 ●` (`warn`, pending), `#482` (no checks, `fg3`), `#482 merged` / `#482 closed` (`fg3`), a draft adds `draft ` before the number; when the row is short the Review chip (R119) goes first; the tooltip: title, state, review decision, `checks for an older push` when stale. Project home (R105): a 4th KPI `Pull requests` (`n` open, sub-line `#482 checks passing` / `<k> failing` / `<k> pending`) and `PR #482 ✓` in the Worktree meta. Changes card (R120.1): a chip button in the header opening the PR URL (R134's browser rule) and the `…` menu items Open Pull Request and Refresh PR Status. Agent Overview card (R117): the same chip. `unavailable` shows nowhere except the Activity row and `rade pr status`.
+4. **Transitions** (against the last state read in this run; the first read after start is silent): to failing on a head commit → an Activity row `#482 checks failed (<n> jobs)` and one Notification (R3) on the Worktree's Agent Pane (else its first Pane) with the action Send to Agent (R147); to passing → an Activity row; to merged → an Activity row and a Toast `#482 merged` with Remove Worktree… (the R12 dialog; nothing is removed without it); review decision to `CHANGES_REQUESTED` → an Activity row and a Notification.
+5. **Record.** Create PR (R21.6, its result URL) and every read store `pr: {"number", "url"}` on the Worktree in `state.json`; after a relaunch the chip shows the number in `fg3` until the first read.
+
+AC:
+- R146-a [M54] (unit): Given gh JSON fixtures (an open and a merged PR, a draft, an empty rollup, mixed check states, a `StatusContext` beside `CheckRun`s). When they are parsed. Then the PR shown, its checks, chip text and stale flag are the expected ones.
+- R146-b [M54] (unit): Given Worktrees active / pending / hidden / just pushed. When the schedule is asked. Then their due times are 60 s / 20 s / 10 min / now, a timeout marks only that Workspace down for 10 min, and a Worktree without upstream or PR is never due.
+- R146-c [M54] (unit): Given a run's reads. When states change. Then the first read is silent, passing → failing gives one Notification and one Activity row, failing again on the same head gives nothing, a new failing head gives them again, merged gives the Toast and a changes-requested review a Notification.
+- R146-d [M54] (e2e): Given fake gh answering per branch from files. When the fixture goes pending → failing → passing. Then the Navigator chip, the Changes card chip and Project home's KPI follow within one period, dark + light screenshots.
+- R146-e [M54] (e2e): Given 20 Worktrees with upstreams and the window not active. When 10 minutes pass on the test clock. Then gh ran at most twice per Workspace; with `pr_status = false` 0 times; a gh that sleeps 60 s gives `unavailable` after 20 s, one Activity row and a UI-thread stall p99 ≤ 16 ms.
+- R146-f [M54] (e2e): Given a Worktree. When Create PR runs from the Changes card with fake gh. Then the chip shows the number at once, and after a relaunch it shows greyed before the first read.
+- R146-g [M54] (live): Given a temp Workspace with a Worktree of the real `m53-solid` branch and the owner's gh. When RADE reads it. Then the chip shows `#10` with the real checks (read only).
+
+## R147 — CI failures back to the Agent (M54, ADR-0053)
+
+1. **Collect** (a failing PR). Each failed check whose `detailsUrl` is `https://github.com/<o>/<r>/actions/runs/<run>/job/<job>` → `gh run view <run> --job <job> --log-failed` (Workspace env, 30 s limit). The log loses its leading timestamps, ANSI codes and `##[group]` / `##[endgroup]` lines; each job keeps its last 150 lines, at most 6 jobs, 24 KB in all, every cut stated in the text (valid UTF-8). Other checks (not Actions, or a log that can't be read) → name, conclusion and URL.
+2. **Prompt.** `CI failed on PR #<n> "<title>" at <sha7>.`, then per job `## <workflow> / <job>` and its tail in a fenced block, ending `Find the cause, fix it, run the failing step locally if you can, then commit and push.`. Stale (R146.1): it starts `These checks ran on an older push (<sha7>); your branch is at <sha7>.`.
+3. **Send to Agent** (a click): from the R146.4 Notification, the Navigator Worktree row's menu, the Changes card chip's menu, the palette (`Send CI Failure to Agent`), the Overview card. A preview dialog with the prompt (editable), the target (`deliver`, R13.2: the only Agent of the Worktree — or of its Branch set, R151.2 —, else a choice, else spawn the Preset) and Send; the Agent gets it pasted, then Enter.
+4. **Opt-in auto.** `[scm] ci_failures = "ask"` (default) | `"send"`. With `send`, a failing head commit sends the prompt with no click to the Worktree's one Agent once it is `waiting` or `done` (never while `running`; none or several Agents → `ask`), once per head commit, at most 3 times in a row per PR without a passing read between; after the 3rd failure RADE sends nothing and posts the Notification `CI still failing on #<n> after 3 tries`. Each send is an Activity row.
+5. `rade pr failures` (R148) prints the same prompt; there is no send method (`rade send` exists).
+
+AC:
+- R147-a [M54] (unit): Given `detailsUrl`s (a job, a run without a job, a non-Actions URL). When the jobs are planned. Then the gh argv, or name + URL only, is the expected one.
+- R147-b [M54] (unit): Given logs with timestamps, ANSI, groups, 1000 lines, 8 jobs and multi-byte text. When the prompt is built. Then the text is cleaned, cut at 150 lines / 6 jobs / 24 KB with each cut stated, valid UTF-8, and starts with the stale line when stale.
+- R147-c [M54] (unit): Given `send`. When failing heads arrive with the Agent running / waiting, passing reads between or not. Then nothing is sent while running, one send per head, none after the 3rd until a pass, then the still-failing Notification; `ask` never sends.
+- R147-d [M54] (e2e): Given a failing fixture with run logs and a fake Agent. When the Notification's Send to Agent is used and the preview is sent. Then the preview holds the job heading and its tail and the Agent's screen gets `CI failed on PR #7`.
+- R147-e [M54] (e2e): Given `ci_failures = "send"` and a running fake Agent. When CI fails. Then nothing is sent until the Agent waits, then one prompt; a new failing head → a second; the 4th → none and the still-failing Notification.
+- R147-f [M54] (e2e): Given the failing fixture. When `rade pr failures --json` runs. Then it names the same jobs; with no PR → `NOT_FOUND`; gh missing → its message, exit 1.
+
+## R148 — `rade pr` (M54)
+
+1. `rade pr status [--worktree <n>] [--source <s>] [--refresh] [--json]` (method `pr.status`): the caller's Worktree (or `--worktree` in `--source` / the caller's Source) → `{"worktree", "number", "url", "title", "state", "draft", "checks", "failing", "review", "stale", "head", "checked_at"}` or `"pr": null` (exit 0); `--refresh` reads now. Text: `#482 open · checks failing (test, lint) · changes requested`.
+2. `rade pr wait [--worktree <n>] [--timeout <s>]` (`pr.wait`, default 1800): reads every 20 s until checks are not pending, then prints the status (exit 0); over the timeout exit 6. Its call limit is the timeout + 10 s (R140.2).
+3. `rade pr failures [--worktree <n>] [--json]` (`pr.failures`): R147.2's prompt (`--json`: `{"number", "head", "stale", "jobs": [{"workflow", "job", "conclusion", "url", "log"}]}`); no PR → `NOT_FOUND`; not failing → empty `jobs`.
+4. All three only read. The `rade` skill teaches: after a push, `rade pr wait`, then `rade pr failures` when failing.
+
+AC:
+- R148-a [M54] (unit): Given `rade pr …` command lines. When parsed. Then methods and params are the expected ones and `pr.wait`'s call limit is its timeout + 10 s.
+- R148-b [M54] (e2e): Given a pending fixture. When `rade pr wait` runs and the fixture turns passing. Then it returns `passing` within 25 s; `--timeout 3` while pending exits 6.
+
+## R149 — Branch sets (M54, ADR-0054)
+
+1. A **Branch set** is the Worktrees one `worktree.add` call cut in several links of a Project with one branch name; each records `"set": "<name>"` in `state.json`. A Worktree with the same name made otherwise is not in it.
+2. `rade worktree add --project <p> <name> --sources <a,b>|all` (`worktree.add` with `"sources"`, no `"source"`): every named link is checked first, with no git command — a valid branch name free in that Source, the link's checkout resolvable (R98) — and any refusal is `USAGE` naming the link, nothing created. Then each Worktree is cut from **its own link's base** at R12's path. A failure halfway removes the Worktrees this call created (`git worktree remove --force`, `git branch -D` of the branch it created, never an existing one) and the error names the link and what was undone. Result `{"project", "set", "worktrees": [{"source", "worktree", "path", "base"}]}`. Call limit 300 s.
+3. `rade worktree remove --project <p> --set <name> [--force] [--delete-branch]`: R12's refusals are checked for every Worktree of the set before any is removed.
+4. `worktree.list` gives `set` (null outside one); `worktree.move` out of the Project drops it.
+
+AC:
+- R149-a [M54] (unit): Given a 3-link Project. When a set is planned with a name taken in link 2, an unresolvable checkout, or a bad name. Then it is `USAGE` naming the link and holds 0 commands.
+- R149-b [M54] (unit): Given links on `develop`, `main`, `release/2.4`. When a set is planned. Then each `git worktree add` starts from its own link's base.
+- R149-c [M54] (unit): Given a failure at link 2 of 3. When the rollback is planned. Then it removes only link 1's new Worktree and branch.
+- R149-d [M54] (unit): Given a set whose 3rd Worktree is dirty. When removal is planned without `--force`. Then it is refused naming it and nothing is removed.
+- R149-e [M54] (e2e): Given a 3-link Project. When `rade worktree add --project shop feat-x --sources all` runs. Then three Worktrees exist, each with `git merge-base` = its link's base and `set` in `state.json`; a branch already in link 3 → `USAGE` and `git worktree list` unchanged in all three; a failing `post-checkout` hook in link 2 → link 1 and 2 cleaned up and the error says so.
+
+## R150 — Branch sets in the UI (M54)
+
+1. Project home: the button **New branch across sources…** (R105, the mockup) opens a form over a scrim (R106): name, a checkbox per link with its base (all on), an optional Agent (Preset and account, R108) and prompt, the plan text, Create. Project home's Worktree table shows a set as one row `<name> · <n> sources` with its Worktrees under it and their PR chips (R146.3), worst-of status first.
+2. Navigator: a set's Worktree keeps its place under its link with the marker `⧉` (tooltip `also in <links>`).
+3. Palette: `New Branch Across Sources…`; set rows `<name> (set) · <Project>`.
+4. Changes page: with a set Worktree focused, the set's cards come first.
+
+AC:
+- R150-a [M54] (e2e): Given a 3-link Project. When the form is filled through `debug.ui dialog` and Create pressed. Then the plan text names each link's base and three Worktrees of the set exist.
+- R150-b [M54] (e2e): Given a set. When the Navigator, Project home and the palette are read. Then the markers and tooltip, the grouped row and the palette rows are there; spec B rows for the button, the KPI and the set row hold in dark and light.
+
+## R151 — One Agent for a set, PRs for a set (M54, ADR-0054)
+
+1. **The set's Agent.** Creating a set with an Agent, or `rade spawn --set <name> [--project <p>] --agent <preset> "<prompt>"`, opens one Agent Pane in a new Tab of the lead Worktree (first link in Project order), cwd its folder. A Preset with `add_dir` (default `"--add-dir"` for the `claude` and `codex` Presets) gets `<add_dir> <path>` for each other Worktree; the prompt starts `This task spans <n> repositories, one Worktree each on branch <name>: <link> <path> (base <base>), …. Commit in each one; do not push unless asked.`.
+2. **`deliver`** (R13.2, R71.4, R147.3) for a set Worktree with no Agent of its own → the set's Agent.
+3. **Create Pull Requests for Set…** (the set row's menu, palette): one dialog with a row per Source with commits (base, title — one shared title by default —, body; Generate per R21.7 once on the combined diff). On Create, per Source in order: push when needed, `gh pr create`; then `gh pr edit <n> --body` appends `Part of <name>: <repo>#<n>, …` to every PR. A failure keeps what was made, reports it and offers Retry for the rest.
+4. The set row's PR chip is the worst of its PRs, `<k> PRs · <j> failing`.
+
+AC:
+- R151-a [M54] (unit): Given a set of 3 and Presets claude, codex and one without `add_dir`. When the set Agent's command is built. Then claude / codex get two `--add-dir` paths, the other none, and the prompt text is the expected one.
+- R151-b [M54] (unit): Given 3 PRs. When the cross-link body and a Retry after a failure at PR 2 are planned. Then the body text is the expected one and Retry creates only PRs 2–3.
+- R151-c [M54] (e2e): Given a set. When `rade spawn --set feat-x --agent claude "go"` runs and a Review Comment on the second Worktree is sent. Then the fake Agent's argv has two `--add-dir` and the prompt, and the comment reaches that Agent.
+- R151-d [M54] (e2e): Given a set with commits and fake gh. When Create Pull Requests for Set runs. Then gh got 3 `pr create` and 3 `pr edit` with the cross-links; with gh failing on Source 2, 1 PR then Retry makes the other 2 and none twice.
+
 ## Non-goals (v1)
 
 - Editing files in the app (Viewer is read-only).
@@ -1778,5 +1860,3 @@ AC:
 - Processes surviving app restart (PTY daemon) — designed for (ADR-0005), not built; the owner dropped it on 2026-10-02 after reviewing the design (Session Restore with resume stays the answer).
 - X11 support, Flatpak/Snap packaging, macOS/Windows.
 - MCP server, SSH remote, mobile — later candidates (the Browser Pane and port detection became R18, M12).
-- New branch across sources (one branch name cut in several links of a Project from each link's base) — later (design §8, M33 plan §2.1).
-- PR status on Worktrees (`#482 ✓` through the Workspace's `gh`) — later (design §8, M33 plan §2.1).
