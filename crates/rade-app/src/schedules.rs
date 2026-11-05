@@ -316,6 +316,7 @@ fn fire(ws: &str, name: &str, missed: u32) -> Result<Run> {
             prompt: Some(s2.prompt.clone()),
             account: s2.account.clone(),
             caller: None,
+            ..Default::default()
         };
         let at = (source.clone(), None);
         let plan = plan_spawn(&app, &spawn, Some(&at))?;
@@ -488,6 +489,7 @@ fn resume(ws: &str, name: &str, n: Option<u32>) -> Result<Value> {
             prompt: None,
             account: run.account.clone(),
             caller: None,
+            ..Default::default()
         };
         let at = (source.clone(), None);
         let mut plan = plan_spawn(&app, &spawn, Some(&at))?;

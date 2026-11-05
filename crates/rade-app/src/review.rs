@@ -353,6 +353,43 @@ pub(crate) fn reanchor(app: &App, pid: &str, wid: &str) -> bool {
     moved
 }
 
+/// Where a prompt for a Worktree goes (R151.2): its own Agent Panes; a
+/// Worktree of a Branch set with none of its own uses the set's Agent in
+/// the lead Worktree (`branch_set::deliver`).
+fn agents_for(app: &App, pid: &str, wid: &str, tab: Option<&str>) -> Vec<(String, String, bool)> {
+    let own = agents_of(app, pid, wid, tab);
+    if !own.is_empty() {
+        return own;
+    }
+    let lead = {
+        let m = app.model.borrow();
+        let Some(w) = m.worktree(pid, wid) else {
+            return own;
+        };
+        let (Some(set), Some(project)) = (w.set.clone(), w.project.clone()) else {
+            return own;
+        };
+        let ws = m.source(pid).map(|s| s.workspace.clone());
+        match crate::worktrees::set_members(&m, ws.as_deref(), Some(&project), &set) {
+            Ok(v) => v.first().map(|f| (f.0.clone(), f.1.clone())),
+            Err(_) => None,
+        }
+    };
+    match lead {
+        Some((lp, lw)) if (lp.as_str(), lw.as_str()) != (pid, wid) => {
+            let ids = |v: &[(String, String, bool)]| -> Vec<String> {
+                v.iter().map(|a| a.0.clone()).collect()
+            };
+            let theirs = agents_of(app, &lp, &lw, None);
+            match rade_core::branch_set::deliver(&ids(&own), &ids(&theirs)) {
+                rade_core::branch_set::Deliver::Spawn => own,
+                _ => theirs,
+            }
+        }
+        _ => own,
+    }
+}
+
 /// Live Agent Panes of a Worktree: (id, "name · preset"), those in `tab`
 /// first.
 fn agents_of(app: &App, pid: &str, wid: &str, tab: Option<&str>) -> Vec<(String, String, bool)> {
@@ -389,7 +426,7 @@ pub(crate) fn deliver(
     caller: Option<&str>,
     prompt: &str,
 ) -> Result<(String, bool)> {
-    let agents = agents_of(app, pid, wid, tab);
+    let agents = agents_for(app, pid, wid, tab);
     let here: Vec<&(String, String, bool)> = agents.iter().filter(|a| a.2).collect();
     let name = app
         .model
@@ -564,7 +601,7 @@ pub(crate) fn choose_target(
     what: &str,
     go: impl Fn(Option<String>, Option<String>) + 'static,
 ) {
-    let agents = agents_of(app, pid, wid, tab);
+    let agents = agents_for(app, pid, wid, tab);
     let here = agents.iter().filter(|a| a.2).count();
     if agents.len() == 1 || here == 1 {
         let id = agents

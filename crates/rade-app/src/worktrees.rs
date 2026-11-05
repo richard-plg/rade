@@ -9,8 +9,9 @@ use adw::prelude::*;
 use gtk::{gio, glib};
 use gtk4 as gtk;
 use libadwaita as adw;
+use rade_core::branch_set::{self, LinkFacts, Member, RemoveFacts, Sources};
 use rade_core::rpc::{Error, Result};
-use rade_core::{git, paths};
+use rade_core::{git, paths, project, State};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::path::PathBuf;
@@ -21,6 +22,25 @@ pub struct AddParams {
     pub name: Option<String>,
     pub base: Option<String>,
     pub project: Option<String>,
+}
+
+/// `worktree.add` with `"sources"` (R149): a Branch set.
+#[derive(Deserialize)]
+struct AddSetParams {
+    project: Option<String>,
+    name: String,
+    sources: Value,
+}
+
+/// `worktree.remove` with `"set"` (R149.3).
+#[derive(Deserialize)]
+struct RemoveSetParams {
+    project: String,
+    set: String,
+    #[serde(default)]
+    force: bool,
+    #[serde(default)]
+    delete_branch: bool,
 }
 
 #[derive(Deserialize)]
@@ -53,6 +73,7 @@ struct ListParams {
 /// Socket methods that run git: called on the socket thread.
 pub fn dispatch(method: &str, p: Value) -> Result<Value> {
     match method {
+        "worktree.add" if !p["sources"].is_null() => add_set(params(p)?),
         "worktree.add" => {
             let a: AddParams = params(p)?;
             let project = match a.project.clone() {
@@ -68,6 +89,7 @@ pub fn dispatch(method: &str, p: Value) -> Result<Value> {
             )?;
             Ok(c.to_json())
         }
+        "worktree.remove" if !p["set"].is_null() => remove_set(params(p)?),
         "worktree.remove" => {
             let r: RemoveParams = params(p)?;
             remove(&r.source, &r.name, r.force, r.delete_branch)
@@ -263,6 +285,11 @@ pub fn open_on_link(project: &str, source: &str) -> Result<Value> {
 /// check the Preset and limits, create the Worktree (named `--name`, else
 /// `wt-<agent>-<n>`), then spawn in a new Tab there.
 pub fn spawn_in_new_worktree(mut s: Spawn) -> Result<Value> {
+    if s.set.is_some() {
+        return Err(Error::usage(
+            "--set starts the Agent of an existing Branch set: not with --worktree new",
+        ));
+    }
     let check = Spawn {
         source: s.source.clone(),
         agent: s.agent.clone(),
@@ -299,6 +326,288 @@ pub fn spawn_in_new_worktree(mut s: Spawn) -> Result<Value> {
     s.worktree = Some(c.worktree);
     s.tab = Some("new".into());
     on_main(move || crate::handlers::spawn(&app(), s))
+}
+
+/// A Branch set's Worktrees as `(source id, worktree id, member)`, in the
+/// Project's link order, the lead first (R151.1). `ws` limits the search to
+/// one Workspace; `project` (id or name) to one Project. None → `NOT_FOUND`;
+/// the set in several Projects → `USAGE`.
+pub(crate) fn set_members(
+    m: &State,
+    ws: Option<&str>,
+    project: Option<&str>,
+    set: &str,
+) -> Result<Vec<(String, String, Member)>> {
+    let want = project.map(|q| m.find_project(ws, q)).transpose()?;
+    let mut found: Vec<(String, String, Member, String)> = Vec::new();
+    for s in m
+        .sources
+        .iter()
+        .filter(|s| ws.is_none_or(|w| s.workspace == w))
+    {
+        for w in s.worktrees.iter().filter(|w| w.set.as_deref() == Some(set)) {
+            let Some(pid) = w.project.clone() else {
+                continue;
+            };
+            if want.as_ref().is_some_and(|p| p.id != pid) {
+                continue;
+            }
+            let base = w
+                .base
+                .clone()
+                .or_else(|| comparison_base(m, &s.id, &w.id, None))
+                .unwrap_or_else(|| "HEAD".into());
+            let member = Member {
+                link: s.id.clone(),
+                path: w.path.clone(),
+                base,
+            };
+            found.push((s.id.clone(), w.id.clone(), member, pid));
+        }
+    }
+    let Some(first) = found.first().map(|f| f.3.clone()) else {
+        return Err(Error::not_found(format!("no branch set '{set}'")));
+    };
+    if found.iter().any(|f| f.3 != first) {
+        let ids: std::collections::BTreeSet<&str> = found.iter().map(|f| f.3.as_str()).collect();
+        return Err(Error::usage(format!(
+            "branch set '{set}' is in several Projects ({}): pass --project",
+            ids.into_iter().collect::<Vec<_>>().join(", ")
+        )));
+    }
+    let mut members: Vec<Member> = found.iter().map(|f| f.2.clone()).collect();
+    if let Ok(p) = m.find_project(ws, &first) {
+        branch_set::in_project_order(&p, &mut members);
+    }
+    Ok(members
+        .into_iter()
+        .filter_map(|mem| {
+            let f = found.iter().find(|f| f.2.link == mem.link)?;
+            Some((f.0.clone(), f.1.clone(), mem))
+        })
+        .collect())
+}
+
+/// What `add_set` reads on the GTK thread for one selected link.
+struct SetLink {
+    source: String,
+    repo: PathBuf,
+    dir: PathBuf,
+    taken: bool,
+    setup: Option<String>,
+}
+
+/// `worktree.add` with `"sources"` (R149.2): validate every selected link,
+/// then cut one Worktree per link from its own base; a failure undoes what
+/// this call made. Socket thread (git runs here, the model on the GTK thread).
+fn add_set(a: AddSetParams) -> Result<Value> {
+    let asked = match &a.sources {
+        Value::String(s) if s == "all" => Sources::All,
+        Value::Array(v) => Sources::Named(
+            v.iter()
+                .map(|x| {
+                    x.as_str()
+                        .map(String::from)
+                        .ok_or_else(|| Error::usage("\"sources\" must be strings or \"all\""))
+                })
+                .collect::<Result<_>>()?,
+        ),
+        _ => {
+            return Err(Error::usage(
+                "\"sources\" must be a list of source ids or \"all\"",
+            ))
+        }
+    };
+    let query = a
+        .project
+        .clone()
+        .ok_or_else(|| Error::usage("a branch set needs --project <p>"))?;
+    let name = a.name.clone();
+    let asked_in = asked.clone();
+    let (project, scene, links) = on_main(move || {
+        let app = app();
+        let m = app.model.borrow();
+        let project = m.find_project(None, &query)?;
+        let ws = m
+            .workspaces
+            .iter()
+            .find(|w| {
+                rade_core::project::list(&w.root)
+                    .iter()
+                    .any(|p| p.id == project.id)
+            })
+            .map(|w| w.id.clone())
+            .ok_or_else(|| Error::not_found(format!("no project '{query}'")))?;
+        let mut links = Vec::new();
+        for id in branch_set::select(&project, &asked_in)? {
+            let s = m
+                .sources
+                .iter()
+                .find(|s| s.id == id && s.workspace == ws && !s.is_general())
+                .ok_or_else(|| {
+                    Error::usage(format!(
+                        "source '{id}': not a Source of Workspace '{ws}' (rade source add)"
+                    ))
+                })?;
+            let mut ctx = m.config_context(Some(&s.id), None, None, None)?;
+            ctx.project = Some(project.clone());
+            links.push(SetLink {
+                source: s.id.clone(),
+                repo: s.path.clone(),
+                dir: m.worktree_dir(
+                    &s.id,
+                    &name,
+                    &paths::data_dir(&paths::process_env),
+                    paths::Flavor::current(),
+                ),
+                taken: s.worktrees.iter().any(|w| w.name == name),
+                setup: setup_command(&app, &ctx, &s.id, &s.name),
+            });
+        }
+        Ok((project, crate::projects::scene(&m, &ws), links))
+    })?;
+    // Facts: read only, no git write yet (R149.2).
+    let resolution = crate::projects::resolve(scene, None);
+    let facts: Vec<LinkFacts> = links
+        .iter()
+        .map(|l| {
+            let main = git::default_branch(&l.repo);
+            let base = project::resolve_base(&project, &l.source, None)
+                .ok()
+                .flatten()
+                .or_else(|| main.clone());
+            LinkFacts {
+                source: l.source.clone(),
+                repo: l.repo.clone(),
+                dir: l.dir.clone(),
+                branch_exists: git::branches(&l.repo).contains(&a.name),
+                worktree_exists: l.taken || l.dir.exists(),
+                main_branch: main,
+                start_point: base.map(|b| git::start_point(&l.repo, &b)),
+                checkout: match resolution
+                    .get(&project.id, &l.source)
+                    .and_then(|r| r.error())
+                {
+                    Some(e) => Err(e.message),
+                    None => Ok(()),
+                },
+            }
+        })
+        .collect();
+    let plan = branch_set::plan(&project, &asked, &a.name, &facts)?;
+    let mut made: Vec<(String, String)> = Vec::new();
+    for (k, step) in plan.steps.iter().enumerate() {
+        let setup = links
+            .iter()
+            .find(|l| l.source == step.source)
+            .and_then(|l| l.setup.clone());
+        let ran = (|| -> Result<(String, String)> {
+            if let Some(parent) = step.dir.parent() {
+                std::fs::create_dir_all(parent)
+                    .map_err(|e| Error::internal(format!("{}: {e}", parent.display())))?;
+            }
+            let argv: Vec<&str> = step.argv.iter().map(String::as_str).collect();
+            git::run(&step.repo, &argv)?;
+            let (src, dir, base) = (step.source.clone(), step.dir.clone(), step.base.clone());
+            let (pid, set) = (plan.project.clone(), plan.name.clone());
+            on_main(move || {
+                app().update(|m| {
+                    let (s, w) = m.add_worktree(&src, &set, &dir, setup)?;
+                    m.set_worktree_origin(&s, &w, Some(pid), Some(base))?;
+                    m.set_worktree_set(&s, &w, Some(set))?;
+                    Ok::<_, Error>((s, w))
+                })
+            })
+        })();
+        match ran {
+            Ok(ids) => made.push(ids),
+            Err(e) => {
+                // A failing `post-checkout` hook exits non-zero after git
+                // made the Worktree: undo that one too.
+                let left_behind = step.dir.exists();
+                let rb = branch_set::rollback(&plan, k, left_behind, &e.message);
+                for u in &rb.undo {
+                    for c in &u.commands {
+                        let argv: Vec<&str> = c.iter().map(String::as_str).collect();
+                        let _ = git::run(&u.repo, &argv);
+                    }
+                }
+                let dropped = made.clone();
+                let _ = on_main(move || {
+                    app().update(|m| {
+                        for (s, w) in &dropped {
+                            let _ = m.remove_worktree(s, w);
+                        }
+                    });
+                    Ok(())
+                });
+                return Err(Error::new(e.kind, rb.message));
+            }
+        }
+    }
+    // `made` holds ids; the result names the Worktrees (a set's name is the
+    // same in every link).
+    let named: Vec<(String, String)> = made
+        .iter()
+        .map(|(s, _)| (s.clone(), plan.name.clone()))
+        .collect();
+    Ok(plan.result_json(&named))
+}
+
+/// `worktree.remove` with `"set"` (R149.3): every Worktree's refusals are
+/// checked before any is removed, then each goes through [`remove`].
+fn remove_set(r: RemoveSetParams) -> Result<Value> {
+    let (set, query) = (r.set.clone(), r.project.clone());
+    let (project, rows) = on_main(move || {
+        let app = app();
+        let m = app.model.borrow();
+        let project = m.find_project(None, &query)?;
+        let mut rows = Vec::new();
+        for s in &m.sources {
+            for (i, w) in s.worktrees.iter().enumerate() {
+                if i > 0
+                    && w.set.as_deref() == Some(&set)
+                    && w.project.as_deref() == Some(&project.id)
+                {
+                    rows.push((s.id.clone(), s.path.clone(), w.name.clone(), w.path.clone()));
+                }
+            }
+        }
+        Ok((project.id, rows))
+    })?;
+    let facts: Vec<RemoveFacts> = rows
+        .into_iter()
+        .map(|(source, repo, worktree, path)| {
+            let missing = !path.exists();
+            RemoveFacts {
+                branch: (!missing)
+                    .then(|| git::worktree_branch(&repo, &path))
+                    .flatten(),
+                dirty: if missing {
+                    Vec::new()
+                } else {
+                    git::dirty(&path).unwrap_or_default()
+                },
+                submodules: path.join(".gitmodules").exists(),
+                locked: if missing {
+                    None
+                } else {
+                    git::lock_reason(&repo, &path).ok().flatten()
+                },
+                source,
+                worktree,
+                repo,
+                path,
+                missing,
+            }
+        })
+        .collect();
+    let steps = branch_set::plan_remove(&r.set, &facts, r.force, r.delete_branch)?;
+    let mut removed = Vec::new();
+    for st in steps {
+        removed.push(remove(&st.source, &st.worktree, st.force, r.delete_branch)?);
+    }
+    Ok(json!({"project": project, "set": r.set, "removed": removed}))
 }
 
 /// A created Worktree.
@@ -619,7 +928,7 @@ fn list(source: &str) -> Result<Value> {
                 "branch": git::branch(&w.path), "missing": !w.path.exists(),
                 "tabs": w.tabs.len(), "comments": w.comments.len(),
                 "active": w.id == p.active_worktree,
-                "project": w.project, "base": w.base,
+                "project": w.project, "base": w.base, "set": w.set,
             })
         })
         .collect();

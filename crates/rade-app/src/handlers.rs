@@ -216,6 +216,13 @@ pub(crate) struct Spawn {
     /// Agent Account (R108.2).
     pub account: Option<String>,
     pub caller: Option<String>,
+    /// A Branch set's Agent (R151.1): its Project, optional.
+    pub project: Option<String>,
+    /// A Branch set's name: the Agent goes to the set's lead Worktree.
+    pub set: Option<String>,
+    /// The set's name and Worktrees in Project order, filled by [`spawn`].
+    #[serde(skip)]
+    pub set_members: Option<(String, Vec<rade_core::branch_set::Member>)>,
 }
 
 #[derive(Deserialize)]
@@ -989,7 +996,30 @@ fn spawn_target(app: &App, s: &Spawn) -> Option<(String, Option<String>)> {
 
 /// `pane.spawn` (API.md): resolve the Agent Preset into a command (R16),
 /// then place and limit it in the model (R2.3–R2.5).
-pub(crate) fn spawn(app: &App, s: Spawn) -> Result<Value> {
+pub(crate) fn spawn(app: &App, mut s: Spawn) -> Result<Value> {
+    if let Some(set) = s.set.clone() {
+        // R151.1: a new Tab in the set's lead Worktree.
+        if s.worktree.is_some() {
+            return Err(Error::usage("--set and --worktree are exclusive"));
+        }
+        let (src, wid, members) = {
+            let m = app.model.borrow();
+            let ws = s
+                .caller
+                .as_deref()
+                .and_then(|c| m.locate(c))
+                .and_then(|l| m.source(&l.source))
+                .map(|x| x.workspace.clone())
+                .unwrap_or_else(|| m.active_workspace().to_string());
+            let found = crate::worktrees::set_members(&m, Some(&ws), s.project.as_deref(), &set)?;
+            let (src, wid, _) = found[0].clone();
+            (src, wid, found.into_iter().map(|f| f.2).collect())
+        };
+        s.source = Some(src);
+        s.worktree = Some(wid);
+        s.tab = Some("new".into());
+        s.set_members = Some((set, members));
+    }
     let split = match s.split.as_deref() {
         None => None,
         Some("right") => Some(SplitDir::Right),
@@ -1015,7 +1045,8 @@ pub(crate) fn spawn(app: &App, s: Spawn) -> Result<Value> {
         name: s.name.clone(),
         agent: s.agent.clone(),
         session_id,
-        status: (s.agent.is_some() && s.prompt.is_some()).then_some(AgentStatus::Running),
+        status: (s.agent.is_some() && (s.prompt.is_some() || s.set_members.is_some()))
+            .then_some(AgentStatus::Running),
         now: now(),
         account: plan.account,
     };
@@ -1069,22 +1100,40 @@ pub(crate) fn plan_spawn(
         .as_deref()
         .map(|name| preset(app, name, at.map(|(a, b)| (a.as_str(), b.as_deref()))))
         .transpose()?;
+    // A Branch set's Agent gets the set's paragraph before the prompt (R151.1).
+    let full_prompt = match &s.set_members {
+        Some((name, members)) => Some(rade_core::branch_set::prompt(
+            name,
+            members,
+            s.prompt.as_deref().unwrap_or_default(),
+        )),
+        None => s.prompt.clone(),
+    };
     let (command, session_id, typed) = match (&preset, &s.cmd) {
         // `--agent` with `--cmd`: an Agent Pane of that Preset running `--cmd`.
-        (_, Some(cmd)) => (Some(cmd.clone()), None, s.prompt.clone()),
+        (_, Some(cmd)) => (Some(cmd.clone()), None, full_prompt),
         (Some(p), None) => {
             let sid = p.session_id_flag.as_ref().map(|_| new_uuid());
             let typed = (p.prompt == PromptMode::Type)
-                .then(|| s.prompt.clone())
+                .then(|| full_prompt.clone())
                 .flatten();
-            (
-                Some(p.launch(s.prompt.as_deref(), sid.as_deref())),
-                sid,
-                typed,
-            )
+            let launch = match &s.set_members {
+                // The other Worktrees go in as `add_dir` flags.
+                Some((name, members)) => rade_core::branch_set::agent_launch(
+                    p,
+                    sid.as_deref(),
+                    name,
+                    members,
+                    s.prompt.as_deref().unwrap_or_default(),
+                )
+                .map(|a| a.command),
+                None => None,
+            }
+            .unwrap_or_else(|| p.launch(s.prompt.as_deref(), sid.as_deref()));
+            (Some(launch), sid, typed)
         }
         // A shell: the prompt is typed into it.
-        (None, None) => (None, None, s.prompt.clone()),
+        (None, None) => (None, None, full_prompt),
     };
     let home = rade_core::paths::home_dir(&rade_core::paths::process_env);
     let account = {
