@@ -469,6 +469,11 @@ pub fn cli_line_none(branch: &str) -> String {
     format!("no pull request for {branch}")
 }
 
+/// `rade pr status` while gh is unavailable (R146.2): not "no pull request".
+pub fn unavailable_line(message: &str) -> String {
+    format!("PR status unavailable: {message}")
+}
+
 /// Project home's 4th KPI (R146.3).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Kpi {
@@ -600,13 +605,68 @@ impl Gate {
         self.message = None;
     }
     /// A failed, timed-out or missing gh: down for [`DOWN_FOR`]. True when
-    /// the Workspace was up before: the caller adds the one Activity row.
+    /// the Workspace was up before and the cause is a new one: the caller
+    /// adds the one Activity row (the same cause again after the 10 min is
+    /// not another row).
     pub fn finish_err(&mut self, now: Duration, message: &str) -> bool {
         let was_up = !self.is_down(now);
+        let cause = message.lines().next().unwrap_or("").trim().to_string();
+        let new_cause = self.message.as_deref() != Some(cause.as_str());
         self.in_flight = false;
         self.down_until = Some(now + DOWN_FOR);
-        self.message = Some(message.lines().next().unwrap_or("").trim().to_string());
-        was_up
+        self.message = Some(cause);
+        was_up && new_cause
+    }
+}
+
+/// Does a failed `gh` call make the whole Workspace's gh unavailable
+/// (R146.2)? A missing gh, a login problem, a network failure and a timeout
+/// do; anything else (`no git remotes found`, `could not determine base
+/// repo`) is that one Worktree's repo, and only it is left alone for 10 min.
+pub fn gate_wide(kind: ErrorKind, message: &str) -> bool {
+    if kind == ErrorKind::Timeout {
+        return true;
+    }
+    let m = message.to_lowercase();
+    [
+        "is not installed",
+        "cannot run gh",
+        "not logged in",
+        "gh auth login",
+        "gh auth status",
+        "authentication",
+        "bad credentials",
+        "http 401",
+        "error connecting",
+        "could not resolve host",
+        "dial tcp",
+    ]
+    .iter()
+    .any(|p| m.contains(p))
+}
+
+// ---------------------------------------------------------------------------
+// `pr.wait` (R148.2)
+// ---------------------------------------------------------------------------
+
+/// GitHub may not have queued the checks of a push yet: `none` is believed
+/// only after this long on the same head.
+pub const NONE_GRACE: Duration = Duration::from_secs(90);
+
+/// Why `pr.wait` keeps waiting, `None` = the status is settled: a merged or
+/// closed PR; else not stale, not pending, and `none` checks only once the
+/// PR's head has been seen for [`NONE_GRACE`] by this wait (`head_seen`).
+pub fn wait_reason(s: &PrStatus, head_seen: Duration) -> Option<&'static str> {
+    if s.state != PrState::Open {
+        return None;
+    }
+    if s.stale {
+        return Some("the checks are for an older push");
+    }
+    match s.checks {
+        Checks::Pending => Some("checks still pending"),
+        Checks::None if head_seen < NONE_GRACE => Some("no checks started yet"),
+        _ => None,
     }
 }
 

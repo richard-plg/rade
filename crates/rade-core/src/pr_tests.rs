@@ -450,3 +450,81 @@ fn r146_runner_reads_through_gh_and_maps_errors() {
     let e = run_gh(&d, &gh, &gh_list_args("b"), &[], Duration::from_millis(300)).unwrap_err();
     assert_eq!(e.kind, ErrorKind::Timeout);
 }
+
+#[test]
+fn r148_2_wait_keeps_waiting_while_pending_stale_or_none_within_90_s() {
+    let running = run("a", "FAILURE").replace("COMPLETED", "IN_PROGRESS");
+    let pending = st(&running, "h");
+    assert_eq!(pending.checks, Checks::Pending);
+    assert!(wait_reason(&pending, s(500)).is_some());
+    // Settled: passing / failing.
+    assert_eq!(wait_reason(&st(&run("a", "SUCCESS"), "h"), s(0)), None);
+    assert_eq!(wait_reason(&st(&run("a", "FAILURE"), "h"), s(0)), None);
+    // Stale: the checks are for an older push, even when passing.
+    let stale = status(
+        &pr_json(7, "OPEN", "old", "", &run("a", "SUCCESS"), false),
+        "new",
+    );
+    assert!(stale.stale);
+    assert!(wait_reason(&stale, s(500)).is_some());
+    // None: GitHub may not have queued them; believed after 90 s on a head.
+    let none = st("", "h");
+    assert_eq!(none.checks, Checks::None);
+    assert!(wait_reason(&none, s(0)).is_some());
+    assert!(wait_reason(&none, s(89)).is_some());
+    assert_eq!(wait_reason(&none, s(90)), None);
+    // Merged / closed end the wait whatever the checks say.
+    let merged = status(&pr_json(7, "MERGED", "old", "", "", false), "new");
+    assert_eq!(wait_reason(&merged, s(0)), None);
+}
+
+#[test]
+fn r146_2_a_repo_error_is_not_a_workspace_error() {
+    use ErrorKind::*;
+    assert!(gate_wide(Timeout, "gh pr list did not finish within 20 s"));
+    assert!(gate_wide(
+        Usage,
+        "GitHub CLI (gh) is not installed: see https://cli.github.com"
+    ));
+    assert!(gate_wide(Usage, "gh: not logged in to any hosts"));
+    assert!(gate_wide(
+        Usage,
+        "To get started with GitHub CLI, please run:  gh auth login"
+    ));
+    assert!(gate_wide(
+        Usage,
+        "HTTP 401: Bad credentials (https://api.github.com/graphql)"
+    ));
+    assert!(gate_wide(Usage, "error connecting to api.github.com"));
+    assert!(!gate_wide(Usage, "no git remotes found"));
+    assert!(!gate_wide(
+        Usage,
+        "could not determine base repo: no remote"
+    ));
+    assert!(!gate_wide(
+        Usage,
+        "none of the git remotes point to a known GitHub host"
+    ));
+}
+
+#[test]
+fn r148_1_an_unavailable_gh_is_not_no_pull_request() {
+    assert_eq!(
+        unavailable_line("gh: not logged in"),
+        "PR status unavailable: gh: not logged in"
+    );
+    assert_eq!(cli_line_none("feat-x"), "no pull request for feat-x");
+}
+
+#[test]
+fn r146_2_the_same_cause_after_the_pause_is_not_another_row() {
+    let mut a = Gate::default();
+    assert!(a.start(s(0)));
+    assert!(a.finish_err(s(1), "gh: not logged in"));
+    // Down for 10 min, retried, same cause: no second row.
+    assert!(a.start(s(700)));
+    assert!(!a.finish_err(s(701), "gh: not logged in"));
+    // Another cause is a row.
+    assert!(a.start(s(1400)));
+    assert!(a.finish_err(s(1401), "gh pr list did not finish within 20 s"));
+}

@@ -187,7 +187,7 @@ pub fn cut_to_bytes(text: &str, max: usize) -> String {
 
 /// `24 KB`, `9.8 KB`, `40 bytes`.
 pub fn size_text(bytes: usize) -> String {
-    if bytes % 1024 == 0 && bytes >= 1024 {
+    if bytes.is_multiple_of(1024) && bytes >= 1024 {
         format!("{} KB", bytes / 1024)
     } else if bytes >= 1024 {
         format!("{:.1} KB", bytes as f64 / 1024.0)
