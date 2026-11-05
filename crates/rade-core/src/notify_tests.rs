@@ -36,6 +36,48 @@ fn notify_stores_path_and_ids() {
 }
 
 #[test]
+fn r146_c_a_failing_pr_notification_carries_send_to_agent() {
+    let (mut w, a, b, _, _) = ws();
+    let id = w
+        .notify_action(
+            &a,
+            Some("#7 checks failed".into()),
+            "test",
+            10,
+            NoteAction::SendCiFailure,
+        )
+        .unwrap();
+    assert_eq!(
+        w.notification(id).unwrap().action,
+        Some(NoteAction::SendCiFailure)
+    );
+    assert_eq!(NoteAction::SendCiFailure.label(), "Send to Agent");
+    // A plain one has none; the field is left out of state.json.
+    let plain = w.notify(&b, None, "hello", 10).unwrap();
+    assert_eq!(w.notification(plain).unwrap().action, None);
+    let j = serde_json::to_value(w.notification(plain).unwrap()).unwrap();
+    assert!(j.get("action").is_none());
+    let j = serde_json::to_value(w.notification(id).unwrap()).unwrap();
+    assert_eq!(j["action"], "send_ci_failure");
+    // The same text again within the dedupe window: no new entry, the
+    // action stays.
+    assert_eq!(
+        w.notify_action(
+            &a,
+            Some("#7 checks failed".into()),
+            "test",
+            11,
+            NoteAction::SendCiFailure
+        ),
+        None
+    );
+    assert_eq!(
+        w.notification(id).unwrap().action,
+        Some(NoteAction::SendCiFailure)
+    );
+}
+
+#[test]
 fn r3_1_bursts_of_the_same_text_on_the_same_pane_collapse() {
     let (mut w, a, b, _, _) = ws();
     assert!(w.notify(&a, None, "build done", 100).is_some());

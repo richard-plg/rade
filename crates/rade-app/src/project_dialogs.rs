@@ -111,7 +111,9 @@ thread_local! {
 /// Whether a dialog is open (Commit / Open terminal drop the primary
 /// class meanwhile: one `.suggested-action` on screen, spec C.26).
 pub fn is_open() -> bool {
-    OPEN.with(|o| o.borrow().is_some()) || crate::set_dialogs::is_open()
+    OPEN.with(|o| o.borrow().is_some())
+        || crate::set_dialogs::is_open()
+        || crate::ci_send_dialog::is_open()
 }
 
 /// The scrim the Branch set dialogs share (R150.1, R151.3).
@@ -543,7 +545,7 @@ pub(crate) fn sync_primaries() {
 
 /// Close the open dialog (Cancel, Esc, the `x`, after the primary).
 pub fn close() {
-    let set = crate::set_dialogs::take();
+    let set = crate::set_dialogs::take() | crate::ci_send_dialog::take();
     let d = OPEN.with(|o| o.borrow_mut().take());
     if d.is_none() && !set {
         return;
@@ -1460,6 +1462,12 @@ pub fn debug(p: &Value) -> Result<Value> {
         || (s("op") != "dialog_open" && crate::set_dialogs::is_open())
     {
         return crate::set_dialogs::debug(p);
+    }
+    // Send CI Failure to Agent (R147.3).
+    if (s("op") == "dialog_open" && s("kind") == "ci_send")
+        || (s("op") != "dialog_open" && crate::ci_send_dialog::is_open())
+    {
+        return crate::ci_send_dialog::debug(p);
     }
     let ws = app().model.borrow().active_workspace().to_string();
     let key = format!("{ws}/{}", s("project"));

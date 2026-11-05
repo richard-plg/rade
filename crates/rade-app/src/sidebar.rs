@@ -1111,6 +1111,14 @@ pub fn worktree_menu(m: &State, p: &str, w: &str) -> gio::Menu {
             format!("{p}\u{1f}{w}"),
         );
     }
+    if crate::pr_status::failing(p, w) {
+        item(
+            &menu,
+            "Send CI Failure to Agent…",
+            "ci-send",
+            format!("{p}\u{1f}{w}"),
+        );
+    }
     item(&menu, "New Worktree…", "new-worktree", format!("{p}\u{1f}"));
     let main = m.is_main_worktree(p, w);
     if !main {
@@ -1281,6 +1289,7 @@ fn install_menu(list: &gtk::ListBox, rows: Rc<RefCell<Vec<Row>>>) {
             crate::viewer::launch_uri(&u);
         }
     });
+    act("ci-send", crate::ci_send_dialog::open);
     // Target `source␟worktree␟project` ("" = no Project).
     act("move-to-project", |p, rest| {
         let (w, proj) = rest.split_once('\u{1f}').unwrap_or((rest, ""));

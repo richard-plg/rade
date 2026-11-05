@@ -356,7 +356,12 @@ pub(crate) fn reanchor(app: &App, pid: &str, wid: &str) -> bool {
 /// Where a prompt for a Worktree goes (R151.2): its own Agent Panes; a
 /// Worktree of a Branch set with none of its own uses the set's Agent in
 /// the lead Worktree (`branch_set::deliver`).
-fn agents_for(app: &App, pid: &str, wid: &str, tab: Option<&str>) -> Vec<(String, String, bool)> {
+pub(crate) fn agents_for(
+    app: &App,
+    pid: &str,
+    wid: &str,
+    tab: Option<&str>,
+) -> Vec<(String, String, bool)> {
     let own = agents_of(app, pid, wid, tab);
     if !own.is_empty() {
         return own;

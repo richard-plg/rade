@@ -790,6 +790,28 @@ pub const LINK_ADD_PREFIX: &str = "link_add:";
 pub const LINK_BASE_PREFIX: &str = "link_base:";
 /// Prefix of `Create Pull Requests for Set…` (`set_prs:<project>/<set>`).
 pub const SET_PRS_PREFIX: &str = "set_prs:";
+/// Prefix of `Send CI Failure to Agent…` (`ci_send:<source>/<worktree>`).
+pub const CI_SEND_PREFIX: &str = "ci_send:";
+
+/// `Send CI Failure to Agent…` for each Worktree whose PR checks fail
+/// (R147.3): `(source id, worktree id, worktree name, PR number)`.
+pub fn ci_items(failing: &[(String, String, String, u64)]) -> Vec<Item> {
+    failing
+        .iter()
+        .map(|(s, w, name, n)| {
+            Item::new(
+                Kind::Action,
+                Target::Action {
+                    id: format!("{CI_SEND_PREFIX}{s}/{w}"),
+                },
+                "Send CI Failure to Agent…",
+                &format!("{name} · #{n} checks failed"),
+                None,
+            )
+        })
+        .collect()
+}
+
 /// Prefix of `Fan-out on <source>…` (`fanout_on:<source>`).
 pub const FANOUT_ON_PREFIX: &str = "fanout_on:";
 

@@ -71,7 +71,7 @@ fn prs() -> Option<Rc<Prs>> {
     })
 }
 
-fn label(text: &str, classes: &[&str]) -> gtk::Label {
+pub(crate) fn label(text: &str, classes: &[&str]) -> gtk::Label {
     let l = gtk::Label::new(Some(text));
     l.set_xalign(0.0);
     for c in classes {
@@ -89,7 +89,7 @@ fn icon(name: &str, classes: &[&str]) -> gtk::Image {
 }
 
 /// The header row (C.4–C.6): icon, title, context, `x`.
-fn header(icon_name: &str, title: &str, context: &str) -> gtk::Box {
+pub(crate) fn header(icon_name: &str, title: &str, context: &str) -> gtk::Box {
     let h = gtk::Box::new(gtk::Orientation::Horizontal, 10);
     h.add_css_class("dialog-header");
     h.append(&icon(icon_name, &["dialog-icon"]));
@@ -107,7 +107,7 @@ fn header(icon_name: &str, title: &str, context: &str) -> gtk::Box {
 }
 
 /// The footer (C.23–C.26): a note, Cancel and the primary button.
-fn footer(note: &str, primary: &str) -> (gtk::Box, gtk::Button) {
+pub(crate) fn footer(note: &str, primary: &str) -> (gtk::Box, gtk::Button) {
     let f = gtk::Box::new(gtk::Orientation::Horizontal, 8);
     f.add_css_class("dialog-footer");
     let n = gtk::Box::new(gtk::Orientation::Horizontal, 6);
@@ -135,7 +135,7 @@ fn footer(note: &str, primary: &str) -> (gtk::Box, gtk::Button) {
 }
 
 /// A multi-line text field (the prompt, a PR body).
-fn text_box(class: &str, height: i32) -> (gtk::ScrolledWindow, gtk::TextView) {
+pub(crate) fn text_box(class: &str, height: i32) -> (gtk::ScrolledWindow, gtk::TextView) {
     let v = gtk::TextView::new();
     v.set_wrap_mode(gtk::WrapMode::WordChar);
     v.set_top_margin(6);
@@ -152,7 +152,7 @@ fn text_box(class: &str, height: i32) -> (gtk::ScrolledWindow, gtk::TextView) {
 }
 
 /// Put `dialog` in the scrim (closing whatever is there) and show it.
-fn show(dialog: &gtk::Box) -> bool {
+pub(crate) fn show(dialog: &gtk::Box) -> bool {
     close();
     crate::palette::get().inspect(|p| p.close(false));
     let Some(scrim) = crate::project_dialogs::scrim() else {

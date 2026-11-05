@@ -33,6 +33,25 @@ pub struct Notification {
     /// event, so it is never absorbed into one.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub own: bool,
+    /// What its Inbox row offers besides Focus (R146.4, R147.3).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub action: Option<NoteAction>,
+}
+
+/// A Notification's own button.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum NoteAction {
+    /// Send the failing CI log of its Pane's Worktree to the Agent (R147.3).
+    SendCiFailure,
+}
+
+impl NoteAction {
+    pub fn label(self) -> &'static str {
+        match self {
+            NoteAction::SendCiFailure => "Send to Agent",
+        }
+    }
 }
 
 /// Where a Notification came from (R3.1 coalescing).
@@ -105,6 +124,32 @@ impl State {
         self.post(pane, title, text, Origin::Message, now, false)
     }
 
+    /// [`State::notify`] with a button on its Inbox row (R146.4: a failing
+    /// PR's Send to Agent). A repeat within [`DEDUPE_SECS`] or an entry it
+    /// coalesces into gets the action too.
+    pub fn notify_action(
+        &mut self,
+        pane: &str,
+        title: Option<String>,
+        text: &str,
+        now: u64,
+        action: NoteAction,
+    ) -> Option<u64> {
+        // RADE's own notice: never folded into an Agent event (R146.4).
+        let id = self.post(pane, title, text, Origin::Message, now, true);
+        let target = id.or_else(|| {
+            self.notifications
+                .iter()
+                .rev()
+                .find(|n| n.pane == pane)
+                .map(|n| n.id)
+        });
+        if let Some(n) = target.and_then(|t| self.notifications.iter_mut().find(|n| n.id == t)) {
+            n.action = Some(action);
+        }
+        id
+    }
+
     /// BEL (R3.1): "Bell", or nothing new when it reports an Agent event
     /// that already has an entry.
     pub fn notify_bell(&mut self, pane: &str, now: u64) -> Option<u64> {
@@ -164,6 +209,7 @@ impl State {
             path,
             source,
             own,
+            action: None,
         });
         let extra = self.notifications.len().saturating_sub(MAX_NOTIFICATIONS);
         self.notifications.drain(..extra);

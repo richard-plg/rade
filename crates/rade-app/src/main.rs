@@ -28,6 +28,7 @@ mod changes;
 mod changes_card;
 mod changes_ops;
 mod chrome;
+mod ci_send_dialog;
 mod code;
 mod code_pop;
 mod code_results;

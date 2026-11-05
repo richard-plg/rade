@@ -5,22 +5,21 @@
 //! the `pr.*` / `debug.pr` socket methods.
 //!
 //! For the widgets (chips, buttons):
-//! - [`get`] / [`status`]: the last [`PrStatus`] of a Worktree (by folder or
-//!   by Source and Worktree id); `None` = no PR or not read yet (the model's
+//! - [`status`]: the last [`PrStatus`] of a Worktree (by Source and
+//!   Worktree id); `None` = no PR or not read yet (the model's
 //!   `Worktree.pr` is the number recorded at the last read, R146.5).
 //! - [`connect_changed`]: called on the UI thread when a status changed.
+//! - [`chip`] / [`url`] / [`failing`]: what a chip shows and opens.
 //! - [`refresh`]: read a Worktree now (the Changes card's Refresh PR Status).
-//! - [`send_to_agent`]: the prompt of the failed jobs to the Worktree's Agent.
-//! - [`unavailable`]: gh's message while a Workspace's reads are paused.
+//! - [`fetch_prompt`] / [`deliver`]: the prompt of the failed jobs, and the
+//!   preview's text to the Worktree's Agent (`ci_send_dialog`, R147.3).
+//! - gh being unavailable shows only as an Activity row and in `rade pr
+//!   status` (R146.3).
 //!
 //! Nothing here runs `gh` or `git` on the UI thread: the 5 s timer only asks
 //! the core schedule what is due, and each read runs in the background, at
 //! most one per Workspace (`Gate`). Times are the Schedules' clock
 //! (`schedules::now()`, moved by the test clock) since the app started.
-
-// The widgets that read `get` / `unavailable` / `connect_changed` and call
-// `refresh` / `send_to_agent` are the next task's.
-#![allow(dead_code)]
 
 use crate::app::{app, try_app, App};
 use crate::handlers::{on_main, params};
@@ -31,6 +30,7 @@ use rade_core::activity::{Event as Act, Kind};
 use rade_core::ci_log::{self, Action, AgentState, AutoSend, Mode, Read};
 use rade_core::git;
 use rade_core::model::PrRef;
+use rade_core::notify::NoteAction;
 use rade_core::pr::{self, Candidate, Checks, Event, Gate, PrState, PrStatus, Tracker};
 use rade_core::rpc::{Error, ErrorKind, Result};
 use rade_core::{AgentStatus, State};
@@ -106,17 +106,6 @@ fn key(pid: &str, wid: &str) -> String {
 // For the widgets
 // ---------------------------------------------------------------------------
 
-/// The last status of the Worktree at `path`.
-pub fn get(path: &Path) -> Option<PrStatus> {
-    let app = try_app()?;
-    let k = {
-        let m = app.model.borrow();
-        let (s, w) = m.worktrees().find(|(_, w)| git::same(&w.path, path))?;
-        key(&s.id, &w.id)
-    };
-    P.with(|p| p.borrow().wts.get(&k).and_then(|w| w.status.clone()))
-}
-
 /// The last status of a Worktree by ids.
 pub fn status(pid: &str, wid: &str) -> Option<PrStatus> {
     P.with(|p| {
@@ -124,17 +113,6 @@ pub fn status(pid: &str, wid: &str) -> Option<PrStatus> {
             .wts
             .get(&key(pid, wid))
             .and_then(|w| w.status.clone())
-    })
-}
-
-/// gh's first message line while the Workspace's reads are paused.
-pub fn unavailable(workspace: &str) -> Option<String> {
-    let now = clock();
-    P.with(|p| {
-        p.borrow()
-            .ws
-            .get(workspace)
-            .and_then(|w| w.gate.message(now).map(str::to_string))
     })
 }
 
@@ -253,24 +231,28 @@ pub fn failing(pid: &str, wid: &str) -> bool {
     status(pid, wid).is_some_and(|s| s.checks == Checks::Failing && s.state == PrState::Open)
 }
 
-/// Send the failed jobs' log tails to the Worktree's Agent (R147.3, no
-/// preview yet): the prompt is built off the UI thread, then delivered with
-/// `review::deliver` (the only Agent; none or several → a Toast saying so).
-pub fn send_to_agent(pid: &str, wid: &str) {
-    send_then(pid, wid, |r| {
-        if let Err(msg) = r {
-            toast(&format!(
-                "CI failure not sent: {}",
-                glib::markup_escape_text(&msg)
-            ));
-        }
-    });
-}
-
-fn send_then(
+/// Send the failed jobs' log tails to the Worktree's Agent with no
+/// preview (the opt-in auto-send, R147.4): the prompt is built off the UI
+/// thread, then delivered with `review::deliver`.
+fn send_to_agent(
     pid: &str,
     wid: &str,
     done: impl FnOnce(std::result::Result<String, String>) + 'static,
+) {
+    let (p, w) = (pid.to_string(), wid.to_string());
+    fetch_prompt(pid, wid, move |r| match r {
+        Ok((prompt, number)) => done(deliver(&p, &w, None, None, number, &prompt)),
+        Err(e) => done(Err(e)),
+    });
+}
+
+/// Build the CI failure prompt of a Worktree off the UI thread (R147.1–2):
+/// `done((prompt, PR number))` on the UI thread, or gh's / the reason's
+/// message.
+pub fn fetch_prompt(
+    pid: &str,
+    wid: &str,
+    done: impl FnOnce(std::result::Result<(String, u64), String>) + 'static,
 ) {
     let Some(app) = try_app() else { return };
     let Some(s) = status(pid, wid).filter(|s| s.checks == Checks::Failing) else {
@@ -279,40 +261,47 @@ fn send_then(
     let Some(job) = job_for(&app.model.borrow(), &app, pid, wid) else {
         return done(Err("no such Worktree".into()));
     };
-    let (pid, wid) = (pid.to_string(), wid.to_string());
     crate::worktrees::in_background(
         move || ci_log::fetch_failures(&job.dir, GH, &s, &job.env).map(|f| (f, s.number)),
-        move |r| {
-            let Some(app) = try_app() else { return };
-            let (f, number) = match r {
-                Ok(x) => x,
-                Err(e) => return done(Err(e.message)),
-            };
-            let Some(prompt) = f.prompt else {
-                return done(Err("the checks are not failing".into()));
-            };
-            match crate::review::deliver(&app, &pid, &wid, None, None, None, None, &prompt) {
-                Ok((pane, _)) => {
-                    let name = {
-                        let m = app.model.borrow();
-                        m.pane(&pane)
-                            .and_then(|p| p.name.clone())
-                            .unwrap_or_else(|| pane.clone())
-                    };
-                    activity(
-                        &app,
-                        &pid,
-                        &wid,
-                        Kind::PrNote,
-                        &format!("#{number} CI failure sent to {name}"),
-                        Some(pane.clone()),
-                    );
-                    done(Ok(pane));
-                }
-                Err(e) => done(Err(e.message)),
-            }
+        move |r| match r {
+            Ok((f, number)) => match f.prompt {
+                Some(p) => done(Ok((p, number))),
+                None => done(Err("the checks are not failing".into())),
+            },
+            Err(e) => done(Err(e.message)),
         },
     );
+}
+
+/// Deliver `prompt` (the preview's text, R147.3) for PR `number` with
+/// `review::deliver`: `pane`, else the Worktree's (or its set's) only
+/// Agent, else spawn Preset `preset`. One Activity row; the Pane it went to.
+pub fn deliver(
+    pid: &str,
+    wid: &str,
+    pane: Option<String>,
+    preset: Option<String>,
+    number: u64,
+    prompt: &str,
+) -> std::result::Result<String, String> {
+    let app = try_app().ok_or("the app is gone")?;
+    let (pane, _) = crate::review::deliver(&app, pid, wid, None, pane, preset, None, prompt)
+        .map_err(|e| e.message)?;
+    let name = {
+        let m = app.model.borrow();
+        m.pane(&pane)
+            .and_then(|p| p.name.clone())
+            .unwrap_or_else(|| pane.clone())
+    };
+    activity(
+        &app,
+        pid,
+        wid,
+        Kind::PrNote,
+        &format!("#{number} CI failure sent to {name}"),
+        Some(pane.clone()),
+    );
+    Ok(pane)
 }
 
 /// An Agent's status changed: a failing PR waiting for it to stop running
@@ -675,12 +664,6 @@ fn activity(app: &App, pid: &str, wid: &str, kind: Kind, line: &str, pane: Optio
     );
 }
 
-fn toast(markup: &str) {
-    if let Some(app) = try_app() {
-        app.chrome.toast(markup, None);
-    }
-}
-
 fn handle_events(app: &App, job: &Job, events: Vec<Event>) {
     if events.is_empty() {
         return;
@@ -694,10 +677,17 @@ fn handle_events(app: &App, job: &Job, events: Vec<Event>) {
             Event::ChangesRequested { .. } => Kind::PrReview,
         };
         activity(app, &job.pid, &job.wid, kind, &ev.activity(), pane.clone());
-        // The Notification's Send to Agent action is the UI's
-        // (`offers_send_to_agent`, [`send_to_agent`]).
+        // A failing PR's Notification carries Send to Agent (R146.4): its
+        // Inbox row opens the preview (`ci_send_dialog`).
         if let (Some((title, body)), Some(pane)) = (ev.notification(), &pane) {
-            app.update_coalesced(|m| m.notify_own(pane, Some(title), &body, crate::panes::now()));
+            let now = crate::panes::now();
+            if ev.offers_send_to_agent() {
+                app.update_coalesced(|m| {
+                    m.notify_action(pane, Some(title), &body, now, NoteAction::SendCiFailure)
+                });
+            } else {
+                app.update_coalesced(|m| m.notify_own(pane, Some(title), &body, now));
+            }
         }
         if let Some(t) = ev.toast() {
             let (pid, wid) = (job.pid.clone(), job.wid.clone());
@@ -759,7 +749,7 @@ fn auto_step(app: &App, pid: &str, wid: &str) {
     match action {
         Action::Send => {
             let (p, w) = (pid.to_string(), wid.to_string());
-            send_then(pid, wid, move |r| {
+            send_to_agent(pid, wid, move |r| {
                 if let Err(msg) = r {
                     activity_toast(&p, &w, number, &msg);
                 }

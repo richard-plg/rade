@@ -1078,6 +1078,7 @@ mod tests {
             path: String::new(),
             source,
             own: false,
+            action: None,
         };
         assert_eq!(
             n(

@@ -401,7 +401,8 @@ impl Card {
         found
     }
 
-    /// The PR chip's menu: Open Pull Request, Refresh PR Status (R146.3).
+    /// The PR chip's menu: Open Pull Request, Refresh PR Status, and Send
+    /// CI Failure to Agent… while the checks fail (R146.3, R147.3).
     pub(crate) fn pr_menu_items(&self) -> Vec<(&'static str, &'static str)> {
         let Some((p, w)) = self.pr_ids() else {
             return Vec::new();
@@ -410,6 +411,9 @@ impl Card {
         if crate::pr_status::url(&p, &w).is_some() {
             v.push(("Open Pull Request", "pr-open"));
             v.push(("Refresh PR Status", "pr-refresh"));
+        }
+        if crate::pr_status::failing(&p, &w) {
+            v.push(("Send CI Failure to Agent…", "ci-send"));
         }
         v
     }
@@ -496,11 +500,16 @@ impl Card {
         self.add_action("c-push", |c| c.commit_variant("push"));
         self.add_action("c-all", |c| c.commit_variant("all"));
         self.add_action("c-undo", |c| c.undo());
-        // The PR (R146.3).
+        // The PR (R146.3, R147.3).
         self.add_action("pr-open", |c| c.pr_chip_click());
         self.add_action("pr-refresh", |c| {
             if let Some((p, w)) = c.pr_ids() {
                 crate::pr_status::refresh(&p, &w);
+            }
+        });
+        self.add_action("ci-send", |c| {
+            if let Some((p, w)) = c.pr_ids() {
+                crate::ci_send_dialog::open(&p, &w);
             }
         });
         let w = self.weak();
@@ -968,7 +977,7 @@ impl Card {
             items.push(("Publish Branch…", "publish"));
         }
         items.push(("Create Pull Request…", "pr"));
-        // R146.3: Open Pull Request, Refresh PR Status.
+        // R146.3: Open Pull Request, Refresh PR Status (+ Send CI Failure).
         items.extend(self.pr_menu_items());
         let sec1 = gio::Menu::new();
         for (l, a) in &items {

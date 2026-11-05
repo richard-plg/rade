@@ -419,6 +419,13 @@ pub fn run(t: &Target) {
                     crate::set_dialogs::set_prs(p, set);
                 }
             }
+            // R147.3: the failing Worktree's preview.
+            id if id.starts_with(palette::CI_SEND_PREFIX) => {
+                let rest = &id[palette::CI_SEND_PREFIX.len()..];
+                if let Some((p, w)) = rest.split_once('/') {
+                    crate::ci_send_dialog::open(p, w);
+                }
+            }
             "prune_project_checkouts" => crate::projects::prune_dialog(),
             id if id.starts_with(palette::LINK_ADD_PREFIX) => {
                 crate::project_dialogs::add_to_project(&id[palette::LINK_ADD_PREFIX.len()..])

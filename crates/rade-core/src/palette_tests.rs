@@ -712,3 +712,22 @@ fn r150_b_palette_lists_set_rows_and_the_set_actions() {
     );
     assert_eq!(go(&items, "feat-x (set)")[0], "feat-x (set)");
 }
+
+#[test]
+fn r147_c_palette_offers_send_ci_failure_per_failing_worktree() {
+    let items = ci_items(&[("web".into(), "w_1".into(), "perf-img".into(), 482)]);
+    assert_eq!(items.len(), 1);
+    let i = &items[0];
+    assert_eq!(
+        (i.title.as_str(), i.detail.as_str()),
+        ("Send CI Failure to Agent…", "perf-img · #482 checks failed")
+    );
+    assert_eq!(
+        i.target,
+        Target::Action {
+            id: format!("{CI_SEND_PREFIX}web/w_1")
+        }
+    );
+    assert_eq!(go(&items, "send ci")[0], "Send CI Failure to Agent…");
+    assert!(ci_items(&[]).is_empty());
+}
