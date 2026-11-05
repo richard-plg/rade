@@ -96,7 +96,7 @@ touch "$T/probe.stop"; wait $PROBE
 took=$(find_ | jq -r .took_ms)
 echo "  k50 'needle': $(find_ | jq -r .summary) in ${took} ms; GTK probe slowest $(sort -n "$T/probe" | tail -1) ms over $(wc -l < "$T/probe") calls"
 check "50k files: node_modules ignored, 6 results" test "$(find_ | jq -r .summary)" = "6 results in 6 files"
-check "50k files searched in < 2 s ($took ms)" test "$took" -lt 2000
+perf_check "50k files searched in < 2 s ($took ms)" test "$took" -lt 2000
 check "the GTK thread kept answering (slowest $(sort -n "$T/probe" | tail -1) ms incl. CLI start)" test "$(sort -n "$T/probe" | tail -1)" -lt 500
 q '{"op":"set","query":"item_"}'
 check "a common word stops at 2,000 results" test "$(find_ | jq -r '[.matches, .capped] | join(" ")')" = "2000 true"

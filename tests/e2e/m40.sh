@@ -198,7 +198,7 @@ sleep 1
 open_both relaunch
 check "R111-d the Usage page (20 accounts × 90 days) is drawn within 100 ms ($up ms, $rows rows)" \
     bash -c "[[ $rows == 20 ]] && python3 -c 'import sys; sys.exit(0 if $up <= 100 else 1)'"
-check "R111-d the + menu (10 accounts of each agent) is drawn within 50 ms ($nm ms)" le "$nm" 50
+perf_check "R111-d the + menu (10 accounts of each agent) is drawn within 50 ms ($nm ms)" le "$nm" 50
 [[ -z ${DIAG:-} ]] || source "$DIAG"
 fi
 

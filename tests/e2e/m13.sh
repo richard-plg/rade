@@ -111,7 +111,7 @@ rade tab close "${N4[1]}" >/dev/null
 eventually 5 bash -c "[[ \$(rade tab list --source proj --json | jq '.tabs | length') == 3 ]]"
 
 echo "== R19.1 Fan-out Tabs are kept"
-rade fanout --agents fake,fake --source proj "hello" >/dev/null
+rade fanout --agents fake,fake --source proj spin >/dev/null
 fan=$(rade fanout status fanout-1 --source proj --json | jq -r .tab)
 check "a Fan-out Tab exists" test -n "$fan"
 r=$(rade tab close "${T4[0]}" --others --json)
