@@ -15,6 +15,8 @@ mkdir -p "$T/fakebin" "$XDG_CONFIG_HOME/rade"
 cat > "$T/fakebin/gh" <<SH
 #!/bin/sh
 if [ -e "$T/gh-unauth" ]; then echo "To get started with GitHub CLI, please run:  gh auth login" >&2; exit 4; fi
+# M54: a Create PR is followed by a PR status read (R146.2); it finds none.
+if [ "\$1 \$2" = "pr list" ]; then echo "[]"; exit 0; fi
 printf '%s\n' "\$@" > "$T/gh.log"
 echo "https://github.test/shop/pull/7"
 SH
