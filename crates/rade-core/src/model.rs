@@ -177,10 +177,21 @@ pub struct Worktree {
 }
 
 /// The pull request recorded on a Worktree (R146.5).
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PrRef {
     pub number: u64,
     pub url: String,
+    /// The last failing head `ci_failures = "send"` sent to the Agent
+    /// (R147.4): kept so a relaunch does not send it again.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auto_head: Option<String>,
+    /// Sends in a row without a passing read (R147.4).
+    #[serde(default, skip_serializing_if = "is_zero_u32")]
+    pub auto_in_a_row: u32,
+}
+
+fn is_zero_u32(n: &u32) -> bool {
+    *n == 0
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -452,13 +463,52 @@ impl State {
 
     /// Record the Worktree's pull request (R146.5); false when it was
     /// already that (nothing to save).
-    pub fn set_worktree_pr(&mut self, source: &str, worktree: &str, pr: PrRef) -> bool {
+    /// The auto-send counters stay while it is the same PR number.
+    pub fn set_worktree_pr(&mut self, source: &str, worktree: &str, mut pr: PrRef) -> bool {
         match self.worktree_mut(source, worktree) {
-            Ok(w) if w.pr.as_ref() != Some(&pr) => {
+            Ok(w) => {
+                if let Some(old) = w.pr.as_ref().filter(|o| o.number == pr.number) {
+                    pr.auto_head = old.auto_head.clone();
+                    pr.auto_in_a_row = old.auto_in_a_row;
+                }
+                if w.pr.as_ref() == Some(&pr) {
+                    return false;
+                }
                 w.pr = Some(pr);
                 true
             }
-            _ => false,
+            Err(_) => false,
+        }
+    }
+
+    /// A read that found no pull request: forget the recorded one (R146.5).
+    /// False when there was none.
+    pub fn clear_worktree_pr(&mut self, source: &str, worktree: &str) -> bool {
+        match self.worktree_mut(source, worktree) {
+            Ok(w) => w.pr.take().is_some(),
+            Err(_) => false,
+        }
+    }
+
+    /// Record the auto-send counters on the Worktree's PR (R147.4); false
+    /// when nothing changed or there is no PR.
+    pub fn set_worktree_auto(
+        &mut self,
+        source: &str,
+        worktree: &str,
+        head: Option<&str>,
+        in_a_row: u32,
+    ) -> bool {
+        match self.worktree_mut(source, worktree) {
+            Ok(w) => match w.pr.as_mut() {
+                Some(p) if p.auto_head.as_deref() != head || p.auto_in_a_row != in_a_row => {
+                    p.auto_head = head.map(str::to_string);
+                    p.auto_in_a_row = in_a_row;
+                    true
+                }
+                _ => false,
+            },
+            Err(_) => false,
         }
     }
 

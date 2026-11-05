@@ -36,6 +36,11 @@ pub struct Notification {
     /// What its Inbox row offers besides Focus (R146.4, R147.3).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub action: Option<NoteAction>,
+    /// The Worktree `(source id, worktree id)` the action is about when it
+    /// is not the Pane's own: a set's Worktree with no Pane of its own
+    /// puts its notice on the set's Agent (R151.2).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target: Option<(String, String)>,
 }
 
 /// A Notification's own button.
@@ -134,6 +139,7 @@ impl State {
         text: &str,
         now: u64,
         action: NoteAction,
+        about: Option<(String, String)>,
     ) -> Option<u64> {
         // RADE's own notice: never folded into an Agent event (R146.4).
         let id = self.post(pane, title, text, Origin::Message, now, true);
@@ -146,6 +152,7 @@ impl State {
         });
         if let Some(n) = target.and_then(|t| self.notifications.iter_mut().find(|n| n.id == t)) {
             n.action = Some(action);
+            n.target = about;
         }
         id
     }
@@ -210,6 +217,7 @@ impl State {
             source,
             own,
             action: None,
+            target: None,
         });
         let extra = self.notifications.len().saturating_sub(MAX_NOTIFICATIONS);
         self.notifications.drain(..extra);

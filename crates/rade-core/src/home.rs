@@ -704,6 +704,7 @@ mod tests {
             crate::model::PrRef {
                 number: 5,
                 url: "https://github.com/o/r/pull/5".into(),
+                ..Default::default()
             },
         );
         let k = pr_kpi(&sc.state, "shop", &sc.links, &no_pr).unwrap();

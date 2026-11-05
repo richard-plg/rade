@@ -231,7 +231,7 @@ impl Panel {
                     .then(|| ws.review_target(&n.pane).map(|_| n.pane.clone()))
                     .flatten(),
                     ci_send: (n.action == Some(NoteAction::SendCiFailure))
-                        .then(|| ws.pane_worktree(&n.pane))
+                        .then(|| n.target.clone().or_else(|| ws.pane_worktree(&n.pane)))
                         .flatten(),
                 }
             })
@@ -415,7 +415,9 @@ pub fn panel_op(op: &str, id: Option<u64>) -> rade_core::rpc::Result<Value> {
                         "notification {id} has no Send to Agent"
                     )));
                 }
-                m.pane_worktree(&n.pane)
+                n.target
+                    .clone()
+                    .or_else(|| m.pane_worktree(&n.pane))
                     .ok_or_else(|| rade_core::rpc::Error::not_found("its Pane is gone"))?
             };
             crate::ci_send_dialog::open(&target.0, &target.1);

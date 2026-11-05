@@ -801,6 +801,7 @@ fn r146_d_a_worktree_row_shows_its_pr_chip_read_or_recorded() {
         crate::model::PrRef {
             number: 12,
             url: "https://github.com/o/r/pull/12".into(),
+            ..Default::default()
         },
     );
     let json = r#"[{"number":482,"title":"Faster images","url":"u","state":"OPEN","isDraft":false,"baseRefName":"develop","headRefOid":"h","reviewDecision":"","statusCheckRollup":[{"__typename":"CheckRun","name":"test","workflowName":"CI","status":"COMPLETED","conclusion":"FAILURE","detailsUrl":"d"}]}]"#;

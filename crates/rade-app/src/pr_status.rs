@@ -61,8 +61,12 @@ struct Wt {
     /// The last read found no upstream (and no recorded PR): ask git again
     /// after [`pr::IDLE_EVERY`] or on a trigger.
     no_upstream_at: Option<Duration>,
-    /// `pr_status = false` here: don't look again before this.
+    /// `pr_status = false` here, or a gh error of this Worktree's repo
+    /// (`cause`): don't look again before this.
     disabled_until: Option<Duration>,
+    /// The first line of the last gh error that is this repo's own (R146.2):
+    /// one Activity row per cause. Cleared by a read that works.
+    cause: Option<String>,
     /// The Worktree's `HEAD` and reflog with their mtimes at the last read.
     heads: Vec<(PathBuf, Option<SystemTime>)>,
 }
@@ -190,6 +194,7 @@ pub fn created(path: &Path, url: &str) {
             let pr = PrRef {
                 number,
                 url: url.trim().to_string(),
+                ..Default::default()
             };
             if app.update_coalesced(|m| m.set_worktree_pr(&pid, &wid, pr)) {
                 changed();
@@ -336,15 +341,33 @@ struct Job {
     ws: String,
     pid: String,
     wid: String,
+    name: String,
     dir: PathBuf,
     recorded: bool,
+    /// The Source's main checkout (R146.2): read only on a branch that is
+    /// neither the Source's default branch nor a link's base.
+    main: bool,
+    bases: Vec<String>,
     env: Vec<(String, String)>,
 }
 
 fn job_for(m: &State, _app: &App, pid: &str, wid: &str) -> Option<Job> {
     let s = m.source(pid)?;
     let w = s.worktree(wid)?;
+    let main = s.worktrees.first().is_some_and(|f| f.id == wid);
+    let bases = if main {
+        crate::navdata::links(m)
+            .into_iter()
+            .filter(|l| l.source == pid)
+            .map(|l| l.base)
+            .collect()
+    } else {
+        Vec::new()
+    };
     Some(Job {
+        name: w.name.clone(),
+        main,
+        bases,
         key: key(pid, wid),
         ws: s.workspace.clone(),
         pid: pid.to_string(),
@@ -379,7 +402,8 @@ fn collect() -> Vec<Job> {
     let shown = m.active_workspace().to_string();
     let mut by_ws: BTreeMap<String, Vec<(&str, &rade_core::Worktree)>> = BTreeMap::new();
     for s in m.sources.iter().filter(|s| !s.is_general()) {
-        for w in s.worktrees.iter().skip(1) {
+        // The main checkout too: it may sit on a feature branch (R146.2).
+        for w in s.worktrees.iter() {
             by_ws
                 .entry(s.workspace.clone())
                 .or_default()
@@ -495,8 +519,9 @@ fn start(job: Job) {
 enum Outcome {
     /// No branch, or no upstream and no recorded PR: not read.
     NotEligible,
-    /// gh's first message line.
-    Failed(String),
+    /// gh's message; `wide` = it concerns every repo of the Workspace (gh
+    /// missing, not logged in, over its limit), else only this one's.
+    Failed { msg: String, wide: bool },
     Read {
         status: Option<PrStatus>,
         heads: Vec<PathBuf>,
@@ -519,6 +544,15 @@ fn run_job(job: &Job) -> Outcome {
     if !has_upstream && !job.recorded {
         return Outcome::NotEligible;
     }
+    // A main checkout on the default branch or a link's base has no PR of
+    // its own to follow.
+    if job.main
+        && !job.recorded
+        && (job.bases.contains(&branch)
+            || git::default_branch(&job.dir).is_some_and(|d| d == branch))
+    {
+        return Outcome::NotEligible;
+    }
     let head = one(&["rev-parse", "HEAD"]).unwrap_or_default();
     let heads = one(&["rev-parse", "--absolute-git-dir"])
         .map(|d| {
@@ -527,7 +561,10 @@ fn run_job(job: &Job) -> Outcome {
         })
         .unwrap_or_default();
     match pr::read(&job.dir, GH, &branch, &job.env) {
-        Err(e) => Outcome::Failed(e.message),
+        Err(e) => Outcome::Failed {
+            wide: pr::gate_wide(e.kind, &e.message),
+            msg: e.message,
+        },
         Ok(prs) => Outcome::Read {
             status: pr::choose(&prs)
                 .map(|p| PrStatus::new(p, &head, Some(crate::schedules::now().max(0) as u64))),
@@ -562,6 +599,8 @@ fn apply(job: &Job, out: Outcome) -> std::result::Result<Option<PrStatus>, Strin
     let mut result: std::result::Result<Option<PrStatus>, String> = Ok(None);
     let mut events: Vec<Event> = Vec::new();
     let mut down_row: Option<String> = None;
+    let mut repo_row: Option<String> = None;
+    let mut cleared = false;
     let mut modified = false;
     P.with(|p| {
         let mut p = p.borrow_mut();
@@ -572,16 +611,30 @@ fn apply(job: &Job, out: Outcome) -> std::result::Result<Option<PrStatus>, Strin
         wt.last_read = Some(now);
         wt.trigger = false;
         match out {
-            Outcome::Failed(msg) => {
+            Outcome::Failed { msg, wide: true } => {
                 if ws.gate.finish_err(now, &msg) {
                     down_row = Some(msg.clone());
                 }
                 ws.down_until = Some(now + pr::DOWN_FOR);
                 result = Err(msg);
             }
+            // This repo's own error (no remotes, no base repo): only this
+            // Worktree is left alone, the Workspace's other reads go on.
+            Outcome::Failed { msg, wide: false } => {
+                ws.gate.finish_ok();
+                ws.down_until = None;
+                wt.disabled_until = Some(now + pr::DOWN_FOR);
+                let cause = msg.lines().next().unwrap_or("").trim().to_string();
+                if wt.cause.as_deref() != Some(cause.as_str()) {
+                    repo_row = Some(cause.clone());
+                }
+                wt.cause = Some(cause);
+                result = Err(msg);
+            }
             Outcome::NotEligible => {
                 ws.gate.finish_ok();
                 ws.down_until = None;
+                wt.cause = None;
                 wt.no_upstream_at = Some(now);
                 modified = wt.status.take().is_some();
                 events = p.tracker.feed(&job.key, None);
@@ -589,7 +642,11 @@ fn apply(job: &Job, out: Outcome) -> std::result::Result<Option<PrStatus>, Strin
             Outcome::Read { status, heads } => {
                 ws.gate.finish_ok();
                 ws.down_until = None;
+                wt.cause = None;
+                wt.disabled_until = None;
                 wt.no_upstream_at = None;
+                // A read that finds no pull request forgets the recorded one.
+                cleared = status.is_none();
                 if !heads.is_empty() {
                     wt.heads = heads
                         .into_iter()
@@ -619,10 +676,31 @@ fn apply(job: &Job, out: Outcome) -> std::result::Result<Option<PrStatus>, Strin
             None,
         );
     }
+    if let Some(msg) = repo_row {
+        activity(
+            &app,
+            &job.pid,
+            &job.wid,
+            Kind::PrNote,
+            &format!(
+                "GitHub pull request status unavailable for {}: {msg} (paused for {} min)",
+                job.name,
+                pr::DOWN_FOR.as_secs() / 60
+            ),
+            None,
+        );
+    }
+    if cleared {
+        let (pid, wid) = (job.pid.clone(), job.wid.clone());
+        if app.update_coalesced(|m| m.clear_worktree_pr(&pid, &wid)) {
+            modified = true;
+        }
+    }
     if let Ok(Some(s)) = &result {
         let r = PrRef {
             number: s.number,
             url: s.url.clone(),
+            ..Default::default()
         };
         let (pid, wid) = (job.pid.clone(), job.wid.clone());
         if app.update_coalesced(|m| m.set_worktree_pr(&pid, &wid, r)) {
@@ -642,12 +720,21 @@ fn apply(job: &Job, out: Outcome) -> std::result::Result<Option<PrStatus>, Strin
 // ---------------------------------------------------------------------------
 
 /// The Pane a Notification about the Worktree goes to: its Agent Pane, else
-/// its first Pane.
-fn notify_pane(m: &State, pid: &str, wid: &str) -> Option<String> {
-    m.agent_panes(pid, wid)
-        .first()
-        .map(|p| p.id.clone())
-        .or_else(|| m.panes_in(pid, wid).first().map(|p| p.id.clone()))
+/// its first Pane, else (a set's Worktree with no Pane of its own, R151.2)
+/// the set's Agent.
+fn notify_pane(app: &App, pid: &str, wid: &str) -> Option<String> {
+    let own = {
+        let m = app.model.borrow();
+        m.agent_panes(pid, wid)
+            .first()
+            .map(|p| p.id.clone())
+            .or_else(|| m.panes_in(pid, wid).first().map(|p| p.id.clone()))
+    };
+    own.or_else(|| {
+        crate::review::agents_for(app, pid, wid, None)
+            .first()
+            .map(|a| a.0.clone())
+    })
 }
 
 fn activity(app: &App, pid: &str, wid: &str, kind: Kind, line: &str, pane: Option<String>) {
@@ -668,7 +755,7 @@ fn handle_events(app: &App, job: &Job, events: Vec<Event>) {
     if events.is_empty() {
         return;
     }
-    let pane = notify_pane(&app.model.borrow(), &job.pid, &job.wid);
+    let pane = notify_pane(app, &job.pid, &job.wid);
     for ev in events {
         let kind = match ev {
             Event::ChecksFailed { .. } => Kind::PrFailed,
@@ -682,8 +769,18 @@ fn handle_events(app: &App, job: &Job, events: Vec<Event>) {
         if let (Some((title, body)), Some(pane)) = (ev.notification(), &pane) {
             let now = crate::panes::now();
             if ev.offers_send_to_agent() {
+                // The Inbox row's Send to Agent is about this Worktree, whose
+                // Pane that is or not.
+                let target = Some((job.pid.clone(), job.wid.clone()));
                 app.update_coalesced(|m| {
-                    m.notify_action(pane, Some(title), &body, now, NoteAction::SendCiFailure)
+                    m.notify_action(
+                        pane,
+                        Some(title),
+                        &body,
+                        now,
+                        NoteAction::SendCiFailure,
+                        target,
+                    )
                 });
             } else {
                 app.update_coalesced(|m| m.notify_own(pane, Some(title), &body, now));
@@ -739,13 +836,27 @@ fn auto_step(app: &App, pid: &str, wid: &str) {
         Checks::Passing => Read::Passing,
         _ => Read::Other,
     };
-    let action = P.with(|p| {
-        p.borrow_mut()
+    // What a relaunch left on the PR (R147.4): a head already sent is not
+    // sent again, and the 3-in-a-row cap holds.
+    let saved = app
+        .model
+        .borrow()
+        .worktree(pid, wid)
+        .and_then(|w| {
+            w.pr.as_ref()
+                .map(|p| (p.auto_head.clone(), p.auto_in_a_row))
+        })
+        .unwrap_or_default();
+    let (action, now_auto) = P.with(|p| {
+        let mut p = p.borrow_mut();
+        let a = p
             .autos
             .entry(k)
-            .or_default()
-            .step(mode, read, agents, state)
+            .or_insert_with(|| AutoSend::restore(saved.0, saved.1));
+        let action = a.step(mode, read, agents, state);
+        (action, (a.sent_head().map(str::to_string), a.in_a_row()))
     });
+    app.update_coalesced(|m| m.set_worktree_auto(pid, wid, now_auto.0.as_deref(), now_auto.1));
     match action {
         Action::Send => {
             let (p, w) = (pid.to_string(), wid.to_string());
@@ -757,8 +868,7 @@ fn auto_step(app: &App, pid: &str, wid: &str) {
         }
         Action::AskStillFailing => {
             let text = ci_log::still_failing(number);
-            // The borrow must end before `update_coalesced` borrows the model mutably.
-            let pane = notify_pane(&app.model.borrow(), pid, wid);
+            let pane = notify_pane(app, pid, wid);
             if let Some(pane) = pane {
                 app.update_coalesced(|m| m.notify_own(&pane, None, &text, crate::panes::now()));
             }
@@ -887,19 +997,44 @@ fn read_now(c: &Ctx) -> Result<Option<PrStatus>> {
     on_main(move || Ok(apply(&job, out))).and_then(|r| r.map_err(Error::usage))
 }
 
-fn answer(c: &Ctx, s: Option<PrStatus>) -> Value {
-    let branch = git::branch(&c.job.dir).unwrap_or_default();
-    let text = match &s {
-        Some(s) => pr::cli_line(s),
-        None => pr::cli_line_none(&branch),
-    };
-    json!({"worktree": c.name, "source": c.job.pid, "branch": branch, "pr": s, "text": text})
+/// gh's message while the Worktree's status can't be read (R146.2): its
+/// Workspace is down, or its own repo's error is being waited out.
+fn unavailable(pid: &str, wid: &str) -> Option<String> {
+    let now = clock();
+    let ws = try_app().and_then(|a| a.model.borrow().source(pid).map(|s| s.workspace.clone()))?;
+    P.with(|p| {
+        let p = p.borrow();
+        p.ws.get(&ws)
+            .and_then(|w| w.gate.message(now))
+            .map(str::to_string)
+            .or_else(|| {
+                p.wts
+                    .get(&key(pid, wid))
+                    .filter(|w| w.disabled_until.is_some_and(|t| now < t))
+                    .and_then(|w| w.cause.clone())
+            })
+    })
 }
 
-fn timeout_error(secs: u64, s: &PrStatus) -> Error {
+fn answer(c: &Ctx, s: Option<PrStatus>, unavailable: Option<String>) -> Value {
+    let branch = git::branch(&c.job.dir).unwrap_or_default();
+    let text = match (&s, &unavailable) {
+        (Some(s), _) => pr::cli_line(s),
+        (None, Some(msg)) => pr::unavailable_line(msg),
+        (None, None) => pr::cli_line_none(&branch),
+    };
+    let mut v =
+        json!({"worktree": c.name, "source": c.job.pid, "branch": branch, "pr": s, "text": text});
+    if let Some(msg) = unavailable {
+        v["unavailable"] = json!(msg);
+    }
+    v
+}
+
+fn timeout_error(secs: u64, s: &PrStatus, why: &str) -> Error {
     Error::new(
         ErrorKind::Timeout,
-        format!("#{} checks still pending after {secs} s", s.number),
+        format!("#{} {why} after {secs} s", s.number),
     )
 }
 
@@ -909,34 +1044,44 @@ pub fn dispatch(method: &str, p: Value) -> Result<Value> {
             let r: Req = params(p)?;
             let refresh = r.refresh;
             let c = resolve(r)?;
-            let s = if refresh {
-                read_now(&c)?
+            let (s, down) = if refresh {
+                (read_now(&c)?, None)
             } else {
                 let (pid, wid) = (c.job.pid.clone(), c.job.wid.clone());
-                on_main(move || Ok(status(&pid, &wid)))?
+                on_main(move || Ok((status(&pid, &wid), unavailable(&pid, &wid))))?
             };
-            Ok(answer(&c, s))
+            Ok(answer(&c, s, down))
         }
         "pr.wait" => {
             let r: Req = params(p)?;
             let secs = r.timeout.unwrap_or(1800);
             let c = resolve(r)?;
             let deadline = Instant::now() + Duration::from_secs(secs);
+            // The PR head and since when this wait has seen it: GitHub may
+            // not have queued the checks of a push yet (R148.2).
+            let mut seen: Option<(String, Instant)> = None;
             loop {
                 let Some(s) = read_now(&c)? else {
                     let branch = git::branch(&c.job.dir).unwrap_or_default();
                     return Err(Error::not_found(pr::cli_line_none(&branch)));
                 };
-                if s.checks != Checks::Pending || s.state != PrState::Open {
-                    return Ok(answer(&c, Some(s)));
-                }
+                let head_seen = match &seen {
+                    Some((h, at)) if *h == s.head => at.elapsed(),
+                    _ => {
+                        seen = Some((s.head.clone(), Instant::now()));
+                        Duration::ZERO
+                    }
+                };
+                let Some(why) = pr::wait_reason(&s, head_seen) else {
+                    return Ok(answer(&c, Some(s), None));
+                };
                 let left = deadline.saturating_duration_since(Instant::now());
                 if left.is_zero() {
-                    return Err(timeout_error(secs, &s));
+                    return Err(timeout_error(secs, &s, why));
                 }
                 std::thread::sleep(left.min(WAIT_EVERY));
                 if Instant::now() >= deadline {
-                    return Err(timeout_error(secs, &s));
+                    return Err(timeout_error(secs, &s, why));
                 }
             }
         }

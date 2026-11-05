@@ -45,6 +45,7 @@ fn r146_c_a_failing_pr_notification_carries_send_to_agent() {
             "test",
             10,
             NoteAction::SendCiFailure,
+            None,
         )
         .unwrap();
     assert_eq!(
@@ -67,7 +68,8 @@ fn r146_c_a_failing_pr_notification_carries_send_to_agent() {
             Some("#7 checks failed".into()),
             "test",
             11,
-            NoteAction::SendCiFailure
+            NoteAction::SendCiFailure,
+            None
         ),
         None
     );
@@ -75,6 +77,28 @@ fn r146_c_a_failing_pr_notification_carries_send_to_agent() {
         w.notification(id).unwrap().action,
         Some(NoteAction::SendCiFailure)
     );
+}
+
+#[test]
+fn r151_2_a_set_notice_keeps_the_worktree_its_action_is_about() {
+    let (mut w, a, _, _, _) = ws();
+    let id = w
+        .notify_action(
+            &a,
+            Some("#7 checks failed".into()),
+            "test",
+            10,
+            NoteAction::SendCiFailure,
+            Some(("p_2".into(), "w_3".into())),
+        )
+        .unwrap();
+    assert_eq!(
+        w.notification(id).unwrap().target,
+        Some(("p_2".to_string(), "w_3".to_string()))
+    );
+    let plain = w.notify(&a, None, "hello", 99).unwrap();
+    let j = serde_json::to_value(w.notification(plain).unwrap()).unwrap();
+    assert!(j.get("target").is_none());
 }
 
 #[test]

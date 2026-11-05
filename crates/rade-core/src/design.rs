@@ -1079,6 +1079,7 @@ mod tests {
             source,
             own: false,
             action: None,
+            target: None,
         };
         assert_eq!(
             n(
