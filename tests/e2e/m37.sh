@@ -404,8 +404,8 @@ export -f kpis
 check "R105-a KPIs: 3 1 waiting · 1 running | 2 checkout-v2, perf-img | 7 files in 2 sources" \
     eventually 8 is kpis "3 1 waiting · 1 running | 2 checkout-v2, perf-img | 7 files in 2 sources"
 check "R105-a the Shop row is selected" test "$(row project Shop | jq -r .selected)" = true
-check "R105 header buttons Settings, Open terminal; sub-line" \
-    test "$(home | jq -r '[(.buttons | join(",")), .sub] | join(" | ")')" = "Settings,Open terminal | acme · 3 sources · .rade/projects/shop/project.toml"
+check "R105 header buttons Settings, New branch across sources…, Open terminal; sub-line" \
+    test "$(home | jq -r '[(.buttons | join(",")), .sub] | join(" | ")')" = "Settings,New branch across sources…,Open terminal | acme · 3 sources · .rade/projects/shop/project.toml"
 
 echo "== R105-b link table"
 links() { home | jq -r '[.links[] | "\(.name) \(.checkout)\(if .path then " " + .path else "" end) \(.head) \(.vs_base) \(.chip)"] | join(" | ")'; }

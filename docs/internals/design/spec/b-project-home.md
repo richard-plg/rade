@@ -4,7 +4,7 @@ Mockup: `mockup.html#b-dark` / `#b-light`, images `new-b-dark.png`, `new-b-light
 
 Window 1440 × 900 px. Columns: Navigator 268 px · page 1172 px (no Inspector on this screen). Page content width 1172 − 2 × 28 = 1116 px.
 
-**0.8.0 scope versus the mockup** (decisions log): the mockup's `New branch across sources…` button, the `Pull requests` KPI and the Worktree meta `PR #482 ✓` belong to "later" (design §8, PRD Non-goals); 0.8.0 shows three KPIs and no such button. The Activity row `#482 opened from perf-img` stays (Activity records PRs opened from RADE).
+**0.8.0 scope versus the mockup** (decisions log): the mockup's `Pull requests` KPI and the Worktree meta `PR #482 ✓` belong to "later" (design §8, PRD Non-goals); 0.8.0 shows three KPIs. M54 added the `New branch across sources…` button (R150.1) between `Settings` and `Open terminal`, in the mockup's order. The Activity row `#482 opened from perf-img` stays (Activity records PRs opened from RADE).
 
 ## Measurements
 
@@ -19,7 +19,7 @@ Window 1440 × 900 px. Columns: Navigator 268 px · page 1172 px (no Inspector o
 | B.7 | Header title `Shop` | Inter 20 px 600, letter-spacing −0.01em, `fg` | ±0.5 px; exact | `geometry home-title → font, color` |
 | B.8 | Header sub-line | `acme · 3 sources · .rade/projects/shop/project.toml`, JetBrains Mono 12 px `fg3` | ±0.5 px; exact text | `geometry home-sub → font, color, label` |
 | B.9 | Header icon–text gap / actions gap | 12 px / 8 px | ±1 px | `geometry home-header → x` deltas |
-| B.10 | Header actions (right-aligned) | `Settings` (`gear-six`, secondary), `Open terminal` (`terminal-window`, primary) | exact text, order | `debug.ui home` → buttons |
+| B.10 | Header actions (right-aligned) | `Settings` (`gear-six`, secondary), `New branch across sources…` (secondary, M54), `Open terminal` (`terminal-window`, primary) | exact text, order | `debug.ui home` → buttons |
 | B.11 | Primary button `Open terminal` | `acc` fill, `acc-fg` 600, height 26 px, radius 6 px; exactly one `.suggested-action` on screen B | exact; count exact | `geometry home-open-terminal → background, color, height, radius`; `count .suggested-action = 1` |
 | B.12 | Secondary button | height 26 px, padding 0 10 px, radius 6 px, 1 px `line2`, `bg2`, Inter 12.5 px `fg`, icon 14 px `fg2` | ±1 px; exact | `geometry home-settings → height, padding, radius, border, background` |
 | B.13 | KPI row margin and gap | 18 px above, 22 px below; gap 10 px | ±1 px | `geometry home-kpis → margin`; x deltas of `kpi` |
