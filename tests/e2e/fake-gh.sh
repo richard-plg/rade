@@ -16,7 +16,7 @@
 #                              checkout: a Worktree's Source id), and an open PR without checks added
 #                              to prs/<head>.json; a file fail-create holding a word found in the
 #                              checkout's path fails this one call (the file is removed)
-#   gh pr list --head <b> …  → $FAKE_GH_DIR/prs/<b>.json (`/` in <b> → `__`), else $FAKE_GH_PRS, else []
+#   gh pr list --head <b> …  → $FAKE_GH_DIR/prs/<b>.json (`/` in <b> → `__`), else $FAKE_GH_PRS, else [] ($FAKE_GH_BY_REPO set: prs/<repo>@<b>.json, <repo> as in `pr create`'s URL, so one branch name in several Sources has one PR each)
 #   gh pr edit <n> --body <t> → writes <t> to $FAKE_GH_DIR/edits/<n>
 #   gh run view <run> --job <job> --log-failed → $FAKE_GH_DIR/runs/<job>.log (missing → exit 1)
 # $FAKE_GH_SLEEP=<s> sleeps before every pr / run command (a hung gh).
@@ -64,7 +64,7 @@ case "$1 $2" in
         repo=$(basename "$(dirname "$top")")
         url="https://github.com/acme/$repo/pull/$n"
         mkdir -p "$FAKE_GH_DIR/prs"
-        f="$FAKE_GH_DIR/prs/${head//\//__}.json"
+        f="$FAKE_GH_DIR/prs/${FAKE_GH_BY_REPO:+$repo@}${head//\//__}.json"
         oid=$(git rev-parse HEAD 2>/dev/null || echo 0)
         jq -c --argjson n "$n" --arg t "$title" --arg u "$url" --arg o "$oid" \
             '. + [{number: $n, title: $t, url: $u, state: "OPEN", isDraft: false, baseRefName: "main",
@@ -75,7 +75,8 @@ case "$1 $2" in
         [[ -n ${FAKE_GH_SLEEP:-} ]] && sleep "$FAKE_GH_SLEEP"
         head=; prev=
         for a in "$@"; do [[ $prev == --head ]] && head=$a; prev=$a; done
-        f="${FAKE_GH_DIR:-/nonexistent}/prs/${head//\//__}.json"
+        top=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+        f="${FAKE_GH_DIR:-/nonexistent}/prs/${FAKE_GH_BY_REPO:+$(basename "$(dirname "$top")")@}${head//\//__}.json"
         if [[ -n $head && -f $f ]]; then cat "$f"; else echo "${FAKE_GH_PRS:-[]}"; fi ;;
     "pr edit")
         n=$3; body=; prev=
