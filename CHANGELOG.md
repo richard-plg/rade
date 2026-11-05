@@ -10,6 +10,42 @@ the 0.x sections were written by hand. Requirement IDs (R…) refer to [docs/int
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-11-05
+
+### Added
+
+- A rade call the app does not answer now ends with exit 6 after 30 s instead of hanging; --call-timeout <secs> or RADE_TIMEOUT changes the limit, 0 means none.
+- Branch sets
+- Rade worktree add --project <p> <name> --sources <a,b>|all cuts one branch in several linked Sources, rade worktree remove --set removes it, and rade spawn --set starts one Agent for all of them.
+- Project home's New branch across sources… cuts one branch in several Sources of a Project at once, and Create Pull Requests for Set… opens linked PRs for all of them.
+- PR chips in the Navigator, Changes and Project home
+- Send a CI failure to the Agent
+- The Pull requests KPI always shows, as in the mockup
+
+### Changed
+
+- RADE stays responsive with dozens of Agents reporting at once, and an idle RADE uses far less CPU.
+- Rebuild only the Tab whose Layout changed
+
+### Fixed
+
+- Files holding tokens or session data (state.json and its backups, accounts.toml, workspace.toml, the usage store, the update cache) are now always private (0600); a symlinked file stays a link, and the CLI and the app no longer drop each other's edits of accounts.toml, workspace.toml, project.toml and config.toml.
+- Git, shell probes and gh no longer wait forever: every child process runs under a time limit and background git never asks for a password.
+- A language server that stops reading its input no longer freezes code navigation: the query ends within its time budget and the server restarts on the next one.
+- A cron step larger than its field (1/4294967295) is now a clear error, and two parallel rade browser --engine chromium open start one Chromium daemon.
+- Prompts and messages may start with "-"
+- An unstyled HTML page in the Viewer uses the theme's colours
+- Rade code --wait above 60 s, rade browser wait --timeout and page-loading browser calls no longer end early with a TIMEOUT.
+- Background fetches in a Workspace with its own SSH key no longer wait for a password prompt.
+- A desktop notification that grows (status plus message) is replaced in place instead of showing up twice on a slow notification server.
+- The Inspector steps aside for the Usage page when list and detail don't fit
+- A CI notice is never folded into an Agent's Notification
+- Rade pr failures no longer times out on a PR with many failing jobs, and its text says which logs were left out and why.
+- Create Pull Requests for Set no longer skips a PR when two Sources have PRs with the same number, and a PR that already exists for the branch is only linked, not created again.
+- `rade pr wait` no longer returns before GitHub has queued a push's checks, and `rade pr status` says when GitHub is unavailable instead of "no pull request".
+- A failing PR on a branch-set Worktree now reaches the set's Agent and its Send to Agent targets the right Worktree; automatic CI sends are not repeated after a relaunch; a PR that disappears is forgotten; one repo's gh error no longer pauses PR status for the whole Workspace.
+- Project home's header fits at 200 % text with the new button
+
 ## [1.5.0] - 2026-10-30
 
 ### Added
@@ -1177,7 +1213,8 @@ Initial release: everything built in milestones M0–M12.
   releases with the `.deb` and `SHA256SUMS`, `rade-app --version`, this
   changelog (ADR-0012).
 
-[Unreleased]: https://github.com/richard-plg/rade/compare/v1.5.0...HEAD
+[Unreleased]: https://github.com/richard-plg/rade/compare/v1.6.0...HEAD
+[1.6.0]: https://github.com/richard-plg/rade/compare/v1.5.0...v1.6.0
 [1.5.0]: https://github.com/richard-plg/rade/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/richard-plg/rade/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/richard-plg/rade/compare/v1.2.0...v1.3.0
