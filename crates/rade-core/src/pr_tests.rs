@@ -217,6 +217,38 @@ fn r146_a_chip_tooltip_cli_and_kpi_texts() {
     );
 }
 
+#[test]
+fn r146_a_worktree_chip_set_checks_and_tones() {
+    use crate::branch_set::{pr_chip, Checks as C};
+    let ok = st(&run("a", "SUCCESS"), "h");
+    let bad = st(&run("test", "FAILURE"), "h");
+    let none = st("", "h");
+    let merged = status(&pr_json(7, "MERGED", "h", "", "", false), "h");
+    // The read wins; before it the recorded number in fg3; else nothing.
+    assert_eq!(
+        worktree_chip(Some(&bad), Some(3)).unwrap().text,
+        "#7 \u{2717}"
+    );
+    assert_eq!(worktree_chip(None, Some(482)), Some(chip_recorded(482)));
+    assert_eq!(worktree_chip(None, None), None);
+    assert_eq!(set_checks(Some(&bad)), Some(C::Failing));
+    assert_eq!(set_checks(Some(&none)), Some(C::Passing));
+    assert_eq!(set_checks(Some(&merged)), Some(C::Passing));
+    assert_eq!(set_checks(None), None);
+    let (text, worst) = pr_chip(&[set_checks(Some(&ok)), set_checks(Some(&bad)), None]).unwrap();
+    assert_eq!(text, "2 PRs \u{b7} 1 failing");
+    assert_eq!(set_tone(worst), Tone::Error);
+    assert_eq!(set_tone(C::Pending).class(), "warn");
+    assert_eq!(
+        [Tone::Ok, Tone::Error, Tone::Warn, Tone::Fg3].map(Tone::class),
+        ["ok", "error", "warn", "fg3"]
+    );
+    assert_eq!(
+        serde_json::to_value(chip(&ok)).unwrap(),
+        serde_json::json!({"text": "#7 \u{2713}", "tone": "ok"})
+    );
+}
+
 fn cand(shown: bool, pending: bool, last: Option<u64>) -> Candidate {
     Candidate {
         eligible: true,

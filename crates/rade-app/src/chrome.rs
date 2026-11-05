@@ -1302,6 +1302,21 @@ impl Chrome {
                     t.dismiss();
                 }
             }
+            // The newest plain Toast whose text is `arg` (or the newest):
+            // its button (R146.4: `#<n> merged` → Remove Worktree…).
+            "toast_button" => {
+                let t = self
+                    .shown
+                    .borrow()
+                    .iter()
+                    .rev()
+                    .find(|t| arg.is_none_or(|a| t.title().is_some_and(|x| x == a)))
+                    .cloned();
+                if let Some(t) = t.filter(|t| t.button_label().is_some()) {
+                    t.emit_by_name::<()>("button-clicked", &[]);
+                    t.dismiss();
+                }
+            }
             "right_page" => self.right.show(arg.unwrap_or("files")),
             "retry_save" => self.retry_save.emit_clicked(),
             // The newest forecast Toast's action (F.18, F.20).

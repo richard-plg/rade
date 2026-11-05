@@ -254,7 +254,9 @@ fn view(project: &str) -> Option<View> {
     let root = ws.root.clone();
     let canon = crate::projects::canon;
     let facts = |path: &std::path::Path| crate::navdata::worktree_facts(&m, path);
-    let kpis = home::kpis(&m, project, &links, &|p| facts(p).1, &canon);
+    let mut kpis = home::kpis(&m, project, &links, &|p| facts(p).1, &canon);
+    // R146.3: `Pull requests`, once a Worktree of the Project has one.
+    kpis.extend(home::pr_kpi(&m, project, &links, &crate::pr_status::status));
     let rows = links
         .iter()
         .map(|l| {
@@ -307,7 +309,7 @@ fn view(project: &str) -> Option<View> {
         sub: home::sub_line(&ws.name, p, links.len(), &root),
         kpis,
         links: rows,
-        worktrees: home::worktree_rows(&m, project, &links, &facts),
+        worktrees: home::worktree_rows(&m, project, &links, &facts, &crate::pr_status::status),
         activity,
         buttons: vec![
             "Settings".into(),
@@ -757,7 +759,18 @@ fn worktree_row(project: &str, w: &WorktreeRow) -> gtk::Widget {
         led.set_valign(gtk::Align::Center);
         b.append(&led);
     }
-    b.append(&label(&w.meta, &["home-wt-meta"]));
+    // A clean Worktree with a PR shows the PR alone (mockup B).
+    if !(w.meta == "clean" && w.pr_chip.is_some()) {
+        b.append(&label(&w.meta, &["home-wt-meta"]));
+    }
+    // `PR #<n> ✓` (R146.3); a set row's `2 PRs · 1 failing` (R151.4).
+    if let Some(c) = &w.pr_chip {
+        let tip = (!w.group)
+            .then(|| crate::pr_status::status(&w.source, &w.worktree))
+            .flatten()
+            .map(|s| rade_core::pr::tooltip(&s));
+        b.append(&crate::sidebar::pr_chip(c, tip.as_deref(), &["home-wt-pr"]));
+    }
     if let (true, Some(set)) = (w.group, &w.set) {
         b.append(&set_menu(project, set));
     }

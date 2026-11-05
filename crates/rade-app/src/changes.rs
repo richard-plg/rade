@@ -173,6 +173,16 @@ pub fn install() -> gtk::Widget {
         panel_shown: Cell::new(false),
     });
 
+    // A PR read changed: the cards' PR chips (R146.3).
+    let w = Rc::downgrade(&c);
+    crate::pr_status::connect_changed(move || {
+        if let Some(c) = w.upgrade() {
+            for card in c.cards.borrow().iter() {
+                card.update_pr();
+            }
+        }
+    });
+
     // Header: the toggle, Refresh and the `…` menu (Fetch All, Sort by).
     let w = Rc::downgrade(&c);
     view_btn.connect_clicked(move |_| {
@@ -877,7 +887,8 @@ impl Changes {
 /// handlers — clicks, keys, menu items — and answers with `info`. Ops:
 /// `info`, `show`, `refresh`, `view`, `sort`, `fetch_all`, `fold`,
 /// `group_fold`, `folder_fold`, `click`, `rightclick`, `menu_activate`,
-/// `row_action`, `group_action`, `card_menu`, `card_menu_activate`, `key`,
+/// `row_action`, `group_action`, `card_menu`, `card_menu_activate`,
+/// `pr_chip_click`, `pr_chip_menu_activate` (`item`), `key`,
 /// `message`, `history`, `generate`, `commit`, `action_button`,
 /// `sync_button`, `pr_fill`, `pr_generate`, `autofetch_tick`. Dialogs are
 /// answered with `debug.dialog`.
@@ -942,6 +953,20 @@ pub fn debug(p: &Value) -> Result<Value> {
         "card_menu" => {
             let card = c.card(s("source"))?;
             extra = Some(("menu", json!(card.menu_labels())));
+        }
+        // R146.3: the PR chip's click (opens the PR URL) and its menu.
+        "pr_chip_click" => {
+            let card = c.card(s("source"))?;
+            if card.pr_chip_text().is_none() {
+                return Err(Error::not_found("no PR chip on this card"));
+            }
+            card.pr_chip_click();
+        }
+        "pr_chip_menu_activate" => {
+            let card = c.card(s("source"))?;
+            if !card.pr_menu_activate(s("item")) {
+                return Err(Error::not_found(format!("no PR menu item '{}'", s("item"))));
+            }
         }
         "card_menu_activate" => {
             let card = c.card(s("source"))?;

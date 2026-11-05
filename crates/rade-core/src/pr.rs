@@ -328,7 +328,8 @@ pub fn status_from_json(
 // Texts (R146.3, R148.1)
 // ---------------------------------------------------------------------------
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
 pub enum Tone {
     Ok,
     Error,
@@ -336,7 +337,19 @@ pub enum Tone {
     Fg3,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+impl Tone {
+    /// The CSS class of the colour token (`ok`, `error`, `warn`, `fg3`).
+    pub fn class(self) -> &'static str {
+        match self {
+            Tone::Ok => "ok",
+            Tone::Error => "error",
+            Tone::Warn => "warn",
+            Tone::Fg3 => "fg3",
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct Chip {
     pub text: String,
     pub tone: Tone,
@@ -371,6 +384,32 @@ pub fn chip_recorded(number: u64) -> Chip {
     Chip {
         text: format!("#{number}"),
         tone: Tone::Fg3,
+    }
+}
+
+/// A Worktree's chip (R146.3, R146.5): its last read, else the number
+/// recorded in `state.json` (greyed until the first read); `None` = no PR.
+pub fn worktree_chip(read: Option<&PrStatus>, recorded: Option<u64>) -> Option<Chip> {
+    read.map(chip).or_else(|| recorded.map(chip_recorded))
+}
+
+/// A PR's checks as a Branch set row counts them (R151.4): `None` = no PR;
+/// an open PR without checks and a merged or closed one count as passing.
+pub fn set_checks(read: Option<&PrStatus>) -> Option<crate::branch_set::Checks> {
+    use crate::branch_set::Checks as C;
+    read.map(|s| match (s.state, s.checks) {
+        (PrState::Open, Checks::Failing) => C::Failing,
+        (PrState::Open, Checks::Pending) => C::Pending,
+        _ => C::Passing,
+    })
+}
+
+/// The tone of a Branch set row's chip: its worst PR.
+pub fn set_tone(worst: crate::branch_set::Checks) -> Tone {
+    match worst {
+        crate::branch_set::Checks::Failing => Tone::Error,
+        crate::branch_set::Checks::Pending => Tone::Warn,
+        crate::branch_set::Checks::Passing => Tone::Ok,
     }
 }
 

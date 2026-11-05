@@ -221,6 +221,38 @@ pub fn created(path: &Path, url: &str) {
     now(path);
 }
 
+/// The chip of a Worktree (R146.3): its last read, else its recorded
+/// number in `fg3` (R146.5); `None` = no PR.
+pub fn chip(pid: &str, wid: &str) -> Option<pr::Chip> {
+    let recorded = try_app().and_then(|a| {
+        a.model
+            .borrow()
+            .worktree(pid, wid)
+            .and_then(|w| w.pr.as_ref().map(|p| p.number))
+    });
+    pr::worktree_chip(status(pid, wid).as_ref(), recorded)
+}
+
+/// The PR's URL: the last read's, else the recorded one.
+pub fn url(pid: &str, wid: &str) -> Option<String> {
+    status(pid, wid)
+        .map(|s| s.url)
+        .or_else(|| {
+            try_app().and_then(|a| {
+                a.model
+                    .borrow()
+                    .worktree(pid, wid)
+                    .and_then(|w| w.pr.as_ref().map(|p| p.url.clone()))
+            })
+        })
+        .filter(|u| !u.is_empty())
+}
+
+/// The last read says the checks fail: Send CI Failure to Agent is offered.
+pub fn failing(pid: &str, wid: &str) -> bool {
+    status(pid, wid).is_some_and(|s| s.checks == Checks::Failing && s.state == PrState::Open)
+}
+
 /// Send the failed jobs' log tails to the Worktree's Agent (R147.3, no
 /// preview yet): the prompt is built off the UI thread, then delivered with
 /// `review::deliver` (the only Agent; none or several → a Toast saying so).

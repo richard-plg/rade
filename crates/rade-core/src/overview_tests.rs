@@ -678,3 +678,17 @@ fn r117_n_preview_text_keeps_paragraphs_and_cuts_the_input_box() {
         tail_of(CODEX_SCREEN, 1).last().map(String::as_str)
     );
 }
+
+#[test]
+fn r147_c_a_card_offers_send_ci_failure_only_when_failing() {
+    use crate::pr::{chip_recorded, Chip, Tone};
+    let mut f = fact("tests", Waiting, 10, false, "ACME", "Shop / shop-web / x");
+    assert!(!f.ci_failing(), "no PR");
+    f.pr = Some(chip_recorded(7));
+    assert!(!f.ci_failing(), "not read yet");
+    f.pr = Some(Chip {
+        text: "#7 \u{2717}".into(),
+        tone: Tone::Error,
+    });
+    assert!(f.ci_failing());
+}

@@ -527,6 +527,13 @@ fn facts(app: &App) -> Vec<Fact> {
     for f in &mut facts {
         f.changed_at = crate::status::last_change(&f.pane);
         if let Some(loc) = m.locate(&f.pane) {
+            // R146.3: its Worktree's PR chip (main checkouts have none).
+            f.pr = m.worktree(&loc.source, &loc.worktree).and_then(|w| {
+                rade_core::pr::worktree_chip(
+                    crate::pr_status::status(&loc.source, &loc.worktree).as_ref(),
+                    w.pr.as_ref().map(|p| p.number),
+                )
+            });
             if let Some(w) = m.worktree(&loc.source, &loc.worktree) {
                 let (ahead, changed) = crate::navdata::worktree_facts(&m, &w.path);
                 f.git = match (ahead, changed) {
@@ -1067,10 +1074,18 @@ fn card(
     pl.set_ellipsize(gtk::pango::EllipsizeMode::End);
     pl.set_hexpand(true);
     where_.append(&pl);
+    // R146.3: its Worktree's PR chip.
+    let pr = f0
+        .pr
+        .as_ref()
+        .map(|c| crate::sidebar::pr_chip(c, Some("Pull request"), &["overview-card-pr"]));
     if compact {
         w.append(&r1);
         where_.set_hexpand(true);
         w.append(&where_);
+        if let Some(c) = &pr {
+            w.append(c);
+        }
         st.set_hexpand(false);
         w.append(&st);
         return w;
@@ -1108,6 +1123,9 @@ fn card(
         let l = label(t, &[]);
         l.set_ellipsize(gtk::pango::EllipsizeMode::End);
         foot.append(&l);
+    }
+    if let Some(c) = &pr {
+        foot.append(c);
     }
     let k = label("↵ jump", &["overview-card-jump"]);
     k.set_hexpand(true);
@@ -1554,6 +1572,7 @@ fn state() -> Value {
                         "parent": f.parent,
                         "note": f.note,
                         "git": f.git,
+                        "pr_chip": f.pr,
                         "tail": tails.get(&f.pane).cloned().unwrap_or_default(),
                         "tail_widget": widgets.get(&(i, j)).map_or(Value::Null, tail_widget),
                         "selected": sel == Some((i, j)),
@@ -1974,15 +1993,13 @@ fn fill_preview(v: &View, c: &Card) {
     for t in [&f0.git, &f0.account].into_iter().flatten() {
         p.foot.append(&label(t, &[]));
     }
+    if let Some(c) = &f0.pr {
+        p.foot
+            .append(&crate::sidebar::pr_chip(c, None, &["overview-card-pr"]));
+    }
     let off = try_app().is_some_and(|a| a.model.borrow().overview_no_preview);
-    let k = label(
-        if off {
-            "↵ jump · Alt+P show"
-        } else {
-            "↵ jump · Alt+P hide"
-        },
-        &["overview-card-jump"],
-    );
+    let keys = format!("↵ jump · Alt+P {}", if off { "show" } else { "hide" });
+    let k = label(&keys, &["overview-card-jump"]);
     k.set_hexpand(true);
     k.set_xalign(1.0);
     p.foot.append(&k);

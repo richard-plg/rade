@@ -35,6 +35,7 @@ mod debug;
 mod diff_highlight;
 mod diff_pane;
 mod doc_view;
+mod drop_layout;
 mod fanout;
 mod fanout_view;
 mod files;

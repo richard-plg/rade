@@ -161,18 +161,56 @@ pub struct WorktreeRow {
     pub set: Option<String>,
     /// The set row `<name> · <n> sources` heading its Worktrees.
     pub group: bool,
+    /// `PR #482 ✓` (R146.3) or a set row's `2 PRs · 1 failing` (R151.4),
+    /// with its tone.
+    pub pr_chip: Option<crate::pr::Chip>,
+    /// The PR's URL (a Worktree's last read or recorded PR).
+    #[serde(skip)]
+    pub pr_url: Option<String>,
+    /// The set row: each member's checks (`None` = no PR).
+    #[serde(skip)]
+    set_checks: Option<crate::branch_set::Checks>,
     /// (ahead, changed, agents): the set row sums them.
     #[serde(skip)]
     counts: (usize, usize, usize),
 }
 
+/// The last PR read of a Worktree (source id, worktree id), R146.
+pub type PrRead<'a> = &'a dyn Fn(&str, &str) -> Option<crate::pr::PrStatus>;
+
+/// The 4th KPI `Pull requests` (R146.3): open PRs of the Project's
+/// Worktrees and the checks sub-line; `None` while no Worktree of it has a
+/// PR (read or recorded), so a Project without PRs keeps three cards.
+pub fn pr_kpi(state: &State, project: &str, links: &[LinkView], pr: PrRead) -> Option<Kpi> {
+    let wts = worktrees(state, project, links);
+    let reads: Vec<Option<crate::pr::PrStatus>> = wts.iter().map(|(s, w, _)| pr(s, w)).collect();
+    let any = reads.iter().any(Option::is_some)
+        || wts
+            .iter()
+            .any(|(s, w, _)| state.worktree(s, w).is_some_and(|w| w.pr.is_some()));
+    if !any {
+        return None;
+    }
+    let k = crate::pr::kpi(reads.iter().map(Option::as_ref));
+    Some(Kpi {
+        label: "Pull requests".into(),
+        value: k.value,
+        detail: if k.sub.is_empty() {
+            "none open".into()
+        } else {
+            k.sub
+        },
+    })
+}
+
 /// The Worktrees card rows (R105.4): `facts` = (ahead, changed files) of
-/// a Worktree folder.
+/// a Worktree folder; `pr` = a Worktree's last PR read.
 pub fn worktree_rows(
     state: &State,
     project: &str,
     links: &[LinkView],
     facts: &dyn Fn(&Path) -> (usize, usize),
+    pr: PrRead,
 ) -> Vec<WorktreeRow> {
     let rows: Vec<WorktreeRow> = worktrees(state, project, links)
         .into_iter()
@@ -192,6 +230,15 @@ pub fn worktree_rows(
                 .flat_map(|t| t.panes())
                 .filter(|p| p.agent.is_some())
                 .collect();
+            let read = pr(&s, &w);
+            let recorded = wt.pr.as_ref();
+            let chip =
+                crate::pr::worktree_chip(read.as_ref(), recorded.map(|p| p.number)).map(|c| {
+                    crate::pr::Chip {
+                        text: format!("PR {}", c.text),
+                        tone: c.tone,
+                    }
+                });
             Some(WorktreeRow {
                 source: s.clone(),
                 worktree: w.clone(),
@@ -201,6 +248,13 @@ pub fn worktree_rows(
                 led: crate::status::worst(agents.iter().map(|p| p.status)),
                 set: wt.set.clone(),
                 group: false,
+                pr_chip: chip,
+                pr_url: read
+                    .as_ref()
+                    .map(|r| r.url.clone())
+                    .or_else(|| recorded.map(|p| p.url.clone()))
+                    .filter(|u| !u.is_empty()),
+                set_checks: crate::pr::set_checks(read.as_ref()),
                 counts: (ahead, changed, agents.len()),
             })
         })
@@ -258,7 +312,17 @@ fn group_sets(rows: Vec<WorktreeRow>, links: &[LinkView]) -> Vec<WorktreeRow> {
             (a.0 + m.counts.0, a.1 + m.counts.1, a.2 + m.counts.2)
         });
         let lead = &members[0];
+        // R151.4: the worst of its PRs, `<k> PRs · <j> failing`.
+        let checks: Vec<Option<crate::branch_set::Checks>> =
+            members.iter().map(|m| m.set_checks).collect();
+        let pr = crate::branch_set::pr_chip(&checks).map(|(text, worst)| crate::pr::Chip {
+            text,
+            tone: crate::pr::set_tone(worst),
+        });
         out.push(WorktreeRow {
+            pr_chip: pr,
+            pr_url: None,
+            set_checks: None,
             source: lead.source.clone(),
             worktree: lead.worktree.clone(),
             name: crate::branch_set::row_text(set, members.len()),
@@ -564,6 +628,94 @@ mod tests {
         sc
     }
 
+    fn no_pr(_: &str, _: &str) -> Option<crate::pr::PrStatus> {
+        None
+    }
+
+    fn read(number: u64, conclusion: &str) -> crate::pr::PrStatus {
+        let checks = if conclusion.is_empty() {
+            String::new()
+        } else {
+            format!(
+                r#"{{"__typename":"CheckRun","name":"test","workflowName":"CI","status":"COMPLETED","conclusion":"{conclusion}","detailsUrl":"d"}}"#
+            )
+        };
+        let json = format!(
+            r#"[{{"number":{number},"title":"t","url":"https://github.com/o/r/pull/{number}","state":"OPEN","isDraft":false,"baseRefName":"develop","headRefOid":"h","reviewDecision":"","statusCheckRollup":[{checks}]}}]"#
+        );
+        crate::pr::status_from_json(&json, "h", None)
+            .unwrap()
+            .unwrap()
+    }
+
+    #[test]
+    fn r146_d_home_pr_kpi_worktree_meta_and_set_chip() {
+        let mut sc = scene_set();
+        let facts = |_: &Path| (0, 0);
+        // No PR anywhere: three KPIs only, no chips.
+        assert_eq!(pr_kpi(&sc.state, "shop", &sc.links, &no_pr), None);
+        let rows = worktree_rows(&sc.state, "shop", &sc.links, &facts, &no_pr);
+        assert!(rows.iter().all(|r| r.pr_chip.is_none()));
+        // perf-img passing; the set's shop-web failing, shop-api pending.
+        let perf = sc.worktrees["perf-img"].1.clone();
+        let web = sc.worktrees["shop-web/feat-x"].1.clone();
+        let api = sc.worktrees["shop-api/feat-x"].1.clone();
+        let reads: std::collections::HashMap<String, crate::pr::PrStatus> = [
+            (perf.clone(), read(482, "SUCCESS")),
+            (web.clone(), read(7, "FAILURE")),
+            (api.clone(), read(8, "")),
+        ]
+        .into_iter()
+        .collect();
+        let pr = |_: &str, w: &str| reads.get(w).cloned();
+        let k = pr_kpi(&sc.state, "shop", &sc.links, &pr).unwrap();
+        assert_eq!(
+            (k.label.as_str(), k.value.as_str(), k.detail.as_str()),
+            ("Pull requests", "3", "1 failing")
+        );
+        let rows = worktree_rows(&sc.state, "shop", &sc.links, &facts, &pr);
+        let chip = |name: &str, group: bool| {
+            rows.iter()
+                .find(|r| r.name == name && r.group == group)
+                .and_then(|r| r.pr_chip.clone())
+                .map(|c| (c.text, c.tone))
+        };
+        use crate::pr::Tone;
+        assert_eq!(
+            chip("perf-img", false),
+            Some(("PR #482 \u{2713}".into(), Tone::Ok))
+        );
+        assert_eq!(
+            chip("feat-x · 3 sources", true),
+            Some(("2 PRs · 1 failing".into(), Tone::Error))
+        );
+        assert_eq!(chip("checkout-v2", false), None);
+        let perf_row = rows.iter().find(|r| r.name == "perf-img").unwrap();
+        assert_eq!(
+            perf_row.pr_url.as_deref(),
+            Some("https://github.com/o/r/pull/482")
+        );
+        // Only a recorded PR (before the first read): the KPI shows, the
+        // meta greys the number.
+        let (s, cv2) = sc.worktrees["checkout-v2"].clone();
+        sc.state.set_worktree_pr(
+            &s,
+            &cv2,
+            crate::model::PrRef {
+                number: 5,
+                url: "https://github.com/o/r/pull/5".into(),
+            },
+        );
+        let k = pr_kpi(&sc.state, "shop", &sc.links, &no_pr).unwrap();
+        assert_eq!((k.value.as_str(), k.detail.as_str()), ("0", "none open"));
+        let rows = worktree_rows(&sc.state, "shop", &sc.links, &facts, &no_pr);
+        let r = rows.iter().find(|r| r.name == "checkout-v2").unwrap();
+        assert_eq!(
+            r.pr_chip.clone().map(|c| (c.text, c.tone)),
+            Some(("PR #5".into(), Tone::Fg3))
+        );
+    }
+
     fn changed(p: &Path) -> usize {
         match p.file_name().and_then(|n| n.to_str()) {
             Some("checkout-v2") => 4,
@@ -602,7 +754,7 @@ mod tests {
             Some("checkout-v2") => (3, 4),
             _ => (0, 0),
         };
-        let rows = worktree_rows(&sc.state, "shop", &sc.links, &facts);
+        let rows = worktree_rows(&sc.state, "shop", &sc.links, &facts, &no_pr);
         let got: Vec<(&str, &str, &str)> = rows
             .iter()
             .map(|r| (r.name.as_str(), r.sub.as_str(), r.meta.as_str()))
@@ -619,7 +771,7 @@ mod tests {
             ]
         );
         assert_eq!(rows[0].led, Some(AgentStatus::Waiting));
-        let billing = worktree_rows(&sc.state, "billing", &sc.links, &facts);
+        let billing = worktree_rows(&sc.state, "billing", &sc.links, &facts, &no_pr);
         assert_eq!(billing[0].sub, "shared-ui ← release/2.4");
         assert_eq!(billing[0].meta, "1 agent");
     }
@@ -650,7 +802,7 @@ mod tests {
             Some(x) if x.ends_with("shop-api/feat-x") => (1, 0),
             _ => (0, 0),
         };
-        let rows = worktree_rows(&sc.state, "shop", &sc.links, &facts);
+        let rows = worktree_rows(&sc.state, "shop", &sc.links, &facts, &no_pr);
         let got: Vec<(&str, &str, bool, Option<&str>)> = rows
             .iter()
             .map(|r| (r.name.as_str(), r.sub.as_str(), r.group, r.set.as_deref()))
