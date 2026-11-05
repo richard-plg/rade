@@ -1372,9 +1372,7 @@ impl Run {
                     self.made.push(pr);
                     urls.push((j.source.clone(), url));
                 }
-                Err(e) => {
-                    return self.outcome(urls, found, Some((j.source.clone(), e.message)))
-                }
+                Err(e) => return self.outcome(urls, found, Some((j.source.clone(), e.message))),
             }
         }
         // Every row has its PR: append the cross-links (R151.3).

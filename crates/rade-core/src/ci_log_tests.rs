@@ -342,7 +342,9 @@ fn r147_b_a_job_without_room_and_the_real_budget_are_stated() {
     assert!(f.jobs[3..].iter().all(|j| j.log.is_none()));
     let p = f.prompt.unwrap();
     assert!(
-        p.contains("(logs left out, the 24 KB limit for all logs was reached: CI / j4, CI / j5, CI / j6)"),
+        p.contains(
+            "(logs left out, the 24 KB limit for all logs was reached: CI / j4, CI / j5, CI / j6)"
+        ),
         "{p}"
     );
 }
@@ -350,7 +352,8 @@ fn r147_b_a_job_without_room_and_the_real_budget_are_stated() {
 #[test]
 fn r147_c_a_restored_auto_send_does_not_send_a_head_again() {
     use AgentState::*;
-    let fail = |a: &mut AutoSend, h| a.step(Mode::Send, Read::Failing { head: h }, 1, Some(Waiting));
+    let fail =
+        |a: &mut AutoSend, h| a.step(Mode::Send, Read::Failing { head: h }, 1, Some(Waiting));
     // Relaunch: the last sent head and the count come back from state.json.
     let mut a = AutoSend::restore(Some("h1".into()), 2);
     assert_eq!(fail(&mut a, "h1"), Action::Nothing);
