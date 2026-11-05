@@ -35,6 +35,11 @@ pub struct Preset {
     pub prompt: PromptMode,
     /// Flag before the prompt argument (`-i`, `--prompt`); none = positional.
     pub prompt_flag: Option<String>,
+    /// Flag that adds another folder the Agent may read and edit
+    /// (`--add-dir`); a Branch set's Agent gets it once per other Worktree
+    /// (R151.1). None = only the prompt names them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub add_dir: Option<String>,
     /// Flag that makes the Agent use a RADE-chosen session id (Claude Code).
     /// None = the Agent reports its id from a session-start hook.
     pub session_id_flag: Option<String>,
@@ -84,6 +89,7 @@ pub struct PresetOverride {
     pub command: Option<String>,
     pub prompt: Option<PromptMode>,
     pub prompt_flag: Option<String>,
+    pub add_dir: Option<String>,
     pub session_id_flag: Option<String>,
     pub resume: Option<String>,
     pub hooks: Option<HookKind>,
@@ -112,6 +118,7 @@ fn preset(
         command: command.into(),
         prompt: PromptMode::Arg,
         prompt_flag: prompt_flag.map(Into::into),
+        add_dir: None,
         session_id_flag: session_id_flag.map(Into::into),
         resume: Some(resume.into()),
         hooks,
@@ -151,6 +158,7 @@ pub fn builtins() -> BTreeMap<String, Preset> {
                      --from-pr --teleport",
                 ),
                 model_flag: Some("--model".into()),
+                add_dir: Some("--add-dir".into()),
                 ..preset(
                     "claude",
                     None,
@@ -176,6 +184,7 @@ pub fn builtins() -> BTreeMap<String, Preset> {
                 ),
                 session_flags: words("--last --all --include-non-interactive -i --image"),
                 model_flag: Some("-m".into()),
+                add_dir: Some("--add-dir".into()),
                 ..preset(
                     "codex --no-daemon",
                     None,
@@ -249,6 +258,7 @@ pub fn registry(
                     .ok_or_else(|| format!("[agents.{name}] needs `command`"))?,
                 prompt: PromptMode::Arg,
                 prompt_flag: None,
+                add_dir: None,
                 session_id_flag: None,
                 resume: None,
                 hooks: HookKind::None,
@@ -268,6 +278,7 @@ pub fn registry(
                 command: o.command.unwrap_or(base.command),
                 prompt: o.prompt.unwrap_or(base.prompt),
                 prompt_flag: o.prompt_flag.or(base.prompt_flag),
+                add_dir: o.add_dir.or(base.add_dir),
                 session_id_flag: o.session_id_flag.or(base.session_id_flag),
                 resume: o.resume.or(base.resume),
                 hooks: o.hooks.unwrap_or(base.hooks),

@@ -5,6 +5,7 @@ pub mod activity;
 pub mod agents;
 pub mod annotate;
 pub mod basic;
+pub mod branch_set;
 pub mod browser;
 pub mod cdp;
 pub mod checkout;

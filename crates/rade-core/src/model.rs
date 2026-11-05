@@ -166,6 +166,10 @@ pub struct Worktree {
     /// The branch or ref it started from (R28.3): Review compares with it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub base: Option<String>,
+    /// The Branch set it was made in (R149.1): the name one `worktree.add`
+    /// call gave to the Worktrees it cut in several links of a Project.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub set: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -372,7 +376,19 @@ impl State {
             review: Default::default(),
             project: None,
             base: None,
+            set: None,
         }
+    }
+
+    /// Record the Branch set a Worktree was made in (R149.1).
+    pub fn set_worktree_set(
+        &mut self,
+        source: &str,
+        worktree: &str,
+        set: Option<String>,
+    ) -> Result<()> {
+        self.worktree_mut(source, worktree)?.set = set;
+        Ok(())
     }
 
     pub(crate) fn new_pane(
