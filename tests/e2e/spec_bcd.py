@@ -166,11 +166,11 @@ def scene_b():
     near("B.13", "KPI row margin.top", kp["margin"]["top"], 18)
     near("B.13", "KPI row margin.bottom", kp["margin"]["bottom"], 22)
     ks = [k for k in geo("kpi", all_=True) if "kpi" in k["classes"]]
-    eq("B.14", "KPI count", len(ks), 3)
-    if len(ks) == 3:
+    eq("B.14", "KPI count", len(ks), 4)
+    if len(ks) == 4:
         near("B.13", "KPI gap", ks[1]["x"] - (ks[0]["x"] + ks[0]["width"]), 10)
         for k in ks:
-            near("B.14", "KPI width", k["width"], 365)
+            near("B.14", "KPI width", k["width"], 271.5)
         k = ks[0]
         eq("B.15", "KPI border", k["border"]["top"], 1)
         eq("B.15", "KPI border color", k["border_color"]["top"], tok("line"))
@@ -186,7 +186,7 @@ def scene_b():
     font("B.16", "KPI detail", kd, size=12)
     eq("B.16", "KPI detail color", kd["color"], tok("fg3"))
     eq("B.17", "KPI texts", [f"{k['value']} {k['detail']}" for k in home["kpis"]],
-       ["3 1 waiting · 1 running", "2 checkout-v2, perf-img", "7 files in 2 sources"])
+       ["3 1 waiting · 1 running", "2 checkout-v2, perf-img", "7 files in 2 sources", "0 none open"])
     se = geo("home-section")
     near("B.18", "section margin.top", se["margin"]["top"], 6)
     near("B.18", "section margin.bottom", se["margin"]["bottom"], 8)

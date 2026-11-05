@@ -67,7 +67,11 @@ act() { ui activity | jq -r '.activity[].line'; }
 ghcalls() { grep -c -- "$1" "$FAKE_GH_LOG" || true; }
 # `wtj <source> <worktree> <jq path>` → a field of `rade worktree list`.
 wtj() { rade worktree list "$1" --json | jq -r --arg w "$2" ".worktrees[] | select(.worktree==\$w) | $3"; }
-export -f prstate prtick act ui rpc field wtj
+dui() { rpc debug.ui "$1"; }
+dlg() { dui '{"op":"dialog"}' | jq '.dialog'; }
+light() { rade debug action color_scheme_light >/dev/null; sleep 1; }
+dark() { rade debug action color_scheme_dark >/dev/null; sleep 1; }
+export -f prstate prtick act ui rpc field wtj dui dlg
 
 # The scene: Workspace acme with three repositories (bare remotes), Project shop.
 #   shop-web (main checkout on develop, develop 1 commit ahead of main), shop-api (main), shared-ui (on release/2.4)
@@ -155,8 +159,8 @@ if want status; then
     total=$(ghcalls "pr list")
     note "R146-e 20 Worktrees, hidden, 650 s of test clock: $total gh pr list calls ($c599 before 599 s), $branches branches read, most calls on one branch: $most [branches by calls: $per]"
     check "R146-e every one of the 20 Worktrees was read (got $branches)" test "$branches" = 20
-    check "R146-e gh ran at most twice per Worktree in 10 min (most $most)" test "$most" -le 2
-    check "R146-e no Workspace has a gh call left in flight" bash -c "[[ \$(prstate | jq '[.workspaces[] | select(.in_flight)] | length') == 0 ]]"
+    check "R146-e gh ran at most twice per Worktree in 10 min of test clock (most $most)" test "$most" -le 2
+    check "R146-e never two gh calls at once in a Workspace (none left in flight after the ticks)" bash -c "[[ \$(prstate | jq '[.workspaces[] | select(.in_flight)] | length') == 0 ]]"
     stop_app
 
     echo "-- R146-e [scm] pr_status = false: gh never runs"
@@ -245,7 +249,7 @@ if want ci; then
     rpc debug.pr '{"op":"activate","on":false}' >/dev/null
     clock 0
     prtick >/dev/null
-    nf() { state | jq -r --arg p "$agent" '[.notifications[]? | select(.pane==$p and (.text | test("checks failed")))] | length'; }
+    nf() { state | jq -r --arg p "$agent" '[.notifications[]? | select(.pane==$p and ((.title // "") + .text | test("checks failed")))] | length'; }
     export -f nf
     export agent
     check "R147-d setup: the first read (pending) is silent: no PR Notification" is nf 0
@@ -255,8 +259,32 @@ if want ci; then
     check "R147-d pending -> failing: one Notification on the Worktree's Agent Pane" eventually 5 is nf 1
     check "R147-d …and one Activity row '#7 checks failed (2 jobs)'" is "act | grep -c '#7 checks failed (2 jobs)'" 1
     check "R147-d [ask] nothing was sent to the Agent" test ! -s "$FAKE_PROMPTS"
-    echo "  SKIP R147-d TODO: Send to Agent click -> preview (job heading + tail) -> Send: the preview dialog hook is the UI task's;"
-    echo "       until then the prompt reaches the Agent through the opt-in path checked in R147-e / E8"
+    state | jq .notifications >"$OUT/ci-notifications.json"
+    cp "$FAKE_PROMPTS" "$OUT/ci-prompts-before.txt"
+    nid=$(state | jq -r --arg p "$agent" '[.notifications[]? | select(.pane==$p and .action=="send_ci_failure")][0].id')
+    check "R147-d the failing Notification carries the action send_ci_failure (id $nid)" test "$nid" != null -a -n "$nid"
+    rade debug panel ci_send "$nid" >/dev/null
+    check "R147-d Send to Agent opens the preview with the prompt built" eventually 15 \
+        bash -c "dlg | jq -e '.kind == \"ci_send\" and .loading == false and (.text | length) > 0' >/dev/null"
+    dlg >"$OUT/ci-send-dialog.json"
+    check "R147-d the preview holds the job heading '## CI / test' and the log tail" \
+        bash -c "jq -e '(.text | test(\"## CI / test\")) and (.text | test(\"unresolved import\")) and (.text | startswith(\"CI failed on PR #7 \"))' '$OUT/ci-send-dialog.json' >/dev/null"
+    check "R147-d …and a target naming the Worktree's only Agent (ci-agent)" \
+        bash -c "jq -e '.target | test(\"ci-agent\")' '$OUT/ci-send-dialog.json' >/dev/null"
+    shot ci-send-dark
+    light
+    shot ci-send-light
+    dark
+    dui "$(jq -c '{op: "dialog_text", text: (.text + "\nEDITED-MARK: start with the lint job.")}' "$OUT/ci-send-dialog.json")" >/dev/null
+    check "R147-d the text is editable" is "dlg | jq -r '.text | test(\"EDITED-MARK\")'" true
+    dui '{"op":"dialog_primary"}' >/dev/null
+    check "R147-d Send: the Agent's screen gets 'CI failed on PR #7'" eventually 20 screen_has "$agent" "CI failed on PR #7"
+    cp "$FAKE_PROMPTS" "$OUT/ci-prompts.txt"
+    check "R147-d …with the edit, and the dialog closed" eventually 15 grep -q EDITED-MARK "$FAKE_PROMPTS"
+    check "R147-d rade wait --until finds the text on the Agent's screen" test "$(rade wait "$agent" --until '/CI failed on PR #7/' --timeout 10 2>&1 | head -c 200)" != ""
+    check "R147-d the palette offers 'Send CI Failure to Agent…'" \
+        bash -c "rade --json debug palette --limit 80 -- '>send ci' | jq -r '.results[].title' | grep -q 'Send CI Failure to Agent'"
+    dui '{"op":"dialog_cancel"}' >/dev/null
 
     echo "-- R147-f rade pr failures --json"
     rc=$(code rade pr failures --worktree feat-ci --source shop-web --json)
@@ -497,11 +525,6 @@ if want sets; then
     stop_app
 fi
 
-dui() { rpc debug.ui "$1"; }
-dlg() { dui '{"op":"dialog"}' | jq '.dialog'; }
-light() { rade debug action color_scheme_light >/dev/null; sleep 1; }
-dark() { rade debug action color_scheme_dark >/dev/null; sleep 1; }
-export -f dui dlg
 # Commit a file in every Worktree of a set; prints nothing.
 commit_set() { # set-name
     local s w
@@ -661,8 +684,88 @@ if want budget; then
 fi
 
 if want chips; then
-    echo "== R146-d: the chips follow the fixture (Navigator, Changes card, Project home KPI)"
-    echo "  SKIP R146-d: the chip UI (Navigator chip, Changes card chip, Pull requests KPI) is another task's; this part is filled in when it lands"
+    echo "== R146-d: the chips follow the fixture (Navigator, Changes card, Project home, Agent Overview)"
+    : >"$CONF"
+    ci_setup chips
+    scm() { rpc debug.scm "${1:-{\}}"; }
+    rade focus "$agent" >/dev/null
+    dui '{"op":"right_page","arg":"changes"}' >/dev/null
+    # "<text> <tone>" of a chip on each surface.
+    c_nav() { dui '{"op":"sidebar"}' | jq -r '[.sidebar[] | select(.kind=="worktree" and .title=="feat-ci")][0].pr_chip | if . == null then "none" else "\(.text) \(.tone)" end'; }
+    c_changes() { scm | jq -r '[.cards[] | select(.source=="shop-web")][0].pr_chip | if . == null then "none" else "\(.text) \(.tone)" end'; }
+    c_home() { dui '{"op":"home"}' | jq -r '[.home.worktrees[]? | select(.name=="feat-ci" and (.group | not))][0].pr_chip | if . == null then "none" else "\(.text) \(.tone)" end'; }
+    kpi_home() { dui '{"op":"home"}' | jq -r '[.home.kpis[]? | select(.label=="Pull requests")][0] | if . == null then "none" else "\(.value) \(.detail)" end'; }
+    c_overview() {
+        local r
+        dui '{"op":"overview","arg":"open"}' >/dev/null
+        r=$(dui '{"op":"overview","arg":"state"}' | jq -r '[.. | objects | select(.name? == "ci-agent")][0].pr_chip | if . == null then "none" else "\(.text) \(.tone)" end')
+        dui '{"op":"overview","arg":"close"}' >/dev/null
+        echo "$r"
+    }
+    export -f c_nav c_changes c_home kpi_home c_overview scm
+    dui '{"op":"nav_click","kind":"project","title":"Shop"}' >/dev/null
+    # `home` shows only while Project home is on screen: read it on its own, then back to the Agent.
+    surfaces() { # → "nav | changes | home | overview"
+        local h o
+        h=$(c_home)
+        rade focus "$agent" >/dev/null
+        echo "$(c_nav) | $(c_changes) | $h | $(c_overview)"
+    }
+    export -f surfaces
+    stage() { # state expected-text expected-tone label
+        local want="$2 $3"
+        turn "$1"
+        dui '{"op":"nav_click","kind":"project","title":"Shop"}' >/dev/null
+        check "R146-d $4: the Project home Worktree chip is 'PR $want' (R146.3)" eventually 10 is c_home "PR $want"
+        check "R146-d $4: the Navigator chip is '$want'" eventually 10 is c_nav "$want"
+        rade focus "$agent" >/dev/null
+        check "R146-d $4: the Changes card chip is '$want'" eventually 10 is c_changes "$want"
+        check "R146-d $4: the Agent Overview card chip is '$want'" eventually 10 is c_overview "$want"
+    }
+    echo "-- before the first read: nothing"
+    check "R146-d no PR yet: no chip on any surface" is "surfaces" "none | none | none | none"
+    stage pending "#7 ●" warn "pending"
+    shot chips-pending-dark
+    check "R146-d pending: Project home's 4th KPI 'Pull requests' counts 1 open, checks pending" \
+        eventually 10 bash -c "kpi_home | grep -q '^1 .*pending'"
+    stage failing "#7 ✗" error "failing"
+    check "R146-d failing: the Navigator tooltip names the PR" bash -c "dui '{\"op\":\"sidebar\"}' | jq -r '[.sidebar[] | select(.kind==\"worktree\" and .title==\"feat-ci\")][0].pr_tooltip' | grep -q 'Feature feat-ci'"
+    check "R146-d failing: the KPI sub-line says it" eventually 10 bash -c "kpi_home | grep -qi 'failing'"
+    dui '{"op":"nav_click","kind":"project","title":"Shop"}' >/dev/null
+    shot chips-failing-project-home-dark
+    light
+    shot chips-failing-project-home-light
+    rade focus "$agent" >/dev/null
+    shot chips-failing-changes-light
+    dark
+    shot chips-failing-changes-dark
+    dui '{"op":"nav_click","kind":"project","title":"Shop"}' >/dev/null
+    stage passing "#7 ✓" ok "passing"
+    check "R146-d passing: the KPI sub-line says it" eventually 10 bash -c "kpi_home | grep -qi 'passing'"
+    shot chips-passing-project-home-dark
+    rade focus "$agent" >/dev/null
+    shot chips-passing-navigator-dark
+    light
+    shot chips-passing-navigator-light
+    dark
+    echo "-- merged: the chip greys and a Toast offers Remove Worktree…"
+    jq '.[0].state = "MERGED"' "$FAKE_GH_DIR/prs/feat-ci.json" >"$FAKE_GH_DIR/prs/feat-ci.tmp"
+    mv "$FAKE_GH_DIR/prs/feat-ci.tmp" "$FAKE_GH_DIR/prs/feat-ci.json"
+    OFF=$((OFF + 700))
+    clock "$OFF"
+    prtick >/dev/null
+    check "R146-d merged: the Navigator chip is '#7 merged fg3'" eventually 10 is c_nav "#7 merged fg3"
+    check "R146-d merged: the Changes card chip is '#7 merged fg3'" eventually 10 is c_changes "#7 merged fg3"
+    check "R146-d merged: the Agent Overview chip is '#7 merged fg3'" eventually 10 is c_overview "#7 merged fg3"
+    check "R146-d merged: a Toast '#7 merged' is up" eventually 5 \
+        bash -c "dui '{\"op\":\"chrome\"}' | jq -e '[.. | strings] | any(. == \"#7 merged\")' >/dev/null"
+    dui '{"op":"toast_button","arg":"#7 merged"}' >/dev/null
+    check "R146-d …its button opens the Remove Worktree dialog" eventually 5 \
+        bash -c "rade debug dialog | jq -e '.open == true and (.heading | test(\"Remove\"))' >/dev/null"
+    rade debug dialog >"$OUT/remove-dialog.json" || true
+    check "R146-d …and nothing was removed without it" test -d "$d"
+    rade debug dialog respond cancel >/dev/null 2>&1 || true
+    stop_app
 fi
 
 echo

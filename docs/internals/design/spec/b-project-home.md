@@ -4,7 +4,7 @@ Mockup: `mockup.html#b-dark` / `#b-light`, images `new-b-dark.png`, `new-b-light
 
 Window 1440 × 900 px. Columns: Navigator 268 px · page 1172 px (no Inspector on this screen). Page content width 1172 − 2 × 28 = 1116 px.
 
-**0.8.0 scope versus the mockup** (decisions log): the mockup's `Pull requests` KPI and the Worktree meta `PR #482 ✓` belong to "later" (design §8, PRD Non-goals); 0.8.0 shows three KPIs. M54 added the `New branch across sources…` button (R150.1) between `Settings` and `Open terminal`, in the mockup's order. The Activity row `#482 opened from perf-img` stays (Activity records PRs opened from RADE).
+**0.8.0 scope versus the mockup** (decisions log): the mockup's `Pull requests` KPI and the Worktree meta `PR #482 ✓` were "later" (design §8, PRD Non-goals); M54 added both (R146.3: the 4th KPI, `0 none open` in this scene whose #482 is recorded but not read) and the `New branch across sources…` button (R150.1) between `Settings` and `Open terminal`, in the mockup's order. The Activity row `#482 opened from perf-img` stays (Activity records PRs opened from RADE).
 
 ## Measurements
 
@@ -23,10 +23,10 @@ Window 1440 × 900 px. Columns: Navigator 268 px · page 1172 px (no Inspector o
 | B.11 | Primary button `Open terminal` | `acc` fill, `acc-fg` 600, height 26 px, radius 6 px; exactly one `.suggested-action` on screen B | exact; count exact | `geometry home-open-terminal → background, color, height, radius`; `count .suggested-action = 1` |
 | B.12 | Secondary button | height 26 px, padding 0 10 px, radius 6 px, 1 px `line2`, `bg2`, Inter 12.5 px `fg`, icon 14 px `fg2` | ±1 px; exact | `geometry home-settings → height, padding, radius, border, background` |
 | B.13 | KPI row margin and gap | 18 px above, 22 px below; gap 10 px | ±1 px | `geometry home-kpis → margin`; x deltas of `kpi` |
-| B.14 | KPI cards: count and width | 3 cards (`Agents`, `Worktrees`, `Uncommitted`), each (1116 − 20) / 3 = 365 px | ±1 px; exact count | `count kpi = 3`; `geometry kpi → width` |
+| B.14 | KPI cards: count and width | 4 cards (`Agents`, `Worktrees`, `Uncommitted`, `Pull requests`), each (1116 − 30) / 4 = 271.5 px | ±1 px; exact count | `count kpi = 4`; `geometry kpi → width` |
 | B.15 | KPI card box | 1 px `line`, radius 8 px, padding 10 12 px, `bg1` | ±1 px; exact | `geometry kpi → border, radius, padding, background` |
 | B.16 | KPI label / value / detail | label A.18 style; value JetBrains Mono 18 px 600 `fg`, 2 px below label; detail 12 px 400 `fg3` | ±0.5 px; exact | `geometry kpi-label → font`; `geometry kpi-value → font, color`; `geometry kpi-detail → font, color` |
-| B.17 | KPI texts | `3` `1 waiting · 1 running`; `2` `checkout-v2, perf-img`; `7` `files in 2 sources` | exact text | `debug.ui home` → kpis |
+| B.17 | KPI texts | `3` `1 waiting · 1 running`; `2` `checkout-v2, perf-img`; `7` `files in 2 sources`; `0` `none open` | exact text | `debug.ui home` → kpis |
 | B.18 | Section header `SOURCES` | label A.18 style, margin 6 px above / 8 px below; `Add source` secondary button (`plus`) right-aligned | ±1 px; exact | `geometry home-section → margin`; `debug.ui home` → section buttons |
 | B.19 | Link table width | 1116 px (full content width) | ±1 px | `geometry link-table → width` |
 | B.20 | Link table head | columns `SOURCE`, `BASE`, `CHECKOUT`, `HEAD`, `VS BASE`, `STATE`, (actions); JetBrains Mono 600 10.5 px, uppercase, letter-spacing 0.1em, `fg3`, padding 6 10 px, bottom border 1 px `line` | ±1 px; exact text | `geometry link-table-head → font, padding, border.bottom`; `debug.ui home` → columns |
