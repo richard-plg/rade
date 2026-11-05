@@ -490,6 +490,11 @@ fn field(text: &str, i: usize) -> std::result::Result<u64, String> {
                 if step == 0 {
                     return Err("step 0".into());
                 }
+                // A step past the field's range would walk off the end of it
+                // (and overflow the counter, R140.5).
+                if step > hi - lo + 1 {
+                    return Err(format!("step {step} is larger than the range {lo}-{hi}"));
+                }
                 (r, step)
             }
             None => (item, 1),

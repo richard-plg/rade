@@ -595,10 +595,11 @@ impl WorktreeView {
                 self.tabs_box
                     .reorder_child_after(&e.widget.root, prev.as_ref());
             }
-            // Paused ↔ running swaps every Pane's widget (R19.3).
+            // Paused ↔ running swaps every Pane's widget (R19.3). Only this
+            // Tab's changed Panes move (R142).
             let sig = format!("{}|{paused}", layout_view::signature(tab));
             if sig != e.signature {
-                e.captions = layout_view::rebuild(&e.container, tab, roots);
+                layout_view::rebuild(&e.container, tab, roots, &mut e.captions);
                 e.signature = sig;
             }
             e.captions.update(tab, unread);

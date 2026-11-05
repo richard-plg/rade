@@ -68,7 +68,7 @@ fn flush(pane: &str) {
                     x.last = Some(Instant::now());
                 }
             });
-            app.update(|m| m.set_pane_title(pane, &t));
+            app.update_coalesced(|m| m.set_pane_title(pane, &t));
         }
     }
 }

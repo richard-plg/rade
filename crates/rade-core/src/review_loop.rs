@@ -539,31 +539,19 @@ pub fn generated_by_name(path: &str) -> bool {
 /// Paths of `paths` marked `linguist-generated` (set, not `false`) in the
 /// repository at `dir` (`git check-attr`); none on any error.
 pub fn generated_attrs(dir: &Path, paths: &[&str]) -> HashSet<String> {
-    use std::io::Write;
-    use std::process::Stdio;
-    let Ok(mut c) = crate::git::command(dir)
-        .args(["check-attr", "-z", "--stdin", "linguist-generated"])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-    else {
-        return HashSet::new();
-    };
-    let mut stdin = c.stdin.take().unwrap();
     let input: Vec<u8> = paths
         .iter()
         .flat_map(|p| [p.as_bytes(), b"\0"])
         .flatten()
         .copied()
         .collect();
-    // check-attr answers as it reads: write from a thread so a long list
-    // cannot fill both pipes.
-    let writer = std::thread::spawn(move || {
-        let _ = stdin.write_all(&input);
-    });
-    let out = c.wait_with_output().map(|o| o.stdout).unwrap_or_default();
-    let _ = writer.join();
+    let out = crate::proc::output_input(
+        crate::git::command(dir).args(["check-attr", "-z", "--stdin", "linguist-generated"]),
+        &input,
+        crate::proc::GIT_LOCAL,
+    )
+    .map(|o| o.stdout)
+    .unwrap_or_default();
     let text = String::from_utf8_lossy(&out);
     let f: Vec<&str> = text.split('\0').collect();
     f.chunks(3)

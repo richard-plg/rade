@@ -77,6 +77,9 @@ RUN --mount=type=cache,target=/home/ci/.cargo/registry,uid=1000,gid=1000 \
     && cargo test --workspace --locked \
     && python3 docs/internals/design/contrast.py \
     && scripts/contrast_test.sh \
+    && scripts/semver_test.sh \
+    && scripts/check-ci-suites.sh \
+    && scripts/ci_test.sh \
     && scripts/trace_test.sh \
     && scripts/trace.sh --no-write >/dev/null \
     && cargo build -p rade-cli --locked \

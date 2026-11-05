@@ -524,6 +524,9 @@ fn main() {
     // or other child process inherits it.
     let _ =
         handlers::DEBUG_SOCKET.set(std::env::var(rade_core::rpc::DEBUG_ENV).as_deref() == Ok("1"));
+    if handlers::DEBUG_SOCKET.get() == Some(&true) {
+        perf::install_loop_probe();
+    }
     import_login_shell_env();
     // The Update overrides (R127, D27) are read once the login shell's
     // environment is in, before anything else uses them, then removed with

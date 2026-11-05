@@ -412,7 +412,7 @@ fn nvidia_smi() -> Option<(f64, String)> {
         "--query-gpu=utilization.gpu,name",
         "--format=csv,noheader,nounits",
     ]);
-    let out = rade_core::shell_env::bounded_output(&mut c, Duration::from_secs(2)).ok()?;
+    let out = rade_core::proc::output(&mut c, Duration::from_secs(2)).ok()?;
     let text = String::from_utf8_lossy(&out.stdout);
     let line = text.lines().next()?;
     let (busy, name) = line.split_once(',')?;

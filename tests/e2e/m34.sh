@@ -32,7 +32,6 @@ EOF
 
 G() { git -c user.email=t@t -c user.name=t -c commit.gpgsign=false "$@"; }
 # `code <cmd…>` → its exit code; stdout in $T/out, stderr in $T/err.
-code() { set +e; "$@" >"$T/out" 2>"$T/err"; local c=$?; set -e; echo $c; }
 
 echo "== R101-a the 7 removed commands"
 for c in "task list" "batch status" "initiative list" "digest" "report list" "flow" "lessons"; do

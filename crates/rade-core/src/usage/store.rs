@@ -91,11 +91,15 @@ pub fn append(path: &Path, records: &[Record]) -> std::io::Result<()> {
         text.push_str(&serde_json::to_string(r).unwrap_or_default());
         text.push('\n');
     }
-    std::fs::OpenOptions::new()
+    use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+    let mut f = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
-        .open(path)?
-        .write_all(text.as_bytes())
+        .mode(0o600)
+        .open(path)?;
+    // A store an older RADE made 0644 becomes private on its next write (R141).
+    f.set_permissions(std::fs::Permissions::from_mode(0o600))?;
+    f.write_all(text.as_bytes())
 }
 
 /// Every readable record; broken lines are skipped.
@@ -129,9 +133,7 @@ pub fn prune(path: &Path, now: i64) -> std::io::Result<usize> {
         }
     }
     if gone > 0 {
-        let tmp = path.with_extension("jsonl.tmp");
-        std::fs::write(&tmp, kept)?;
-        std::fs::rename(tmp, path)?;
+        crate::fs_atomic::write(path, kept.as_bytes(), crate::fs_atomic::Mode::Private)?;
     }
     Ok(gone)
 }
@@ -341,6 +343,22 @@ mod tests {
         // Nothing more to prune: the file is not rewritten.
         assert_eq!(prune(&a, now).unwrap(), 0);
         assert_eq!(prune(&dir.join("missing.jsonl"), now).unwrap(), 0);
+    }
+
+    #[test]
+    fn r141_a_usage_store_is_0600_also_when_it_was_0644() {
+        use std::os::unix::fs::PermissionsExt;
+        let d = tmp("r141");
+        let f = d.join("u.jsonl");
+        std::fs::write(&f, "").unwrap();
+        std::fs::set_permissions(&f, std::fs::Permissions::from_mode(0o644)).unwrap();
+        append(&f, &[sample(1_000, 1.0)]).unwrap();
+        let mode = |p: &Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o7777;
+        assert_eq!(mode(&f), 0o600);
+        std::fs::set_permissions(&f, std::fs::Permissions::from_mode(0o644)).unwrap();
+        prune(&f, 1_000 + 200 * 86_400).unwrap();
+        assert_eq!(mode(&f), 0o600);
+        let _ = std::fs::remove_dir_all(d);
     }
 
     #[test]

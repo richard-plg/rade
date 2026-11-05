@@ -364,7 +364,6 @@ fn changes(files: Vec<(PathBuf, Merge)>, agent: &str) -> Result<Vec<Change>, Str
 /// symlink (its target is written), the file's mode is kept, and the new
 /// content is synced before it replaces the old one.
 pub fn apply(changes: &[Change], stamp: &str) -> std::io::Result<Vec<PathBuf>> {
-    use std::io::Write;
     let mut backups = Vec::new();
     for c in changes {
         if c.remove {
@@ -375,24 +374,20 @@ pub fn apply(changes: &[Change], stamp: &str) -> std::io::Result<Vec<PathBuf>> {
             std::fs::create_dir_all(dir)?;
         }
         let mut target = c.path.clone();
-        let mut mode = None;
         if c.old.is_some() {
             let mut name = c.path.clone().into_os_string();
             name.push(format!(".rade-bak-{stamp}"));
             std::fs::copy(&c.path, &name)?;
             backups.push(PathBuf::from(name));
             target = c.path.canonicalize()?;
-            mode = Some(std::fs::metadata(&target)?.permissions());
         }
-        let mut tmp = target.clone().into_os_string();
-        tmp.push(".rade-tmp");
-        let mut f = std::fs::File::create(&tmp)?;
-        f.write_all(c.new.as_bytes())?;
-        if let Some(m) = mode {
-            f.set_permissions(m)?;
-        }
-        f.sync_all()?;
-        std::fs::rename(&tmp, &target)?;
+        // A Workspace's workspace.toml can hold tokens: always private.
+        let mode = if c.path.ends_with(".rade/workspace.toml") {
+            crate::fs_atomic::Mode::Private
+        } else {
+            crate::fs_atomic::Mode::Keep
+        };
+        crate::fs_atomic::write(&target, c.new.as_bytes(), mode)?;
     }
     Ok(backups)
 }

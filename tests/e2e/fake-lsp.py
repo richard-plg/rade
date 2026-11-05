@@ -15,6 +15,8 @@ Environment:
   FAKE_LSP_INDEX_MS  report indexing ($/progress) this long after start;
                      queries answer [] meanwhile
   FAKE_LSP_NO_CALLS  no callHierarchyProvider
+  FAKE_LSP_STOP_READING  stop reading stdin after `initialized` (the pipe
+                     fills, a client's write blocks: R140.3)
   FAKE_LSP_HANG_ON   a method name (e.g. `initialize`,
                      `textDocument/documentSymbol`): never answer it, and
                      nothing after it (a hung server, M29)
@@ -29,7 +31,8 @@ contains the query (any case); FAKE_LSP_NO_HOVER drops hoverProvider.
 logged as `watched <type>:<path relative to the root> ...` (M29).
 "@index_ms" in .fake-lsp.json sets the indexing time per repository,
 "@hang_on" the method to hang on (as FAKE_LSP_HANG_ON).
-A query on the name `crash_now` exits at once (code 3); on `garbage_now` it
+A query on the name `crash_now` exits at once (code 3; with FAKE_LSP_CRASH_STDERR_MS=<n> it
+closes stdout first and writes its stderr line n ms later); on `garbage_now` it
 sends a 99999999999999-byte Content-Length and hangs.
 """
 import json, os, sys, threading, time
@@ -165,6 +168,10 @@ def query(method, params):
             out.flush()
         time.sleep(3600)
     if word == "crash_now":
+        delay = int(os.environ.get("FAKE_LSP_CRASH_STDERR_MS", "0") or 0)
+        if delay:
+            os.close(1)  # stdout reaches EOF first; its stderr line follows
+            time.sleep(delay / 1000)
         sys.stderr.write("fake-lsp: crashed on purpose\n")
         sys.stderr.flush()
         os._exit(3)
@@ -243,6 +250,9 @@ def main():
                 indexing = True
                 send({"jsonrpc": "2.0", "method": "$/progress", "params": {"token": "idx", "value": {"kind": "begin", "title": "Indexing"}}})
                 threading.Thread(target=finish_indexing, args=(ms,), daemon=True).start()
+            if os.environ.get("FAKE_LSP_STOP_READING"):
+                log("stop-reading", os.getpid())
+                time.sleep(3600)
         elif m == "textDocument/didOpen":
             DOCS[p["textDocument"]["uri"]] = p["textDocument"]["text"]
         elif m == "workspace/didChangeWatchedFiles":

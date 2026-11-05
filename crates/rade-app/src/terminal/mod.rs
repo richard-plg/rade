@@ -84,10 +84,10 @@ struct SurfaceEntry {
     on_desktop_notification: Option<Box<DesktopNotificationCallback>>,
     on_bell: Option<Box<BellCallback>>,
     on_close: Option<Box<VoidCallback>>,
-    on_child_exited: Option<Box<ChildExitedCallback>>,
+    on_child_exited: Option<Rc<ChildExitedCallback>>,
     on_open_url: Option<Box<PwdChangedCallback>>,
     link_resolves: Option<Box<LinkResolves>>,
-    on_command_finished: Option<Box<VoidCallback>>,
+    on_command_finished: Option<Rc<VoidCallback>>,
     /// RADE (R19.5): the search bar Ghostty's search actions drive.
     search: SearchBar,
     clipboard_context: *mut ClipboardContext,
@@ -495,11 +495,7 @@ impl TerminalHandle {
     /// (`GHOSTTY_POINT_VIEWPORT` = visible rows, `GHOSTTY_POINT_SCREEN` =
     /// scrollback + visible rows).
     pub fn read_text(&self, point_tag: c_int) -> Option<String> {
-        let Some(surface) = *self.surface_cell.borrow() else {
-            return Some(String::new());
-        };
-
-        let selection = ghostty_selection_s {
+        self.read_selection(ghostty_selection_s {
             top_left: ghostty_point_s {
                 tag: point_tag,
                 coord: GHOSTTY_POINT_COORD_TOP_LEFT,
@@ -513,6 +509,89 @@ impl TerminalHandle {
                 y: 0,
             },
             rectangle: false,
+        })
+    }
+
+    /// `(every row, rows of the active area, row numbering identity)` as
+    /// the terminal itself says now (`ghostty_surface_scrollbar`, under its
+    /// lock): not the numbers of the last draw, which a Pane nobody sees
+    /// never makes. `None` without a surface.
+    pub fn screen_rows(&self) -> Option<(usize, usize, u64)> {
+        let surface = (*self.surface_cell.borrow())?;
+        let mut sb = ghostty_surface_scrollbar_s::default();
+        unsafe { ghostty_surface_scrollbar(surface, &mut sb) }.then_some((
+            sb.total as usize,
+            sb.len as usize,
+            sb.row_space_revision,
+        ))
+    }
+
+    /// Rows `from..to` of the screen (scrollback + active area). Not a
+    /// `ghostty_point_s` read: its exact coordinates are clamped to the
+    /// visible rows, so it cannot reach the scrollback. `None` when the
+    /// terminal refuses (no surface, a read over its work budget).
+    fn read_rows(&self, from: usize, to: usize) -> Option<String> {
+        if to <= from {
+            return Some(String::new());
+        }
+        let surface = (*self.surface_cell.borrow())?;
+        let cols = unsafe { ghostty_surface_size(surface) }.columns.max(1) as usize;
+        // Room for 4 bytes per cell and a newline per row (the work budget
+        // is a quarter of this many cells).
+        let max_bytes = (to - from).checked_mul(cols * 4 + 1)?.checked_add(4096)?;
+        let mut text = empty_ghostty_text();
+        let ok = unsafe {
+            ghostty_surface_read_screen_clipboard_text(
+                surface,
+                from as u32,
+                (to - 1) as u32,
+                max_bytes,
+                &mut text,
+            )
+        };
+        if !ok || text.text.is_null() {
+            return None;
+        }
+        let bytes = unsafe { std::slice::from_raw_parts(text.text.cast::<u8>(), text.text_len) };
+        let output = String::from_utf8_lossy(bytes).into_owned();
+        unsafe { ghostty_surface_free_text(surface, &mut text) };
+        Some(output)
+    }
+
+    /// The screen text a waiter has not seen: the same text as
+    /// `read_text(GHOSTTY_POINT_SCREEN)` for what it searches, but only the
+    /// rows added since its last look are read (R142.3), unless the row
+    /// numbering changed (pruned at the cap, erased, reflowed): then all of
+    /// it. Reads everything when the terminal cannot say how many rows there
+    /// are.
+    pub fn read_tail(&self, tail: &mut rade_core::ui_work::Tail) -> Option<String> {
+        let Some((total, rows, revision)) = self.screen_rows() else {
+            return self.read_text(GHOSTTY_POINT_SCREEN);
+        };
+        if rows == 0 || total < rows {
+            return self.read_text(GHOSTTY_POINT_SCREEN);
+        }
+        let plan = tail.plan(total, rows, revision);
+        // Both reads are by absolute row under the one snapshot above: the
+        // terminal keeps printing, and an ACTIVE read made a moment later
+        // would leave a gap between the two (rows that scrolled in between).
+        let (Some(scrolled), Some(active)) = (
+            self.read_rows(plan.scrolled.0, plan.scrolled.1),
+            self.read_rows(plan.scrolled.1, total),
+        ) else {
+            return self.read_text(GHOSTTY_POINT_SCREEN);
+        };
+        // Rows pruned or erased while reading: the numbers were stale, read
+        // all of it at once (one call, one lock) and start over next look.
+        if self.screen_rows().map(|(_, _, r)| r) != Some(revision) {
+            return self.read_text(GHOSTTY_POINT_SCREEN);
+        }
+        Some(tail.text(plan, &scrolled, &active))
+    }
+
+    fn read_selection(&self, selection: ghostty_selection_s) -> Option<String> {
+        let Some(surface) = *self.surface_cell.borrow() else {
+            return Some(String::new());
         };
         let mut text = empty_ghostty_text();
 
@@ -893,15 +972,10 @@ pub fn init_ghostty() {
 
         let app = unsafe { ghostty_app_new(&runtime_config, config) };
 
-        // Ghostty's GTK apprt calls core_app.tick() on every GLib main
-        // loop iteration to drain the app mailbox (which includes
-        // redraw_surface messages from the renderer thread). The renderer
-        // thread pushes these messages but doesn't wake the app.
-        // We replicate this with a high-frequency timer (~8ms ≈ 120Hz).
-        glib::timeout_add_local(std::time::Duration::from_millis(8), move || {
-            unsafe { ghostty_app_tick(app) };
-            glib::ControlFlow::Continue
-        });
+        // Ghostty asks for a tick through `wakeup_cb` whenever it pushes to
+        // the app mailbox (redraw_surface from the renderer thread
+        // included), and again after a tick that left messages behind: the
+        // callback queues one idle tick (R142.4). Nothing ticks when idle.
 
         GhosttyState { app }
     });

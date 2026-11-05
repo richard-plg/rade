@@ -45,7 +45,6 @@ sleep 2
 EOF
 chmod +x "$T"/img-*.sh
 
-field() { rade list --json | jq -r --arg p "$1" ".panes[] | select(.pane==\$p) | .$2"; }
 pane_state() { rade debug state | jq -c --arg p "$1" '[.. | objects | select(.id? == $p and has("kind"))][0]'; }
 sid_of() { pane_state "$1" | jq -r '.session_id // ""'; }
 agent_of() { pane_state "$1" | jq -r '.agent // ""'; }

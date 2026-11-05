@@ -43,6 +43,7 @@ pub struct Fields {
     #[arg(long, value_name = "FILE", conflicts_with = "prompt")]
     prompt_file: Option<String>,
     /// The prompt.
+    #[arg(allow_hyphen_values = true)] // R144.1: text may start with "-"
     prompt: Option<String>,
 }
 

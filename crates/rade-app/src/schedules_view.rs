@@ -66,26 +66,25 @@ thread_local! {
     static BUILT: Cell<(bool, bool)> = const { Cell::new((false, false)) };
 }
 
-/// The page's padding left and right, the gap, the detail's width and the
-/// list's least width.
-const PAGE_PAD: i32 = 48;
-const LIST_MIN: i32 = 660;
-const DETAIL_W: i32 = 400;
+/// The page's padding, gap, detail width and least list width (shared with
+/// the Inspector's step-aside rule, R110.2).
+const GRID: rade_core::chrome::ListDetail = rade_core::chrome::SCHEDULES_PAGE;
 
 /// (detail below the list, large text) now (R111).
 fn shape() -> (bool, bool) {
     let mode = crate::layout_mode::mode();
-    let content = crate::layout_mode::center_width() - PAGE_PAD;
+    let content = crate::layout_mode::center_width() - GRID.pad;
     (
-        mode.large_text || (content > 0 && content - 16 - DETAIL_W < LIST_MIN),
+        mode.large_text || (content > 0 && !GRID.side_by_side(content)),
         mode.large_text,
     )
 }
 
-/// The window's width or text scale changed: build again when the shape did.
+/// The window's width, the text scale or the Inspector's place changed:
+/// build again when the shape did.
 pub fn relayout() {
     if BUILT.with(Cell::get) != shape() {
-        refresh();
+        render();
     }
 }
 
@@ -262,11 +261,8 @@ pub fn refresh() {
         g.set(g.get() + 1);
         g.get()
     });
-    let (below, large) = shape();
     std::thread::spawn(move || {
-        let mut data = load(choice, shown_ws, workspaces, projects);
-        data.below = below;
-        data.large = large;
+        let data = load(choice, shown_ws, workspaces, projects);
         glib::MainContext::default().invoke(move || {
             if GEN.with(|g| g.get()) != gen {
                 return;
@@ -361,9 +357,12 @@ fn render() {
     let Some(root) = ROOT.with(|r| r.borrow().clone()) else {
         return;
     };
-    let Some(d) = DATA.with(|d| d.borrow().clone()) else {
+    let Some(mut d) = DATA.with(|d| d.borrow().clone()) else {
         return;
     };
+    // The shape of now, not of when the load started: the Inspector may
+    // have stepped aside meanwhile (R110.2).
+    (d.below, d.large) = shape();
     if RENDERED.with(|r| r.borrow().as_ref() == Some(&d)) {
         return;
     }

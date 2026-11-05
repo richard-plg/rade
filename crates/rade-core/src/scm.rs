@@ -6,7 +6,8 @@
 //! the owner's click; nothing here runs on its own.
 
 use crate::git;
-use crate::rpc::{Error, Result};
+use crate::proc;
+use crate::rpc::{Error, ErrorKind, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::io::{Read, Write};
@@ -192,25 +193,52 @@ fn run_env(
     input: Option<&[u8]>,
     ok_codes: &[i32],
 ) -> Result<String> {
+    run_limit(dir, env, args, input, ok_codes, proc::GIT_LOCAL, false)
+}
+
+/// A network command (fetch, pull, push): 120 s, and ssh never asks and
+/// gives up connecting (R140.1).
+fn run_net(dir: &Path, env: &Env, args: &[&str], limit: Duration) -> Result<String> {
+    run_limit(dir, env, args, None, &[], limit, true)
+}
+
+fn run_limit(
+    dir: &Path,
+    env: &Env,
+    args: &[&str],
+    input: Option<&[u8]>,
+    ok_codes: &[i32],
+    limit: Duration,
+    network: bool,
+) -> Result<String> {
     let mut c = git_cmd(dir);
     c.envs(env.iter().map(|(k, v)| (k, v)));
-    c.args(args)
-        .stdin(if input.is_some() {
-            Stdio::piped()
-        } else {
-            Stdio::null()
-        })
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    let mut child = c
-        .spawn()
-        .map_err(|e| Error::internal(format!("cannot run git: {e}")))?;
-    if let (Some(i), Some(mut stdin)) = (input, child.stdin.take()) {
-        let _ = stdin.write_all(i);
+    if network {
+        if let Some(ssh) = git::ssh_command(dir, env) {
+            c.env("GIT_SSH_COMMAND", ssh);
+        }
     }
-    let out = child
-        .wait_with_output()
-        .map_err(|e| Error::internal(format!("git: {e}")))?;
+    c.args(args);
+    let mut spec = proc::Spec::new(limit);
+    if let Some(i) = input {
+        spec = spec.input(i);
+    }
+    let out = proc::run(&mut c, &spec)
+        .map_err(|e| {
+            if proc::is_timeout(&e) {
+                Error::new(
+                    ErrorKind::Timeout,
+                    format!(
+                        "git {} did not finish within {} s",
+                        args.first().unwrap_or(&""),
+                        limit.as_secs()
+                    ),
+                )
+            } else {
+                Error::internal(format!("cannot run git: {e}"))
+            }
+        })?
+        .into_output();
     if out.status.success() || out.status.code().is_some_and(|c| ok_codes.contains(&c)) {
         return Ok(String::from_utf8_lossy(&out.stdout).into_owned());
     }
@@ -229,16 +257,17 @@ fn run_env(
 
 /// The Worktree's status (R21.1); an error outside a repository.
 pub fn status(dir: &Path) -> Result<Status> {
-    let out = git::command(dir)
-        .args([
+    let out = git::exec(
+        git::command(dir).args([
             "status",
             "--porcelain=v2",
             "-z",
             "--branch",
             "--untracked-files=all",
-        ])
-        .output()
-        .map_err(|e| Error::internal(format!("cannot run git: {e}")))?;
+        ]),
+        "status",
+        proc::GIT_LOCAL,
+    )?;
     if !out.status.success() {
         return Err(Error::usage(
             String::from_utf8_lossy(&out.stderr).trim().to_string(),
@@ -412,7 +441,7 @@ pub fn commit(dir: &Path, message: &str) -> Result<String> {
 
 /// `git pull --ff-only` (R21.5, ADR-0013).
 pub fn pull(dir: &Path, env: &Env) -> Result<()> {
-    run_env(dir, env, &["pull", "--ff-only", "-q"], None, &[]).map(drop)
+    run_net(dir, env, &["pull", "--ff-only", "-q"], proc::GIT_NETWORK).map(drop)
 }
 
 /// What Push will do (shown in its confirmation, R21.5).
@@ -496,7 +525,7 @@ pub fn push(dir: &Path, plan: &PushPlan, env: &Env) -> Result<()> {
     args.push(&plan.remote);
     let refspec = format!("HEAD:refs/heads/{}", plan.branch);
     args.push(&refspec);
-    run_env(dir, env, &args, None, &[]).map(drop)
+    run_net(dir, env, &args, proc::GIT_NETWORK).map(drop)
 }
 
 /// What a card needs, read in one go off the UI thread (R120, R121).
@@ -688,7 +717,12 @@ pub fn fetch_remote(dir: &Path, st: &Status) -> Result<String> {
 
 /// `git fetch --quiet <remote>` (R121.4).
 pub fn fetch(dir: &Path, remote: &str, env: &Env) -> Result<()> {
-    run_env(dir, env, &["fetch", "--quiet", remote], None, &[]).map(drop)
+    fetch_within(dir, remote, env, proc::GIT_NETWORK)
+}
+
+/// [`fetch`] under another time limit.
+pub fn fetch_within(dir: &Path, remote: &str, env: &Env, limit: Duration) -> Result<()> {
+    run_net(dir, env, &["fetch", "--quiet", remote], limit).map(drop)
 }
 
 /// Sync (R121.3): pull `--ff-only` when behind, then push when ahead (the
@@ -924,23 +958,29 @@ pub fn create_pr(
     if title.trim().is_empty() {
         return Err(Error::usage("the pull request needs a title"));
     }
-    let out = Command::new(gh)
-        .args(["pr", "create", "--head", branch, "--base", base])
-        .args(["--title", title.trim(), "--body", body])
-        .current_dir(dir)
-        .envs(env.iter().map(|(k, v)| (k, v)))
-        .env("GH_PROMPT_DISABLED", "1")
-        .env("NO_COLOR", "1")
-        .stdin(Stdio::null())
-        .output()
-        .map_err(|e| {
-            Error::usage(if e.kind() == std::io::ErrorKind::NotFound {
-                "GitHub CLI (gh) is not installed: see https://cli.github.com, then `gh auth login`"
-                    .to_string()
-            } else {
-                format!("cannot run gh: {e}")
-            })
-        })?;
+    let out = proc::output(
+        Command::new(gh)
+            .args(["pr", "create", "--head", branch, "--base", base])
+            .args(["--title", title.trim(), "--body", body])
+            .current_dir(dir)
+            .envs(env.iter().map(|(k, v)| (k, v)))
+            .env("GH_PROMPT_DISABLED", "1")
+            .env("NO_COLOR", "1"),
+        proc::GIT_NETWORK,
+    )
+    .map_err(|e| match e.kind() {
+        std::io::ErrorKind::NotFound => Error::usage(
+            "GitHub CLI (gh) is not installed: see https://cli.github.com, then `gh auth login`",
+        ),
+        std::io::ErrorKind::TimedOut => Error::new(
+            ErrorKind::Timeout,
+            format!(
+                "gh pr create did not finish within {} s",
+                proc::GIT_NETWORK.as_secs()
+            ),
+        ),
+        _ => Error::usage(format!("cannot run gh: {e}")),
+    })?;
     let text = String::from_utf8_lossy(&out.stdout);
     if !out.status.success() {
         let err = String::from_utf8_lossy(&out.stderr);

@@ -21,7 +21,7 @@ pub struct FanoutArgs {
     #[arg(long)]
     name: Option<String>,
     /// The task every Agent gets.
-    #[arg(required = true)]
+    #[arg(required = true, allow_hyphen_values = true)] // R144.1
     prompt: Option<String>,
 }
 

@@ -32,8 +32,6 @@ command = "FAKE_NO_HOOKS=1 $FAKE"
 hooks = "codex"
 EOF
 
-state() { rade debug state; }
-field() { rade list --json | jq -r --arg p "$1" ".panes[] | select(.pane==\$p) | .$2"; }
 entries() { state | jq -r --arg p "$1" '[.notifications[]? | select(.pane==$p)] | length'; }
 last_text() { state | jq -r --arg p "$1" '[.notifications[]? | select(.pane==$p)][-1].text'; }
 spawn() { rade spawn "$@" --json | jq -r .pane; }
@@ -48,18 +46,34 @@ rade focus "$(rade list --json | jq -r '[.panes[] | select(.source=="general")][
 echo "== R3.1 one Notification per Agent event"
 c1=$(spawn --agent fake --source p1 --name c1 'osc PONG')
 check "c1 turn done (hook)" test "$(rade wait "$c1" --until done --timeout 20)" = done
-sleep 1.5 # its OSC 9 follows the Stop hook
+eventually 10 is "last_text $c1" "c1 finished — PONG" || true # its OSC 9 follows the Stop hook
 check "hook 'finished' + OSC 9 'PONG' → one entry" test "$(entries "$c1")" = 1
 check "…text 'c1 finished — PONG'" test "$(last_text "$c1")" = "c1 finished — PONG"
 check "…source merged" test "$(state | jq -r --arg p "$c1" '[.notifications[] | select(.pane==$p)][0].source')" = merged
-check "one desktop banner for c1 (hidden Tab, smart)" test "$(notifyd NOTIFY "'c1 finished")" = 1
-check "…replaced in place with the merged text, no second banner" eventually 3 grep -q "^REPLACE.*'c1 finished — PONG'" "$NOTIFYD_LOG"
+# R3.1: one banner per Agent event: the merged text is its Notify, or the
+# in-place replace of it (replaces_id = the server's id), never a second Notify.
+check "a desktop banner for c1 (hidden Tab, smart)" eventually 5 test "$(notifyd NOTIFY "'c1 finished")" -ge 1
+check "…carries the merged text (replaced in place, or sent merged)" eventually 5 grep -qE "^(REPLACE|NOTIFY).*'c1 finished — PONG'" "$NOTIFYD_LOG"
+check "…exactly one banner (one Notify)" test "$(notifyd NOTIFY "'c1 finished")" = 1
 check "…no banner with the bare OSC text" test "$(grep -c "^NOTIFY.*	'PONG'" "$NOTIFYD_LOG" || true)" = 0
 check "debug desktop logs the replace" bash -c "rade debug desktop --json | jq -e '[.log[] | select(.event==\"replace\")] | length == 1' >/dev/null"
+echo "== R3.1 a slow notification server (the first Notify reply 600 ms late)"
+gdbus call --session --dest org.freedesktop.Notifications --object-path /org/freedesktop/Notifications \
+    --method org.freedesktop.Notifications.SetReplyDelay 600 >/dev/null
+sleep 1.2
+c1s=$(spawn --agent fake --source p1 --name c1s 'osc ZETA')
+check "c1s turn done (hook)" test "$(rade wait "$c1s" --until done --timeout 20)" = done
+eventually 10 is "last_text $c1s" "c1s finished — ZETA" || true
+check "slow server: one entry" test "$(entries "$c1s")" = 1
+check "slow server: the merged text reaches the banner" eventually 8 grep -qE "^(REPLACE|NOTIFY).*'c1s finished — ZETA'" "$NOTIFYD_LOG"
+sleep 1
+check "slow server: exactly one Notify, no second banner" test "$(notifyd NOTIFY "'c1s finished")" = 1
+gdbus call --session --dest org.freedesktop.Notifications --object-path /org/freedesktop/Notifications \
+    --method org.freedesktop.Notifications.SetReplyDelay 0 >/dev/null
 sleep 1.2 # Ghostty: one OSC notification per second
 c2=$(spawn --agent fake --source p1 --name c2 'oscfirst need you')
 check "c2 waiting (hook)" test "$(rade wait "$c2" --until waiting --timeout 20)" = waiting
-sleep 1
+eventually 10 is "last_text $c2" "c2 needs input — Fake: need you" || true
 check "OSC 777 first, then the hook → one entry" test "$(entries "$c2")" = 1
 check "…'c2 needs input — Fake: need you'" test "$(last_text "$c2")" = "c2 needs input — Fake: need you"
 sleep 1.2
@@ -73,7 +87,7 @@ check "…two entries, no status" test "$(entries "$sh"),$(field "$sh" status)" 
 
 echo "== R10.2 fallbacks for Agents without the relevant hook"
 cx=$(spawn --agent fcodex --source p2 --name cx 'spin') # for R16.4 below
-sleep 1
+eventually 10 screen_has "$cx" 'fake-agent session' || true
 check "R16.4 no Codex hint at the start of a turn" test "$(rade debug window --json | jq -r .banner.revealed)" = false
 s1=$(spawn --agent silent --source p2 --name s1 'hello')
 check "no hooks: output idle 2 s while running → done" test "$(rade wait "$s1" --until done --timeout 15)" = done
@@ -82,7 +96,7 @@ check "…raised 's1 finished'" test "$(last_text "$s1")" = "s1 finished"
 sleep 1.2
 s2=$(spawn --agent silent --source p2 --name s2 'oscfirst please')
 check "no hooks: OSC while running → waiting" test "$(rade wait "$s2" --until waiting --timeout 15)" = waiting
-sleep 1
+eventually 10 is "last_text $s2" "s2 needs input — Fake: please" || true
 check "…one entry 's2 needs input — Fake: please'" test "$(entries "$s2"),$(last_text "$s2")" = "1,s2 needs input — Fake: please"
 ag=$(spawn --agent fagy --source p2 --name ag)
 cl=$(spawn --agent fclaude --source p2 --name cl)
@@ -90,7 +104,7 @@ eventually 10 screen_has "$ag" '> ' || true
 eventually 10 screen_has "$cl" '> ' || true
 rade status running --pane "$ag" >/dev/null # a hook: agy reports running/done only
 rade status running --pane "$cl" >/dev/null # claude-style hooks report everything
-sleep 5
+sleep 5 # a negative check: the fallback must stay quiet for this long
 check "within 10 s of a hook report: no fallback" test "$(field "$ag" status)" = running
 check "agy-style: idle while running → waiting (no waiting hook)" test "$(rade wait "$ag" --until waiting --timeout 15)" = waiting
 check "…status_source heuristic" test "$(field "$ag" status_source)" = heuristic
@@ -109,7 +123,7 @@ check "Codex turn 30 s with no hook → banner" eventually 35 is "rade debug win
 check "…says what to do" bash -c "rade debug window --json | jq -r .banner.title | grep -q '/hooks'"
 shot codex-hint
 rade debug action dismiss_banner >/dev/null
-sleep 2.5
+sleep 2.5 # a negative check: the banner must stay away
 check "dismissed, and not shown again this session" test "$(rade debug window --json | jq -r .banner.revealed)" = false
 rade close "$cx" --force >/dev/null
 
@@ -126,15 +140,15 @@ check "…and on screen (cursor line 42)" eventually 5 is "rade debug viewer $v 
 echo "== focus stays in the Terminal when it becomes an Agent Pane (file tree shown)"
 rade debug action toggle_file_tree >/dev/null
 kf=$(spawn --source p1 --name kf --split right)
-sleep 1
+eventually 10 screen_has "$kf" '$' || true
 rade status --agent fake --pane "$kf" >/dev/null
-sleep 1
+eventually 5 is "field $kf agent" fake || true
 check "keyboard focus still on kf's Terminal" test "$(rade debug window --json | jq -r '.focus.pane')" = "$kf"
 rade debug action toggle_file_tree >/dev/null
 
 echo "== R10.3 status dots (look at the screenshots)"
 rade focus "$ag" >/dev/null
-sleep 1
+eventually 5 is "rade debug window --json | jq -r .focus.pane" "$ag" || true
 shot dots-light
 stop_app
 ADW_DEBUG_COLOR_SCHEME=prefer-dark "$BIN/rade-app" >>"$OUT/app.log" 2>&1 &
@@ -145,7 +159,7 @@ for x in "$s1:done" "$s2:waiting" "$ag:running" "$cl:error"; do
     rade status "${x#*:}" --pane "${x%%:*}" >/dev/null 2>&1 || true
 done
 rade focus "$ag" >/dev/null
-sleep 1.5
+eventually 5 is "rade debug window --json | jq -r .focus.pane" "$ag" || true
 shot dots-dark
 check "rade list: hook-set statuses are status_source hook" test "$(field "$cl" status),$(field "$cl" status_source)" = "error,hook"
 
@@ -158,13 +172,13 @@ rade open "$T/p1/b.txt" --pane "$r1" >/dev/null
 rade debug panel toggle >/dev/null # collapse the Notification panel
 rade debug panel activate "$(state | jq -r '[.notifications[] | select(.pane!="'"$r1"'")][0].id')" >/dev/null
 rade focus "$r1" >/dev/null
-sleep 2 # the debounced save (≤ 1 s after the last change)
 # Everything the user arranged; statuses and commands change by design.
 shape() { jq -S '{active_source, notifications_collapsed, file_tree,
     notifications: [.notifications[] | {id, pane, text, read}],
     sources: [.sources[] | {id, name, path, active_worktree, worktrees: [.worktrees[] | {id, active_tab, tabs: [.tabs[] | {id, name, focused, zoomed, grid,
         panes: [.. | objects | select(.kind?) | {id, name, agent, parent, kind: (.kind | del(.command))}]}]}]}]}'; }
 before=$(state | shape)
+eventually 10 is 'shape < "$STATE"' "$before" || true # the debounced save (≤ 1 s after the last change)
 kill9
 check "state.json on disk = the model at kill -9" test "$(shape < "$STATE")" = "$before"
 start_app
@@ -177,10 +191,10 @@ check "Viewer restored at b.txt with a.txt:7 on its Back list" test "$(state | j
 check "Notification panel still collapsed" test "$(state | jq -r .notifications_collapsed)" = true
 check "exited hand-started Agent comes back as a plain shell" test "$(state | jq -r --arg p "$hs" '.. | objects | select(.id?==$p) | .kind.command')" = null
 rade debug panel toggle >/dev/null # expand
-sleep 1.5
+eventually 5 is "jq -r '.notifications_collapsed // false' $STATE" false || true # saved ≤ 5 s (R11.1)
 kill9
 start_app
-check "a change 1.5 s before kill -9 survives (R11.1 ≤ 5 s)" test "$(state | jq -r '.notifications_collapsed // false')" = false
+check "a change survives kill -9 once saved (R11.1 ≤ 5 s)" test "$(state | jq -r '.notifications_collapsed // false')" = false
 
 stop_app
 echo "M6 E2E: $PASS passed, $FAIL failed (screenshots in ${OUT#$ROOT/})"

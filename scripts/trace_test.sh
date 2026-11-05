@@ -108,6 +108,14 @@ check "format error names file and line" has "docs/internals/PRD.md:2"
 r=$(root fmt-duplicate); run "$r"
 check "format error writes no trace.md" test ! -e "$r/docs/internals/checks/trace.md"
 
+# ── --strict: suites outside CI ──────────────────────────────────────────────
+r=$(root basic); mkdir -p "$r/.github/workflows"; printf '          suites: other\n' >"$r/.github/workflows/ci.yml"
+run "$r" --no-write --strict
+check "strict names an AC proven only outside CI" has "R97-b (mX)"
+r=$(root basic); mkdir -p "$r/.github/workflows"; printf '          suites: mX\n' >"$r/.github/workflows/ci.yml"
+run "$r" --no-write --strict
+check "strict is quiet when the suite is in CI" lacks "outside CI"
+
 # ── usage ────────────────────────────────────────────────────────────────────
 rc=0; "$trace" --bogus >/dev/null 2>&1 || rc=$?
 check "unknown option exits 2" test "$rc" = 2

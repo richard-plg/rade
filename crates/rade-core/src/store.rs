@@ -1,7 +1,6 @@
 //! `state.json` load and atomic save (Session Restore skeleton, R11.1).
 
 use crate::model::{State, STATE_VERSION};
-use std::io::Write;
 use std::path::Path;
 
 /// Load saved state. `Ok(None)` if there is no file yet.
@@ -40,25 +39,17 @@ fn migrate_v2(path: &Path, text: &str, st: &mut State) -> Result<(), String> {
 }
 
 /// `<path><suffix>` holding `text`, unless that file exists already.
+/// Atomic and `0600` (recorded Agent argv / env may hold private session
+/// information): a crash never leaves a torn backup that blocks the real one.
 fn write_backup_once(path: &Path, suffix: &str, text: &str) -> Result<(), String> {
-    use std::os::unix::fs::OpenOptionsExt;
     let mut bak = path.as_os_str().to_owned();
     bak.push(suffix);
     let bak = std::path::PathBuf::from(bak);
-    // Recorded Agent argv/env may hold private session information.
-    let f = std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .mode(0o600)
-        .open(&bak);
-    match f {
-        Ok(mut f) => f
-            .write_all(text.as_bytes())
-            .and_then(|_| f.sync_all())
-            .map_err(|e| format!("{}: {e}", bak.display())),
-        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => Ok(()),
-        Err(e) => Err(format!("{}: {e}", bak.display())),
+    if bak.exists() {
+        return Ok(());
     }
+    crate::fs_atomic::write(&bak, text.as_bytes(), crate::fs_atomic::Mode::Private)
+        .map_err(|e| format!("{}: {e}", bak.display()))
 }
 
 /// Preserve an unreadable/newer session before allowing a fresh session to save.
@@ -98,12 +89,7 @@ pub fn recovery_backup(path: &Path) -> std::io::Result<std::path::PathBuf> {
 /// original once as `state.json.v1.bak` (the way back to an older RADE,
 /// which refuses v2), and rename the palette's recently used keys.
 fn migrate_v1(path: &Path, text: &str, st: &mut State) -> Result<(), String> {
-    let mut bak = path.as_os_str().to_owned();
-    bak.push(".v1.bak");
-    let bak = std::path::PathBuf::from(bak);
-    if !bak.exists() {
-        std::fs::write(&bak, text).map_err(|e| format!("{}: {e}", bak.display()))?;
-    }
+    write_backup_once(path, ".v1.bak", text)?;
     for k in &mut st.palette_recent {
         *k = recent_key_v2(k);
     }
@@ -132,21 +118,8 @@ fn recent_key_v2(k: &str) -> String {
 /// Write via a temp file in the same directory, fsync, then rename, so a
 /// crash leaves either the old or the new file, never a torn one.
 pub fn save(path: &Path, ws: &State) -> std::io::Result<()> {
-    let dir = path.parent().expect("state path has a parent");
-    std::fs::create_dir_all(dir)?;
-    let tmp = dir.join(format!(
-        ".{}.tmp",
-        path.file_name().unwrap().to_string_lossy()
-    ));
-    let mut f = std::fs::File::create(&tmp)?;
-    f.write_all(
-        serde_json::to_string_pretty(ws)
-            .expect("serializable")
-            .as_bytes(),
-    )?;
-    f.sync_all()?;
-    std::fs::rename(&tmp, path)?;
-    std::fs::File::open(dir)?.sync_all()
+    let text = serde_json::to_string_pretty(ws).expect("serializable");
+    crate::fs_atomic::write(path, text.as_bytes(), crate::fs_atomic::Mode::Private)
 }
 
 /// Hold `<state>.lock` for the app's lifetime: one app per `state.json`,
@@ -274,9 +247,23 @@ mod tests {
         let backup = recovery_backup(&path).unwrap();
         assert_eq!(backup, d.join("state.json.recovery-2.bak"));
         assert_eq!(std::fs::read_to_string(&backup).unwrap(), "original");
-        std::fs::create_dir(d.join(".state.json.tmp")).unwrap();
-        assert!(save(&path, &State::new(Path::new("/h"))).is_err());
+        // A save whose folder is a file fails and leaves the original.
+        assert!(save(&path.join("x.json"), &State::new(Path::new("/h"))).is_err());
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "original");
+        std::fs::remove_dir_all(d).unwrap();
+    }
+
+    #[test]
+    fn r141_a_state_and_its_v1_backup_are_0600_also_when_they_were_0644() {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = |p: &Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o7777;
+        let d = tmpdir("r141-state");
+        let path = v1_fixture(&d);
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+        let st = load(&path).unwrap().unwrap();
+        assert_eq!(mode(&d.join("state.json.v1.bak")), 0o600);
+        save(&path, &st).unwrap();
+        assert_eq!(mode(&path), 0o600);
         std::fs::remove_dir_all(d).unwrap();
     }
 

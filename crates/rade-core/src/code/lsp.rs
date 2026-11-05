@@ -26,15 +26,44 @@ pub fn encode(msg: &Value) -> Vec<u8> {
 /// Larger messages are a broken server (it is then treated as exited).
 pub const MAX_MESSAGE: usize = 64 << 20;
 
+/// A header line is longer than this: a broken server (R140.3).
+pub const MAX_HEADER_LINE: usize = 8 << 10;
+
+/// One line (with its `\n`), at most `max` bytes; `Ok(None)` at end of
+/// stream, `InvalidData` for a longer one (nothing buffers without a bound).
+fn read_line_capped(r: &mut impl BufRead, max: usize) -> std::io::Result<Option<String>> {
+    let mut buf: Vec<u8> = Vec::new();
+    loop {
+        let avail = r.fill_buf()?;
+        if avail.is_empty() {
+            return Ok((!buf.is_empty()).then(|| String::from_utf8_lossy(&buf).into_owned()));
+        }
+        let (take, done) = match avail.iter().position(|&b| b == b'\n') {
+            Some(i) => (i + 1, true),
+            None => (avail.len(), false),
+        };
+        buf.extend_from_slice(&avail[..take]);
+        r.consume(take);
+        if buf.len() > max {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!("header line over {max} bytes"),
+            ));
+        }
+        if done {
+            return Ok(Some(String::from_utf8_lossy(&buf).into_owned()));
+        }
+    }
+}
+
 /// The next message; `Ok(None)` at end of stream. Headers other than
 /// `Content-Length` are skipped.
 pub fn read_message(r: &mut impl BufRead) -> std::io::Result<Option<Value>> {
     let mut len = None;
     loop {
-        let mut line = String::new();
-        if r.read_line(&mut line)? == 0 {
+        let Some(line) = read_line_capped(r, MAX_HEADER_LINE)? else {
             return Ok(None);
-        }
+        };
         let line = line.trim_end();
         if line.is_empty() {
             if len.is_some() {
@@ -146,6 +175,8 @@ pub enum LspError {
     /// The process is gone (its last stderr line, if any).
     Dead(String),
     Server(i64, String),
+    /// It stopped reading its input (R140.3).
+    Hung,
 }
 
 impl std::fmt::Display for LspError {
@@ -155,6 +186,10 @@ impl std::fmt::Display for LspError {
             LspError::Dead(s) if s.is_empty() => write!(f, "server exited"),
             LspError::Dead(s) => write!(f, "server exited: {s}"),
             LspError::Server(c, m) => write!(f, "{m} ({c})"),
+            LspError::Hung => write!(
+                f,
+                "hung: it stopped reading its input; it restarts on the next request"
+            ),
         }
     }
 }
@@ -185,6 +220,53 @@ struct Status {
 
 type Pending = Arc<Mutex<HashMap<i64, mpsc::Sender<Result<Value, LspError>>>>>;
 
+/// Messages queued for the writer thread before the server counts as hung.
+const QUEUE: usize = 1024;
+
+/// What the writer thread is doing, for the readers of it.
+#[derive(Default)]
+struct Writing {
+    /// Start of the write in progress (a server that does not read leaves
+    /// one pending for ever).
+    since: Mutex<Option<Instant>>,
+    /// The server stopped reading: dropped from the pool, restarted on the
+    /// next request.
+    hung: std::sync::atomic::AtomicBool,
+}
+
+/// The queue to the writer thread, shared by the client and the reader
+/// thread's replies.
+type Out = Arc<Mutex<Option<mpsc::SyncSender<Vec<u8>>>>>;
+
+/// Queue one message; `false` when the writer is gone or the queue is full
+/// (the server is then hung).
+fn enqueue(out: &Out, w: &Writing, msg: &Value) -> bool {
+    let g = out.lock().unwrap();
+    match g.as_ref().map(|tx| tx.try_send(encode(msg))) {
+        Some(Ok(())) => true,
+        Some(Err(mpsc::TrySendError::Full(_))) => {
+            w.hung.store(true, Ordering::Relaxed);
+            false
+        }
+        _ => false,
+    }
+}
+
+/// The only thread that writes to the server: `write_all` blocks here when
+/// the server stops reading, never in a caller.
+fn spawn_writer(mut stdin: ChildStdin, rx: mpsc::Receiver<Vec<u8>>, w: Arc<Writing>) {
+    std::thread::spawn(move || {
+        for buf in rx {
+            *w.since.lock().unwrap() = Some(Instant::now());
+            let ok = stdin.write_all(&buf).and_then(|_| stdin.flush()).is_ok();
+            *w.since.lock().unwrap() = None;
+            if !ok {
+                break;
+            }
+        }
+    });
+}
+
 /// A running server.
 pub struct Client {
     pub pid: i32,
@@ -194,7 +276,8 @@ pub struct Client {
     pub caps: Value,
     /// `serverInfo.name` from `initialize`.
     pub name: Option<String>,
-    stdin: Arc<Mutex<Option<ChildStdin>>>,
+    out: Out,
+    writing: Arc<Writing>,
     child: Mutex<Child>,
     pending: Pending,
     next: AtomicI64,
@@ -228,6 +311,13 @@ impl Client {
         }
         let mut child = c.spawn().map_err(|e| format!("{prog}: {e}"))?;
         let stdin = child.stdin.take();
+        let writing: Arc<Writing> = Arc::default();
+        let out: Out = Arc::default();
+        if let Some(stdin) = stdin {
+            let (tx, rx) = mpsc::sync_channel(QUEUE);
+            *out.lock().unwrap() = Some(tx);
+            spawn_writer(stdin, rx, writing.clone());
+        }
         let stdout = child.stdout.take().ok_or("no stdout")?;
         let stderr = child.stderr.take();
         let pending: Pending = Arc::default();
@@ -239,7 +329,8 @@ impl Client {
             enc: Enc::Utf16,
             caps: Value::Null,
             name: None,
-            stdin: Arc::new(Mutex::new(stdin)),
+            out: out.clone(),
+            writing: writing.clone(),
             child: Mutex::new(child),
             pending: pending.clone(),
             next: AtomicI64::new(1),
@@ -247,6 +338,9 @@ impl Client {
             doc_lock: Mutex::new(()),
             warm: Default::default(),
         };
+        // The stderr reader tells the stdout reader when it has seen EOF, so
+        // a crash's hint (the last stderr line) is never read before it is stored.
+        let (stderr_done_tx, stderr_done) = mpsc::channel::<()>();
         if let Some(err) = stderr {
             let st = status.clone();
             std::thread::spawn(move || {
@@ -254,9 +348,12 @@ impl Client {
                     let mut s = st.lock().unwrap();
                     s.stderr = line.chars().take(400).collect();
                 }
+                let _ = stderr_done_tx.send(());
             });
+        } else {
+            drop(stderr_done_tx);
         }
-        let reply = Writer(Some(client.stdin.clone()));
+        let reply = Writer(out, writing);
         let settings = l.settings.clone();
         let root = l.root.clone();
         std::thread::spawn(move || {
@@ -264,6 +361,8 @@ impl Client {
             while let Ok(Some(msg)) = read_message(&mut r) {
                 handle(&msg, &pending, &status, &settings, &root, &reply);
             }
+            // A grandchild holding stderr open must not stall this: bounded wait.
+            let _ = stderr_done.recv_timeout(Duration::from_millis(500));
             let mut p = pending.lock().unwrap();
             status.lock().unwrap().dead = true;
             let why = status.lock().unwrap().stderr.clone();
@@ -318,11 +417,16 @@ impl Client {
     }
 
     fn send(&self, msg: &Value) -> bool {
-        let mut g = self.stdin.lock().unwrap();
-        match g.as_mut() {
-            Some(s) => s.write_all(&encode(msg)).and_then(|_| s.flush()).is_ok(),
-            None => false,
-        }
+        enqueue(&self.out, &self.writing, msg)
+    }
+
+    /// The server's stdin has not taken a write for `d`.
+    fn write_stuck_for(&self, d: Duration) -> bool {
+        self.writing
+            .since
+            .lock()
+            .unwrap()
+            .is_some_and(|t| t.elapsed() >= d)
     }
 
     pub fn notify(&self, method: &str, params: Value) {
@@ -350,14 +454,24 @@ impl Client {
         if !params.is_null() {
             msg["params"] = params;
         }
+        let sent = Instant::now();
         if !self.send(&msg) {
             self.pending.lock().unwrap().remove(&id);
+            if self.writing.hung.load(Ordering::Relaxed) {
+                return Err(LspError::Hung);
+            }
             return Err(LspError::Dead(self.status.lock().unwrap().stderr.clone()));
         }
         match rx.recv_timeout(timeout) {
             Ok(r) => r,
             Err(_) => {
                 self.pending.lock().unwrap().remove(&id);
+                // A write that was already pending when this request was
+                // queued and still is: the server does not read.
+                if self.write_stuck_for(sent.elapsed()) {
+                    self.writing.hung.store(true, Ordering::Relaxed);
+                    return Err(LspError::Hung);
+                }
                 self.notify("$/cancelRequest", json!({"id": id}));
                 Err(LspError::Timeout)
             }
@@ -365,7 +479,7 @@ impl Client {
     }
 
     pub fn alive(&self) -> bool {
-        !self.status.lock().unwrap().dead
+        !self.status.lock().unwrap().dead && !self.writing.hung.load(Ordering::Relaxed)
     }
 
     /// Still loading: work in progress (`$/progress`) or not quiescent.
@@ -429,7 +543,7 @@ impl Client {
             let _ = self.request("shutdown", Value::Null, grace);
             self.notify("exit", Value::Null);
         }
-        self.stdin.lock().unwrap().take();
+        self.out.lock().unwrap().take();
         if self.wait(grace) {
             return;
         }
@@ -461,16 +575,12 @@ impl Client {
     }
 }
 
-/// The reader's handle on the server's stdin (the client's own, shared).
-struct Writer(Option<Arc<Mutex<Option<ChildStdin>>>>);
+/// The reader's handle on the writer thread's queue (the client's own).
+struct Writer(Out, Arc<Writing>);
 
 impl Writer {
     fn send(&self, msg: &Value) {
-        if let Some(f) = &self.0 {
-            if let Some(f) = f.lock().unwrap().as_mut() {
-                let _ = f.write_all(&encode(msg)).and_then(|_| f.flush());
-            }
-        }
+        enqueue(&self.0, &self.1, msg);
     }
 }
 
@@ -552,6 +662,26 @@ mod tests {
     use super::*;
 
     #[test]
+    fn r140_c_a_header_line_over_8_kb_is_an_error_not_a_buffer() {
+        let mut long = b"X-Long: ".to_vec();
+        long.extend(std::iter::repeat_n(b'a', MAX_HEADER_LINE + 1));
+        long.extend(b"\r\n\r\n");
+        let mut r = std::io::Cursor::new(long);
+        let e = read_message(&mut r).unwrap_err();
+        assert_eq!(e.kind(), std::io::ErrorKind::InvalidData);
+        // Without a newline at all, too.
+        let mut r = std::io::Cursor::new(vec![b'a'; MAX_HEADER_LINE * 3]);
+        assert!(read_message(&mut r).is_err());
+        // A header just under the cap is fine.
+        let mut ok = b"X-Long: ".to_vec();
+        ok.extend(std::iter::repeat_n(b'a', 4000));
+        ok.extend(b"\r\n");
+        ok.extend(encode(&json!({"a": 1})));
+        let mut r = std::io::Cursor::new(ok);
+        assert_eq!(read_message(&mut r).unwrap(), Some(json!({"a": 1})));
+    }
+
+    #[test]
     fn r83_framing_round_trip_and_skips_other_headers() {
         let a = json!({"jsonrpc": "2.0", "id": 1, "result": {"x": "é"}});
         let b = json!({"jsonrpc": "2.0", "method": "m"});
@@ -608,7 +738,7 @@ mod tests {
         let (pending, status): (Pending, Mutex<Status>) = Default::default();
         let (tx, rx) = mpsc::channel();
         pending.lock().unwrap().insert(7, tx);
-        let w = Writer(None);
+        let w = Writer(Out::default(), Arc::default());
         let root = Path::new("/r");
         let settings = json!({"rust-analyzer": {"checkOnSave": false}});
         handle(

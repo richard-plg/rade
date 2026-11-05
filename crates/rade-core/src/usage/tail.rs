@@ -144,14 +144,16 @@ impl TailBook {
             .unwrap_or_default()
     }
 
-    /// Written atomically (temp file + rename).
+    /// Written atomically, `0600` ([`crate::fs_atomic`]).
     pub fn save(&self, path: &Path) -> std::io::Result<()> {
         if let Some(d) = path.parent() {
             std::fs::create_dir_all(d)?;
         }
-        let tmp = path.with_extension("tmp");
-        std::fs::write(&tmp, serde_json::to_vec(self).unwrap_or_default())?;
-        std::fs::rename(tmp, path)
+        crate::fs_atomic::write(
+            path,
+            &serde_json::to_vec(self).unwrap_or_default(),
+            crate::fs_atomic::Mode::Private,
+        )
     }
 }
 

@@ -45,9 +45,7 @@ resume = "$FAKE --resume {session_id}"
 EOF
 
 G() { git -c user.email=t@t -c user.name=t -c commit.gpgsign=false "$@"; }
-code() { set +e; "$@" >"$T/out" 2>"$T/err"; local c=$?; set -e; echo $c; }
 spawn() { rade spawn "$@" --json | jq -r .pane; }
-state() { rade debug state; }
 tabs() { rade tab list --source "$1" --json | jq -r '.tabs[].tab'; }
 label() { rade tab list --json | jq -r --arg t "$1" '.tabs[] | select(.tab==$t) | .label'; }
 pname() { rade list --json | jq -r --arg p "$1" '.panes[] | select(.pane==$p) | .name'; }

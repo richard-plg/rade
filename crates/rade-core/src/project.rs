@@ -378,14 +378,20 @@ pub fn migrate_text(text: &str) -> std::result::Result<Option<(String, Missing)>
 /// is left behind (no backup made by this run, no temp file) and the error
 /// names the file.
 pub fn migrate_file(file: &Path, text: &str) -> Result<Option<String>> {
-    let Some((new, _)) = migrate_text(text).map_err(Error::usage)? else {
+    if migrate_text(text).map_err(Error::usage)?.is_none() {
         return Ok(None);
-    };
+    }
     let fail = |e: std::io::Error| {
         Error::usage(format!(
             "{}: cannot migrate to project.toml v2: {e}",
             file.display()
         ))
+    };
+    let _lock = crate::fs_atomic::Lock::acquire(file).map_err(fail)?;
+    // Another writer may have migrated or edited it while we waited.
+    let text = read_file(file).map_err(fail)?;
+    let Some((new, _)) = migrate_text(&text).map_err(Error::usage)? else {
+        return Ok(Some(text));
     };
     let dir = file.parent().unwrap_or(Path::new("."));
     let bak = dir.join(V1_BACKUP);
@@ -405,16 +411,34 @@ pub fn migrate_file(file: &Path, text: &str) -> Result<Option<String>> {
         Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => false,
         Err(e) => return Err(fail(e)),
     };
-    let tmp = dir.join(format!(".{FILE}.{}.tmp", std::process::id()));
-    let res = std::fs::write(&tmp, &new).and_then(|_| std::fs::rename(&tmp, file));
-    if let Err(e) = res {
-        let _ = std::fs::remove_file(&tmp);
+    if let Err(e) = crate::fs_atomic::write(file, new.as_bytes(), crate::fs_atomic::Mode::Keep) {
         if made_bak {
             let _ = std::fs::remove_file(&bak);
         }
         return Err(fail(e));
     }
     Ok(Some(new))
+}
+
+/// Replace the text of `file` that was read as `old` with `new` (a symlink
+/// is written through, the mode kept), under the lock beside the file
+/// (R141.3). Refused when the file is no longer `old`: another writer got
+/// in between, and writing would drop its edit. Nothing is written when
+/// `new == old`.
+pub fn write_checked(file: &Path, old: &str, new: &str) -> Result<()> {
+    if new == old {
+        return Ok(());
+    }
+    let fail = |e: std::io::Error| Error::internal(format!("{}: {e}", file.display()));
+    let _lock = crate::fs_atomic::Lock::acquire(file).map_err(fail)?;
+    let now = crate::fs_atomic::read_text(&crate::fs_atomic::resolve(file)).map_err(fail)?;
+    if now != old {
+        return Err(Error::usage(format!(
+            "{}: changed by another writer meanwhile; try again",
+            file.display()
+        )));
+    }
+    crate::fs_atomic::write(file, new.as_bytes(), crate::fs_atomic::Mode::Keep).map_err(fail)
 }
 
 /// The migration warnings that outlive the migration: a Source the

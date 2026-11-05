@@ -38,7 +38,6 @@ printf 'def f():\n    return 1\n\n\ndef g():\n    return 2\n' >"$R/src/b.py"
 printf '# Repo\n' >"$R/README.md"
 G -C "$R" init -q -b main && G -C "$R" add -A && G -C "$R" commit -qm init
 
-state() { rade debug state; }
 exit_code() { set +e; "$@" >/dev/null 2>"$T/err"; local c=$?; set -e; echo $c; }
 info() { rade list --json | jq -r --arg p "$1" ".panes[] | select(.pane==\$p) | .$2"; }
 wtl() { rade worktree list proj --json | jq -r --arg w "$1" ".worktrees[] | select(.worktree==\$w) | .$2"; }

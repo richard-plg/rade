@@ -195,6 +195,35 @@ fn r83_missing_off_crash_restart_and_shutdown() {
 }
 
 #[test]
+fn r143_a_crash_hint_has_the_stderr_line_even_when_stdout_ends_first() {
+    // stdout reaches EOF at once; the stderr line comes 250 ms later. The hint
+    // waits for the stderr reader instead of racing it (R143.3).
+    let d = repo("stderr-late");
+    let pool = Mutex::new(Pool::default());
+    let a = run(
+        &pool,
+        &ctx(
+            &d,
+            Query::Def,
+            "src/lib.rs",
+            4,
+            5,
+            &[("FAKE_LSP_CRASH_STDERR_MS", "250")],
+        ),
+    );
+    assert_eq!(a.state, "error");
+    assert!(
+        a.hint.as_deref().unwrap().contains("crashed on purpose"),
+        "{:?}",
+        a.hint
+    );
+    super::stop(
+        pool.lock().unwrap().take_under(None),
+        Duration::from_secs(2),
+    );
+}
+
+#[test]
 fn r83_three_crashes_stop_restarts_until_restart() {
     let d = repo("three");
     let pool = Mutex::new(Pool::default());
@@ -265,6 +294,46 @@ fn r83_queued_requests_on_a_hung_server_each_wait_their_own_timeout() {
         assert!(a.text());
     }
     assert!(t.elapsed() < Duration::from_secs(4), "{:?}", t.elapsed());
+    for s in pool.lock().unwrap().take_under(None) {
+        s.kill();
+    }
+}
+
+#[test]
+fn r140_d_a_server_that_stops_reading_is_hung_within_the_budget_and_restarted() {
+    let d = repo("stopreading");
+    // 1 MB after the line the query asks about: the write cannot fit the pipe.
+    let mut main = std::fs::read_to_string(d.join("src/main.rs")).unwrap();
+    main.push_str(&"// padding padding padding padding padding padding\n".repeat(22_000));
+    assert!(main.len() > 1 << 20);
+    std::fs::write(d.join("src/main.rs"), main).unwrap();
+    let pool = Mutex::new(Pool::default());
+    let mut c = ctx(
+        &d,
+        Query::Def,
+        "src/main.rs",
+        2,
+        18,
+        &[("FAKE_LSP_STOP_READING", "1")],
+    );
+    c.timeout = Duration::from_secs(3);
+    let t = std::time::Instant::now();
+    let a = run(&pool, &c);
+    assert_eq!(a.state, "error", "{a:?}");
+    assert!(a.hint.clone().unwrap().contains("hung"), "{:?}", a.hint);
+    assert!(a.text());
+    // The budget (3 s) plus the first-open settle (1.5 s), not for ever.
+    assert!(t.elapsed() < Duration::from_secs(8), "{:?}", t.elapsed());
+    // The next query starts a new server (this one reads).
+    let c2 = ctx(&d, Query::Def, "src/main.rs", 2, 18, &[]);
+    let b = run(&pool, &c2);
+    assert_eq!(b.state, "ready", "{b:?}");
+    let log = std::fs::read_to_string(d.with_extension("log")).unwrap();
+    assert_eq!(
+        log.lines().filter(|l| l.starts_with("start ")).count(),
+        2,
+        "{log}"
+    );
     for s in pool.lock().unwrap().take_under(None) {
         s.kill();
     }

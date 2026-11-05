@@ -2,11 +2,16 @@
 //! just the zoomed Pane (R1.7). Agent Panes get a one-line caption (name,
 //! Preset, Agent Status, Unread); Agent Grid overflow renders as Title Bars
 //! (R2.4); other Panes show Unread as a badge in their corner (R3.4).
+//!
+//! A Layout change keeps every Pane frame and split widget it can and moves
+//! only the Panes whose place changed (R142, `rade_core::layout_diff`):
+//! taking a Terminal out of the window unrealizes its GL area.
 
 use crate::app::try_app;
 use gtk::glib;
 use gtk::prelude::*;
 use gtk4 as gtk;
+use rade_core::layout_diff::{reconcile, Content, FrameKey, Shape, Step};
 use rade_core::notify::UnreadCounts;
 use rade_core::{AgentStatus, Layout, Pane, SplitDir, Tab};
 use std::cell::Cell;
@@ -34,23 +39,97 @@ struct Caption {
     close: Option<gtk::Button>,
 }
 
-/// The widgets of one built Tab that change without a rebuild: captions,
-/// corner badges and the unfocused-Pane dimming, by Pane.
+/// One Pane's frame as built (spec A.46–A.48): kept while its
+/// [`FrameKey`] holds, so a Layout change moves it instead of rebuilding it
+/// (R142).
+struct Frame {
+    key: FrameKey,
+    /// The outer widget placed in the Layout.
+    widget: gtk::Widget,
+    /// Holds the Pane's root (Terminal, Viewer, …); `None` = it failed to start.
+    content: Option<gtk::Overlay>,
+    /// The bordered box (`focused`; R103.3).
+    frame: Option<gtk::Box>,
+    /// The unfocused-split dimming over the content.
+    dim: Option<gtk::Box>,
+    /// The Unread badge of a Pane without a header (R3.4).
+    badge: Option<gtk::Label>,
+    caption: Option<Caption>,
+}
+
+/// One node of the built Layout: its widgets mirror a [`Shape`] node.
+enum Node {
+    Leaf(String),
+    Split {
+        dir: SplitDir,
+        paned: gtk::Paned,
+        /// The model ratio last applied (the first-size tick reads it too).
+        ratio: Rc<Cell<f64>>,
+        a: Box<Node>,
+        b: Box<Node>,
+    },
+}
+
+impl Node {
+    fn shape(&self) -> Shape {
+        match self {
+            Node::Leaf(p) => Shape::Leaf(p.clone()),
+            Node::Split { dir, a, b, .. } => {
+                Shape::Split(*dir, Box::new(a.shape()), Box::new(b.shape()))
+            }
+        }
+    }
+}
+
+/// The Tab's outer widgets for its [`Content`].
+#[derive(Default)]
+enum Top {
+    #[default]
+    Empty,
+    /// Zoomed or one main Pane: rebuilt on each change.
+    Other(gtk::Widget),
+    Tiled(Node),
+    /// An Agent Grid with Title Bars: `paned` = the top right split.
+    Grid {
+        paned: gtk::Paned,
+        ratio: Rc<Cell<f64>>,
+        a: Node,
+        b: Node,
+        right: gtk::Box,
+        bars: gtk::Box,
+    },
+    Stacked {
+        whole: gtk::Box,
+        tiles: Node,
+        bars: gtk::Box,
+    },
+}
+
+/// One built Tab's widgets, kept across Layout changes (R142): the frames
+/// of the Panes on screen, the split widgets, the Title Bars and the parking
+/// box; and what changes without a rebuild: captions, corner badges and the
+/// unfocused-Pane dimming.
 #[derive(Default)]
 pub struct Captions {
-    captions: Vec<Caption>,
-    badges: Vec<(String, gtk::Label)>,
-    dims: Vec<(String, gtk::Box)>,
-    /// Each Pane's frame (`pane`, `focused`; R103.3).
-    frames: Vec<(String, gtk::Box)>,
-    /// The Tab's Pane count: with 2 or more every Terminal has a header
-    /// and headers have a ✕ (R19.9).
-    panes: usize,
+    /// The frames of the Panes shown (in the Layout, Zoomed, or main).
+    frames: HashMap<String, Frame>,
+    /// Title Bar captions (R2.4).
+    bars: Vec<Caption>,
+    content: Option<Content>,
+    top: Top,
+    /// Terminals not on screen stay parented here, hidden (R2.8).
+    parking: Option<gtk::Box>,
 }
 
 impl Captions {
+    fn captions(&self) -> impl Iterator<Item = &Caption> {
+        self.bars
+            .iter()
+            .chain(self.frames.values().filter_map(|f| f.caption.as_ref()))
+    }
+
     pub fn update(&self, tab: &Tab, unread: &UnreadCounts) {
-        for c in &self.captions {
+        for c in self.captions() {
             let Some(p) = tab.pane(&c.pane) else { continue };
             c.glyph.set(p.status);
             c.glyph.root.set_visible(false);
@@ -110,27 +189,29 @@ impl Captions {
                 }));
             }
         }
-        for (id, badge) in &self.badges {
-            let n = unread.pane(id);
-            badge.set_label(&n.to_string());
-            badge.set_visible(n > 0);
-        }
-        for (id, frame) in &self.frames {
-            if tab.focused == *id {
-                frame.add_css_class("focused");
-            } else {
-                frame.remove_css_class("focused");
-            }
-        }
         let several = tab.zoomed.is_none() && tab.layout.panes().len() > 1;
-        for (id, dim) in &self.dims {
-            dim.set_visible(several && tab.focused != *id);
+        for (id, f) in &self.frames {
+            if let Some(badge) = &f.badge {
+                let n = unread.pane(id);
+                badge.set_label(&n.to_string());
+                badge.set_visible(n > 0);
+            }
+            if let Some(frame) = &f.frame {
+                if tab.focused == *id {
+                    frame.add_css_class("focused");
+                } else {
+                    frame.remove_css_class("focused");
+                }
+            }
+            if let Some(dim) = &f.dim {
+                dim.set_visible(several && tab.focused != *id);
+            }
         }
     }
 
     /// `pane`'s header as shown: `name · agent · model · status` (`debug.ui`).
     pub fn header(&self, pane: &str) -> Option<String> {
-        let c = self.captions.iter().find(|c| c.pane == pane)?;
+        let c = self.captions().find(|c| c.pane == pane)?;
         let mut t = format!("{}{}", c.name.label(), c.meta.label());
         if c.status.is_visible() {
             t += &format!(" · {}", c.status.label());
@@ -140,12 +221,12 @@ impl Captions {
 
     /// `pane`'s ✕ (R19.9), when its header has one.
     pub fn close_button(&self, pane: &str) -> Option<gtk::Button> {
-        self.captions.iter().find(|c| c.pane == pane)?.close.clone()
+        self.captions().find(|c| c.pane == pane)?.close.clone()
     }
 
     /// `pane`'s header glyph (R115): `{"glyph", "status"}`, null for a shell.
     pub fn glyph(&self, pane: &str) -> Option<serde_json::Value> {
-        let c = self.captions.iter().find(|c| c.pane == pane)?;
+        let c = self.captions().find(|c| c.pane == pane)?;
         Some(if c.mark.root.is_visible() {
             c.mark.debug()
         } else {
@@ -155,10 +236,7 @@ impl Captions {
 
     /// Whether `pane` is dimmed as an unfocused split (`debug.ui`).
     pub fn dimmed(&self, pane: &str) -> Option<bool> {
-        self.dims
-            .iter()
-            .find(|(id, _)| id == pane)
-            .map(|(_, d)| d.is_visible())
+        self.frames.get(pane)?.dim.as_ref().map(|d| d.is_visible())
     }
 }
 
@@ -242,7 +320,7 @@ fn dim_label(classes: &[&str]) -> gtk::Label {
 /// A caption (R20.4): glyph, name, Preset, title, Unread, status chip, and
 /// (unless it sits in a Title Bar button) Zoom and menu buttons, and Close
 /// when the Tab has 2 or more Panes (R19.9).
-fn caption_box(pane: &Pane, tab: &str, buttons: bool, captions: &mut Captions) -> gtk::Box {
+fn caption_box(pane: &Pane, tab: &str, buttons: bool, with_close: bool) -> Caption {
     let root = gtk::Box::new(gtk::Orientation::Horizontal, 0);
     root.add_css_class("rade-caption");
     root.add_css_class("pane-header");
@@ -294,7 +372,13 @@ fn caption_box(pane: &Pane, tab: &str, buttons: bool, captions: &mut Captions) -
         menu.add_css_class("pane-button");
         menu.set_valign(gtk::Align::Center);
         menu.set_tooltip_text(Some("Pane menu"));
-        menu.set_menu_model(Some(&crate::menus::pane_menu(&pane.id)));
+        // Built on first open (R142): a menu model set here makes a popover
+        // whose items watch their actions through every ancestor, and
+        // placing a widget anywhere in the window then walks all of them.
+        let id = pane.id.clone();
+        menu.set_create_popup_func(move |b| {
+            b.set_menu_model(Some(&crate::menus::pane_menu(&id)));
+        });
         // Pointer only: the keyboard stays on the Terminal (a relayout must
         // not hand focus to a caption button); the palette has the same
         // actions (Zoom, Rename Pane…, Split, Close Pane).
@@ -309,7 +393,7 @@ fn caption_box(pane: &Pane, tab: &str, buttons: bool, captions: &mut Captions) -
         voice = Some(mic);
         root.append(&z);
         root.append(&menu);
-        if captions.panes >= 2 {
+        if with_close {
             let close = gtk::Button::from_icon_name("ph-x-symbolic");
             close.add_css_class("flat");
             close.add_css_class("pane-button");
@@ -325,10 +409,10 @@ fn caption_box(pane: &Pane, tab: &str, buttons: bool, captions: &mut Captions) -
         }
         zoom = Some(z);
     }
-    captions.captions.push(Caption {
+    Caption {
         pane: pane.id.clone(),
-        mark: mark.clone(),
-        root: root.clone(),
+        mark,
+        root,
         glyph,
         name,
         meta,
@@ -339,70 +423,85 @@ fn caption_box(pane: &Pane, tab: &str, buttons: bool, captions: &mut Captions) -
         zoom,
         voice,
         close: close_button,
-    });
-    root
+    }
 }
 
-/// A Pane's widget: its caption (Agent and named Panes) above it, and on
-/// top, never taking clicks, the Attention Ring, the unfocused dimming and
-/// (Panes without a caption) the Unread badge.
-fn pane_widget(
-    pane: &Pane,
-    tab: &str,
-    roots: &HashMap<String, gtk::Widget>,
-    captions: &mut Captions,
-) -> gtk::Widget {
-    let Some(root) = roots.get(&pane.id) else {
-        return gtk::Label::new(Some("Pane failed to start")).upcast();
-    };
+/// A Pane's frame: its caption (Agent and named Panes) above it, and on
+/// top, never taking clicks, the unfocused dimming and (Panes without a
+/// caption) the Unread badge. The root goes in with [`ensure_root`].
+fn pane_frame(pane: &Pane, tab: &str, key: FrameKey, has_root: bool) -> Frame {
+    if !has_root {
+        return Frame {
+            key,
+            widget: gtk::Label::new(Some("Pane failed to start")).upcast(),
+            content: None,
+            frame: None,
+            dim: None,
+            badge: None,
+            caption: None,
+        };
+    }
     // The Pane's frame (spec A.46–A.48): border, radius, `focused` glow.
     let b = gtk::Box::new(gtk::Orientation::Vertical, 0);
     b.add_css_class("pane");
     b.set_widget_name(&format!("pane-frame-{}", pane.id));
     b.set_overflow(gtk::Overflow::Hidden);
-    captions.frames.push((pane.id.clone(), b.clone()));
-    let header = rade_core::chrome::has_header(pane, captions.panes);
-    if header {
-        b.append(&caption_box(pane, tab, true, captions));
+    let caption = key.header.then(|| caption_box(pane, tab, true, key.close));
+    if let Some(c) = &caption {
+        b.append(&c.root);
     }
     // The dimming covers the content only: the caption stays readable.
     let content = gtk::Overlay::new();
-    content.set_child(Some(root));
     content.set_vexpand(true);
     // The Voice Composer's slot over the body (R124, D15).
     crate::voice_view::attach(&pane.id, &content);
-    let layer = |o: &gtk::Overlay, class: &str| {
-        let w = gtk::Box::new(gtk::Orientation::Vertical, 0);
-        w.add_css_class(class);
-        w.set_can_target(false);
-        o.add_overlay(&w);
-        w
-    };
-    let dim = layer(&content, "rade-unfocused-pane");
+    let dim = gtk::Box::new(gtk::Orientation::Vertical, 0);
+    dim.add_css_class("rade-unfocused-pane");
+    dim.set_can_target(false);
+    content.add_overlay(&dim);
     dim.set_visible(false);
-    captions.dims.push((pane.id.clone(), dim));
     b.append(&content);
     let o = gtk::Overlay::new();
     o.set_child(Some(&b));
-    if !header {
-        let badge = gtk::Label::new(None);
-        badge.add_css_class("rade-count");
-        badge.add_css_class("rade-pane-badge");
-        badge.set_halign(gtk::Align::End);
-        badge.set_valign(gtk::Align::Start);
-        badge.set_can_target(false);
-        badge.set_visible(false);
-        badge.set_tooltip_text(Some("Unread Notifications"));
-        captions.badges.push((pane.id.clone(), badge.clone()));
-        o.add_overlay(&badge);
+    let mut badge = None;
+    if !key.header {
+        let l = gtk::Label::new(None);
+        l.add_css_class("rade-count");
+        l.add_css_class("rade-pane-badge");
+        l.set_halign(gtk::Align::End);
+        l.set_valign(gtk::Align::Start);
+        l.set_can_target(false);
+        l.set_visible(false);
+        l.set_tooltip_text(Some("Unread Notifications"));
+        o.add_overlay(&l);
+        badge = Some(l);
     }
-    o.upcast()
+    Frame {
+        key,
+        widget: o.upcast(),
+        content: Some(content),
+        frame: Some(b),
+        dim: Some(dim),
+        badge,
+        caption,
+    }
+}
+
+/// Put `root` in the frame's content slot unless it is already there.
+fn ensure_root(f: &Frame, root: &gtk::Widget) {
+    let Some(content) = &f.content else { return };
+    if content.child().as_ref() != Some(root) {
+        detach(root);
+        content.set_child(Some(root));
+    }
 }
 
 /// One collapsed Subagent (R2.4); clicking it Zooms it.
-fn title_bar(pane: &Pane, tab: &str, captions: &mut Captions) -> gtk::Widget {
+fn title_bar(pane: &Pane, tab: &str, bars: &mut Vec<Caption>) -> gtk::Widget {
     let button = gtk::Button::new();
-    button.set_child(Some(&caption_box(pane, tab, false, captions)));
+    let c = caption_box(pane, tab, false, false);
+    button.set_child(Some(&c.root));
+    bars.push(c);
     button.add_css_class("flat");
     button.add_css_class("rade-title-bar");
     let id = pane.id.clone();
@@ -414,119 +513,361 @@ fn title_bar(pane: &Pane, tab: &str, captions: &mut Captions) -> gtk::Widget {
     button.upcast()
 }
 
-/// Replace `container`'s content with the Tab's Layout.
-pub fn rebuild(container: &gtk::Box, tab: &Tab, roots: &HashMap<String, gtk::Widget>) -> Captions {
-    for pane in tab.panes() {
-        if let Some(w) = roots.get(&pane.id) {
-            detach(w);
+/// A vertical box of Title Bars for `panes`.
+fn bars_box(tab: &Tab, panes: &[String], bars: &mut Vec<Caption>) -> gtk::Box {
+    let b = gtk::Box::new(gtk::Orientation::Vertical, 0);
+    fill_bars(&b, tab, panes, bars);
+    b
+}
+
+/// Replace `b`'s Title Bars (buttons only: no Terminal moves).
+fn fill_bars(b: &gtk::Box, tab: &Tab, panes: &[String], bars: &mut Vec<Caption>) {
+    while let Some(child) = b.first_child() {
+        b.remove(&child);
+    }
+    for id in panes {
+        if let Some(p) = tab.pane(id) {
+            b.append(&title_bar(p, &tab.id, bars));
         }
     }
-    while let Some(child) = container.first_child() {
-        container.remove(&child);
+}
+
+/// `w` as `slot`'s child unless it already is (a moved frame leaves its
+/// old place first).
+fn set_start(p: &gtk::Paned, w: &gtk::Widget) {
+    if p.start_child().as_ref() != Some(w) {
+        detach(w);
+        p.set_start_child(Some(w));
     }
-    let mut captions = Captions {
-        panes: tab.panes().len(),
-        ..Default::default()
+}
+
+fn set_end(p: &gtk::Paned, w: &gtk::Widget) {
+    if p.end_child().as_ref() != Some(w) {
+        detach(w);
+        p.set_end_child(Some(w));
+    }
+}
+
+/// `w` as the first child of box `b` unless it already is.
+fn set_first(b: &gtk::Box, w: &gtk::Widget) {
+    if b.first_child().as_ref() == Some(w) {
+        return;
+    }
+    if let Some(old) = b.first_child() {
+        b.remove(&old);
+    }
+    detach(w);
+    b.prepend(w);
+}
+
+/// Build or update the Tab's widgets for its Layout (R142): frames whose
+/// [`FrameKey`] holds and split widgets whose subtree did not change stay
+/// where they are; only the Panes whose place changed move.
+pub fn rebuild(
+    container: &gtk::Box,
+    tab: &Tab,
+    roots: &HashMap<String, gtk::Widget>,
+    built: &mut Captions,
+) {
+    let panes = tab.panes();
+    let n = panes.len();
+    let content = Content::of(tab, crate::layout_mode::mode().one_pane);
+    // The Panes shown in a frame: the rest are Title Bars or parked.
+    let framed: Vec<&Pane> = match &content {
+        Content::Zoomed(z) => tab.pane(z).into_iter().collect(),
+        Content::One { main, .. } => tab.pane(main).into_iter().collect(),
+        _ => tab.layout.panes(),
     };
-    let zoomed = tab.zoomed.as_deref().and_then(|z| tab.pane(z));
-    let ids: Vec<&str> = tab.panes().iter().map(|p| p.id.as_str()).collect();
-    let one = (crate::layout_mode::mode().one_pane && ids.len() > 1)
-        .then(|| rade_core::chrome::one_main_pane(&ids, Some(&tab.focused)))
-        .flatten();
-    let content = match (zoomed, one) {
-        (Some(p), _) => pane_widget(p, &tab.id, roots, &mut captions),
+    built
+        .frames
+        .retain(|id, _| framed.iter().any(|p| p.id == *id));
+    for p in &framed {
+        let key = FrameKey::of(p, n);
+        let root = roots.get(&p.id);
+        let stale = built
+            .frames
+            .get(&p.id)
+            .is_none_or(|f| f.key != key || f.content.is_some() != root.is_some());
+        if stale {
+            let f = pane_frame(p, &tab.id, key, root.is_some());
+            if let Some(old) = built.frames.insert(p.id.clone(), f) {
+                detach(&old.widget);
+            }
+        }
+        if let (Some(f), Some(root)) = (built.frames.get(&p.id), root) {
+            ensure_root(f, root);
+        }
+    }
+    built.bars.clear();
+    let same = built
+        .content
+        .as_ref()
+        .is_some_and(|old| old.same_frame(&content));
+    let old_top = std::mem::take(&mut built.top);
+    let frames = &built.frames;
+    let bars = &mut built.bars;
+    let top = match (&content, same, old_top) {
+        (Content::Tiled, true, Top::Tiled(node)) => Top::Tiled(grow_from(
+            Some(node),
+            &tab.layout,
+            &tab.id,
+            &mut Vec::new(),
+            frames,
+        )),
+        (Content::Tiled, _, _) => Top::Tiled(grow_from(
+            None,
+            &tab.layout,
+            &tab.id,
+            &mut Vec::new(),
+            frames,
+        )),
+        (
+            Content::Grid { bars: ids },
+            true,
+            Top::Grid {
+                paned,
+                ratio,
+                a,
+                b,
+                right,
+                bars: bars_w,
+            },
+        ) => {
+            let (la, lb, r) = grid_parts(&tab.layout);
+            let a = grow_from(Some(a), la, &tab.id, &mut vec![false], frames);
+            let b = grow_from(Some(b), lb, &tab.id, &mut vec![true], frames);
+            set_start(&paned, &node_widget(&a, frames));
+            let tiles = node_widget(&b, frames);
+            tiles.set_vexpand(true);
+            set_first(&right, &tiles);
+            fill_bars(&bars_w, tab, ids, bars);
+            apply_ratio(&paned, &ratio, r);
+            Top::Grid {
+                paned,
+                ratio,
+                a,
+                b,
+                right,
+                bars: bars_w,
+            }
+        }
+        (Content::Grid { bars: ids }, _, _) => {
+            let (la, lb, r) = grid_parts(&tab.layout);
+            let paned = gtk::Paned::new(gtk::Orientation::Horizontal);
+            paned.set_shrink_start_child(false);
+            paned.set_shrink_end_child(false);
+            let a = grow_from(None, la, &tab.id, &mut vec![false], frames);
+            set_start(&paned, &node_widget(&a, frames));
+            let right = gtk::Box::new(gtk::Orientation::Vertical, 0);
+            let b = grow_from(None, lb, &tab.id, &mut vec![true], frames);
+            let tiles = node_widget(&b, frames);
+            tiles.set_vexpand(true);
+            detach(&tiles);
+            right.append(&tiles);
+            let bars_w = bars_box(tab, ids, bars);
+            right.append(&bars_w);
+            paned.set_end_child(Some(&right));
+            let ratio = track_ratio(&paned, &tab.id, Vec::new(), r);
+            Top::Grid {
+                paned,
+                ratio,
+                a,
+                b,
+                right,
+                bars: bars_w,
+            }
+        }
+        (
+            Content::Stacked { bars: ids },
+            true,
+            Top::Stacked {
+                whole,
+                tiles,
+                bars: bars_w,
+            },
+        ) => {
+            let tiles = grow_from(Some(tiles), &tab.layout, &tab.id, &mut Vec::new(), frames);
+            let w = node_widget(&tiles, frames);
+            w.set_vexpand(true);
+            set_first(&whole, &w);
+            fill_bars(&bars_w, tab, ids, bars);
+            Top::Stacked {
+                whole,
+                tiles,
+                bars: bars_w,
+            }
+        }
+        (Content::Stacked { bars: ids }, _, _) => {
+            let whole = gtk::Box::new(gtk::Orientation::Vertical, 0);
+            let tiles = grow_from(None, &tab.layout, &tab.id, &mut Vec::new(), frames);
+            let w = node_widget(&tiles, frames);
+            w.set_vexpand(true);
+            detach(&w);
+            whole.append(&w);
+            let bars_w = bars_box(tab, ids, bars);
+            whole.append(&bars_w);
+            Top::Stacked {
+                whole,
+                tiles,
+                bars: bars_w,
+            }
+        }
+        (Content::Zoomed(z), _, _) => Top::Other(frame_widget(z, frames)),
         // Large text (R111.2): the focused Pane, the others as Title Bars
         // under it (R2.4 overflow), whatever the Layout.
-        (None, Some((main, others))) => {
+        (Content::One { main, others }, _, _) => {
             let whole = gtk::Box::new(gtk::Orientation::Vertical, 0);
-            if let Some(p) = tab.pane(main) {
-                let w = pane_widget(p, &tab.id, roots, &mut captions);
-                w.set_vexpand(true);
-                whole.append(&w);
-            }
-            let bars = gtk::Box::new(gtk::Orientation::Vertical, 0);
-            bars.add_css_class("one-pane-bars");
-            for id in others {
-                if let Some(p) = tab.pane(id) {
-                    bars.append(&title_bar(p, &tab.id, &mut captions));
-                }
-            }
-            whole.append(&bars);
-            whole.upcast()
-        }
-        (None, None) if tab.title_bars.is_empty() => {
-            build(&tab.id, &tab.layout, &mut Vec::new(), roots, &mut captions)
-        }
-        (None, None) => {
-            let bars = gtk::Box::new(gtk::Orientation::Vertical, 0);
-            for p in &tab.title_bars {
-                bars.append(&title_bar(p, &tab.id, &mut captions));
-            }
-            // Agent Grid: Title Bars under the tiled Subagents on the right.
-            match &tab.layout {
-                Layout::Split {
-                    dir: SplitDir::Right,
-                    ratio,
-                    a,
-                    b,
-                } => {
-                    let paned = gtk::Paned::new(gtk::Orientation::Horizontal);
-                    paned.set_shrink_start_child(false);
-                    paned.set_shrink_end_child(false);
-                    paned.set_start_child(Some(&build(
-                        &tab.id,
-                        a,
-                        &mut vec![false],
-                        roots,
-                        &mut captions,
-                    )));
-                    let right = gtk::Box::new(gtk::Orientation::Vertical, 0);
-                    let tiles = build(&tab.id, b, &mut vec![true], roots, &mut captions);
-                    tiles.set_vexpand(true);
-                    right.append(&tiles);
-                    right.append(&bars);
-                    paned.set_end_child(Some(&right));
-                    track_ratio(&paned, &tab.id, Vec::new(), *ratio);
-                    paned.upcast()
-                }
-                layout => {
-                    let whole = gtk::Box::new(gtk::Orientation::Vertical, 0);
-                    let tiles = build(&tab.id, layout, &mut Vec::new(), roots, &mut captions);
-                    tiles.set_vexpand(true);
-                    whole.append(&tiles);
-                    whole.append(&bars);
-                    whole.upcast()
-                }
-            }
+            let w = frame_widget(main, frames);
+            w.set_vexpand(true);
+            detach(&w);
+            whole.append(&w);
+            let b = bars_box(tab, others, bars);
+            b.add_css_class("one-pane-bars");
+            whole.append(&b);
+            Top::Other(whole.upcast())
         }
     };
-    content.set_vexpand(true);
-    container.append(&content);
+    let top_widget = match &top {
+        Top::Empty => None,
+        Top::Other(w) => Some(w.clone()),
+        Top::Tiled(node) => Some(node_widget(node, frames)),
+        Top::Grid { paned, .. } => Some(paned.clone().upcast()),
+        Top::Stacked { whole, .. } => Some(whole.clone().upcast()),
+    };
+    built.top = top;
+    built.content = Some(content);
     // Terminals not on screen (Title Bars, or everything but the Zoomed
     // one) stay parented, hidden, so their processes start (R2.8).
-    let parking = gtk::Box::new(gtk::Orientation::Vertical, 0);
-    parking.set_visible(false);
-    for pane in tab.panes() {
+    let parking = built
+        .parking
+        .get_or_insert_with(|| {
+            let p = gtk::Box::new(gtk::Orientation::Vertical, 0);
+            p.set_visible(false);
+            p
+        })
+        .clone();
+    // The container holds [top, parking]: swap the top only (removing the
+    // parking box would unrealize every parked Terminal).
+    if let Some(w) = top_widget {
+        w.set_vexpand(true);
+        if container.first_child().as_ref() != Some(&w) {
+            if let Some(old) = container
+                .first_child()
+                .filter(|c| c != parking.upcast_ref::<gtk::Widget>())
+            {
+                container.remove(&old);
+            }
+            detach(&w);
+            container.prepend(&w);
+        }
+    }
+    if parking.parent().as_ref() != Some(container.upcast_ref()) {
+        detach(parking.upcast_ref());
+        container.append(&parking);
+    }
+    for pane in &panes {
+        if built.frames.contains_key(&pane.id) {
+            continue;
+        }
         if let Some(w) = roots.get(&pane.id) {
-            if w.parent().is_none() {
+            if w.parent().as_ref() != Some(parking.upcast_ref()) {
+                detach(w);
                 parking.append(w);
             }
         }
     }
-    container.append(&parking);
-    captions
 }
 
-fn build(
-    tab: &str,
-    layout: &Layout,
-    path: &mut Vec<bool>,
-    roots: &HashMap<String, gtk::Widget>,
-    captions: &mut Captions,
-) -> gtk::Widget {
+/// The Agent Grid's top right split: Parent side, tiles side, ratio.
+fn grid_parts(layout: &Layout) -> (&Layout, &Layout, f64) {
     match layout {
-        Layout::Leaf { pane } => pane_widget(pane, tab, roots, captions),
-        Layout::Split { dir, ratio, a, b } => {
+        Layout::Split { a, b, ratio, .. } => (a, b, *ratio),
+        // `Content::Grid` is only made for a right split at the top.
+        leaf => (leaf, leaf, 0.5),
+    }
+}
+
+fn frame_widget(pane: &str, frames: &HashMap<String, Frame>) -> gtk::Widget {
+    frames
+        .get(pane)
+        .map(|f| f.widget.clone())
+        .unwrap_or_else(|| gtk::Label::new(Some("Pane failed to start")).upcast())
+}
+
+fn node_widget(node: &Node, frames: &HashMap<String, Frame>) -> gtk::Widget {
+    match node {
+        Node::Leaf(p) => frame_widget(p, frames),
+        Node::Split { paned, .. } => paned.clone().upcast(),
+    }
+}
+
+/// The widgets for `layout`, from `old` (what was built at this place) by
+/// [`reconcile`]'s steps.
+fn grow_from(
+    old: Option<Node>,
+    layout: &Layout,
+    tab: &str,
+    path: &mut Vec<bool>,
+    frames: &HashMap<String, Frame>,
+) -> Node {
+    let step = reconcile(old.as_ref().map(Node::shape).as_ref(), &Shape::of(layout));
+    grow(step, old, layout, tab, path, frames)
+}
+
+fn grow(
+    step: Step,
+    old: Option<Node>,
+    layout: &Layout,
+    tab: &str,
+    path: &mut Vec<bool>,
+    frames: &HashMap<String, Frame>,
+) -> Node {
+    // A kept split is walked like a reused one: its children are the same,
+    // but a frame rebuilt for a new header must go back in its slot.
+    let step = match (step, layout) {
+        (Step::Keep, Layout::Split { .. }) => {
+            Step::Reuse(Box::new(Step::Keep), Box::new(Step::Keep))
+        }
+        (Step::Keep, Layout::Leaf { pane }) => Step::Place(pane.id.clone()),
+        (s, _) => s,
+    };
+    match (step, old, layout) {
+        (Step::Place(p), _, _) => Node::Leaf(p),
+        (
+            Step::Reuse(sa, sb),
+            Some(Node::Split {
+                dir,
+                paned,
+                ratio,
+                a,
+                b,
+            }),
+            Layout::Split {
+                ratio: r,
+                a: la,
+                b: lb,
+                ..
+            },
+        ) => {
+            path.push(false);
+            let a = grow(*sa, Some(*a), la, tab, path, frames);
+            path.pop();
+            path.push(true);
+            let b = grow(*sb, Some(*b), lb, tab, path, frames);
+            path.pop();
+            set_start(&paned, &node_widget(&a, frames));
+            set_end(&paned, &node_widget(&b, frames));
+            apply_ratio(&paned, &ratio, *r);
+            Node::Split {
+                dir,
+                paned,
+                ratio,
+                a: Box::new(a),
+                b: Box::new(b),
+            }
+        }
+        (_, _, Layout::Leaf { pane }) => Node::Leaf(pane.id.clone()),
+        (_, _, Layout::Split { dir, ratio, a, b }) => {
             let orientation = match dir {
                 SplitDir::Right => gtk::Orientation::Horizontal,
                 SplitDir::Down => gtk::Orientation::Vertical,
@@ -536,13 +877,21 @@ fn build(
             paned.set_shrink_start_child(false);
             paned.set_shrink_end_child(false);
             path.push(false);
-            paned.set_start_child(Some(&build(tab, a, path, roots, captions)));
+            let na = grow_from(None, a, tab, path, frames);
             path.pop();
             path.push(true);
-            paned.set_end_child(Some(&build(tab, b, path, roots, captions)));
+            let nb = grow_from(None, b, tab, path, frames);
             path.pop();
-            track_ratio(&paned, tab, path.clone(), *ratio);
-            paned.upcast()
+            set_start(&paned, &node_widget(&na, frames));
+            set_end(&paned, &node_widget(&nb, frames));
+            let cell = track_ratio(&paned, tab, path.clone(), *ratio);
+            Node::Split {
+                dir: *dir,
+                paned,
+                ratio: cell,
+                a: Box::new(na),
+                b: Box::new(nb),
+            }
         }
     }
 }
@@ -554,21 +903,36 @@ fn extent(p: &gtk::Paned) -> i32 {
     }
 }
 
+/// A kept split follows the model's ratio (an Agent Grid re-arranging its
+/// tiles): set inside the sync, so it is not taken for a drag.
+fn apply_ratio(paned: &gtk::Paned, applied: &Cell<f64>, ratio: f64) {
+    if (applied.get() - ratio).abs() < 1e-9 {
+        return;
+    }
+    applied.set(ratio);
+    let size = extent(paned);
+    if size > 0 {
+        paned.set_position((size as f64 * ratio).round() as i32);
+    }
+}
+
 /// Apply the model's ratio once the Paned has a size, then record changes
 /// back into the model. A change at an unchanged size is the user dragging
 /// the handle: a manual resize, which stops Agent Grid auto-arranging (R2.4);
-/// one caused by a new size (window resize) is not.
-fn track_ratio(paned: &gtk::Paned, tab: &str, path: Vec<bool>, ratio: f64) {
+/// one caused by a new size (window resize) is not. Returns the ratio cell
+/// [`apply_ratio`] updates.
+fn track_ratio(paned: &gtk::Paned, tab: &str, path: Vec<bool>, ratio: f64) -> Rc<Cell<f64>> {
+    let applied = Rc::new(Cell::new(ratio));
     let ready = Rc::new(Cell::new(false));
     let last_size = Rc::new(Cell::new(0));
     {
-        let (ready, last_size) = (ready.clone(), last_size.clone());
+        let (ready, last_size, applied) = (ready.clone(), last_size.clone(), applied.clone());
         paned.add_tick_callback(move |p, _| {
             let size = extent(p);
             if size <= 0 {
                 return glib::ControlFlow::Continue;
             }
-            p.set_position((size as f64 * ratio).round() as i32);
+            p.set_position((size as f64 * applied.get()).round() as i32);
             last_size.set(size);
             ready.set(true);
             glib::ControlFlow::Break
@@ -587,6 +951,7 @@ fn track_ratio(paned: &gtk::Paned, tab: &str, path: Vec<bool>, ratio: f64) {
             app.touch(|m| m.set_split_ratio(&tab, &path, r, manual));
         }
     });
+    applied
 }
 
 #[cfg(test)]

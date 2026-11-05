@@ -74,6 +74,8 @@ AC:
    - Idle CPU < 1% with 20 open Terminals.
    - Keypress-to-glyph latency within 1 frame of standalone Ghostty.
 
+**M53 amendment (R142):** add to 3: the UI thread never stalls over 16 ms (p99) with 60 Agents reporting, and an idle app's own timers wake ≤ 5 times/s.
+
 AC: a benchmark script in `bench/` records the numbers above; M0 and every milestone after M4 re-run it. The Intel-iGPU target is N/A on machines whose display is attached to the discrete GPU (cross-GPU dmabuf import fails in Mutter, see docs/internals/checks/M0.md row 4).
 
 ## R5 — Image paste
@@ -909,7 +911,7 @@ AC:
 - R103-a [M35] (e2e): Given scene A at 1440 × 900 in dark and light. When `debug.ui geometry` measures the titlebar, tabs, Panes, Inspector and Statusline. Then rows A.2–A.16, A.39–A.57, A.70–A.73 and A.75–A.79 of the Measurements table of `docs/internals/design/spec/a-workspace.md` are within their tolerance.
 - R103-b [M35] (e2e): Given focus in Worktree `checkout-v2` of Shop's `shop-web` (base `develop`, 3 commits ahead). When `debug.ui chrome` runs. Then the breadcrumb is `Shop / shop-web / checkout-v2 ← develop ↑3` and the Review button shows `4` (`checkout-v2`'s 4 changed files, not the Project's 7).
 - R103-c [M35] (e2e): Given the keyboard in a Terminal running `cat -v`. When the command field is clicked, then `Esc`, then `Ctrl+Shift+P`, then `Esc`, then `Ctrl+K`, then focus moves to the Navigator and `Ctrl+K` is pressed. Then the palette opens 3 times (click, `Ctrl+Shift+P`, `Ctrl+K` from the Navigator), after the first 2 `Esc` typing reaches the same Terminal, and the Terminal's `Ctrl+K` prints `^K` without opening the palette.
-- R103-d [M35] (e2e): Given a new shell Tab with no title in `checkout-v2`, and a Tab renamed `agents` holding Agents `planner` (done) and `tests` (waiting). When `debug.tabs` runs. Then the labels are `checkout-v2` and `agents` with count `2` and the waiting LED (since R115: the lead `planner`'s glyph in the waiting colour), and no label matches `Tab [0-9]+`.
+- R103-d [M35] (e2e): Given a new shell Tab with no title in `checkout-v2`, and a Tab renamed `agents` holding Agents `planner` (done) and `tests` (waiting). When `debug.tabs` runs. Then the labels are `checkout-v2` and `agents` with count `2` and the waiting LED (since R115: the lead `planner`'s glyph; since M49's R115.3 amendment each kind's glyph in that kind's worst status: `planner`'s claude glyph done, then `tests`'s codex glyph waiting), and no label matches `Tab [0-9]+`.
 - R103-e [M35] (e2e): Given Panes `planner` and `tests` with `tests` focused. When `debug.ui geometry` reads both Panes. Then only `tests` has class `focused`, a 1 px `acc` border and the `glow` shadow, and its header text is `tests · codex · gpt-5 · needs input`.
 - R103-f [M35] (e2e): Given scene A, then a clean Worktree. When the visible `.suggested-action` widgets of the top surface are counted. Then each count is exactly 1 (`Commit` on A) or 0 when nothing can be committed.
 - R103-g [M35] (e2e): Given a Review Pane whose Comment / Send to Agent buttons are on screen and an Agent in a hidden Tab. When the Agent starts `waiting` and its Toast shows. Then the Toast's bounds intersect 0 visible buttons.
@@ -1081,7 +1083,13 @@ AC:
 
 - R110-l [M51] (e2e): Given the Usage page open from `planner`. When the header is read, `✕` clicked, the page opened again, Add account opened and `Esc` pressed, the dialog closed and `Esc` pressed again. Then the header has the `Close (Esc)` button, `✕` closes the page, the first `Esc` leaves it open, the second closes it and the keyboard is back in `planner`.
 
+**M53 amendment (R110.2, owner 2026-11-04):** the Inspector steps aside for a list–detail page. While the Usage page (or the Schedules page, R139.1, same grid) is open and the window is too narrow for its list and detail side by side with the Inspector docked (Usage: list ≥ 560 + 16 + 440 px of content; Schedules: 660 + 16 + 400; at 1440 px only 784 px are left), the Inspector is hidden and its toggle shows it floating over the page's right edge, as in the narrow layout (R111.1); the page keeps spec E.8. Closing the page docks the Inspector again as the user left it. A window wide enough for both (1672 px and up for Usage) keeps it docked; the narrow and rail layouts float it anyway.
+
+- R110-m [M53] (e2e): Given the Inspector docked at 1440 × 900. When the Usage page opens, the Inspector toggle is pressed, and the page closes. Then the Inspector is hidden with list and detail side by side (E.8), then floats over the page, then is docked again.
+
 ## R111 — Hardening (M40)
+
+**M53 amendment (R142):** the budgets of 3 also hold with 60 Agents reporting a status every 200 ms (R142-a).
 
 1. **1280 px**: every screen at 1280 × 800 follows the `1280 px` section of its spec sheet; no horizontal scroll anywhere.
 2. **Text scale 200 %**: every screen follows the `Text scale 200 %` section of its sheet (Navigator as a 48 px icon rail, one main Pane); no clipped text.
@@ -1195,7 +1203,7 @@ A full-window view of every Agent in every Workspace, most urgent first, to jump
 5. **Jump** goes where a Notification click goes (R3.3, R23.6): the Agent's Workspace, Source, Worktree and Tab are shown, the Pane is focused (a Title Bar Zoomed) and its Notifications are read; a Fan-out card shows its Fan-out Tab.
 6. **Motion** (ADR-0039, amending ADR-0036 §6): in 200 ms (the window behind shrinks to 94 % under the scrim, cards fade and rise 6 px, 15 ms apart for the first 12), out by a jump 220 ms (the layer fades while the window behind scales back to full size), out by `Esc` 140 ms. With GNOME's Reduce Animation (`gtk-enable-animations` off) nothing moves.
 7. **Empty and large.** No Agent: one mono line `No Agents running · Ctrl+Shift+P > Spawn Agent`. No match: `No Agent matches "<query>" · Esc clears`. Running shows 8 cards then `+<n> more ▾`; Needs you and Finished never fold. Cards at least 300 px wide: 4 columns at 1440 px, 3 at 1280 px, 6 at 2000 px (at most 8), 2 at text scale 200 %; never a horizontal scroll.
-8. **Budgets.** With 40 Agents the first frame is shown within 50 ms of the key, and each animation frame's own work stays within 16.7 ms (p95).
+8. **Budgets.** With 40 Agents the first frame is shown within 50 ms of the key, and each animation frame's own work stays within 16.7 ms (p95). **M53 amendment (owner 2026-11-04):** these two are checked on the real desktop (`tests/live/m43.sh`); headless, where llvmpipe paints the window on the CPU, RADE's own work to open stays within 16.7 ms and the first frame within 100 ms (p95).
 9. **Preview.** A floating view of one card, to read what its Agent is saying without jumping (plan M43-preview.md, mockup `#p`). Header: glyph, name, model, status · age; the Workspace, `Project / link / Worktree` and `↳ Parent`. Body: up to 24 lines of its screen (mono 11.5 px on `bg0`, the agent CLI's input box and footer cut, runs of blank lines kept as one, long lines ellipsized); a Fan-out card: each member's last 6 lines under its name. Foot: the last Notification, git facts, the account, `↵ jump · Alt+P hide`. Every card has one, Quiet rows included.
    - **Place:** an overlay; no card moves. Beside its card, top-aligned, on the right when it fits, else the left; when neither fits, below the card's row, else above it; when its content fits neither, beside after all on the roomier side, narrower (≥ 300 px); else the larger of below / above, shortened. Always inside the body, never over its own card (it may cover others). Width min(600 px, 46 % of the window); height its content within the room left.
    - **When:** the pointer resting 350 ms on a card (it stays while the pointer is on the card or the Preview, and goes 150 ms after it leaves both); the keyboard selection resting 250 ms (on open, arrows, `Tab`, the hold-to-flip). Hidden while a filter is typed (back after a pause). `Alt+P` turns keyboard Previews off / on (kept in `state.json`); hover always works.
@@ -1211,7 +1219,8 @@ AC:
 - R117-g [M43] (e2e): Given the Overview of R117-f closed. When `Ctrl+Shift+Space` is pressed 3 times with `Ctrl+Shift` held and `Ctrl` is released, then pressed once and released. Then the third card's Agent is focused, and after the single press the Overview is open.
 - R117-h [M43] (e2e): Given a running Agent that printed `one`, `two`, `three` last. When the Overview opens. Then its card's tail is those 3 lines and no Quiet row has a tail.
 - R117-i [M43] (e2e): Given `gtk-enable-animations` off. When the Overview opens and closes. Then `debug.ui overview` reports 0 ms for both and the first frame shows the cards at full opacity.
-- R117-j [M43] (e2e): Given no Agent, then 40 Agents in 5 Workspaces. When the Overview opens at 1440 × 900, at 1280 × 800 and at text scale 200 %. Then the first shows the one empty line, and with 40 the columns are 4, 3 and 2, `hscroll` and `clipped` are 0, the first frame is within 50 ms and the animation frame work p95 within 16.7 ms.
+- R117-j [M43] (e2e): Given no Agent, then 40 Agents in 5 Workspaces. When the Overview opens at 1440 × 900, at 1280 × 800 and at text scale 200 %. Then the first shows the one empty line, and with 40 the columns are 4, 3 and 2, `hscroll` and `clipped` are 0, RADE's own work to open is within 16.7 ms and the first frame within 100 ms (p95; headless, M53 amendment).
+- R117-p [M53] (live): Given 40 Agents on the real desktop. When the Overview opens and closes 5 times. Then the first frame p95 is within 50 ms and the animation frame work p95 within 16.7 ms (`tests/live/m43.sh`).
 - R117-k [M43] (e2e): Given an Agent waiting in a hidden Workspace. When the Overview is opened from the titlebar button, the palette's `Agent Overview`, the switcher's `!` and the Statusline's `running` count. Then each opens it, the `!` filtered to Needs you and the count to Running.
 - R117-l [M43] (unit): Given the default keybindings. When the R17.3 collision test runs. Then `overview` is `<Ctrl><Shift>space` and collides with no GNOME, Ghostty or IBus default.
 - R117-m [M43] (e2e): Given the Overview of R117-f. When screenshots are taken in dark and light at 1440 × 900. Then they are saved under `target/e2e-m43/` and looked at against the mockup `#a` / `#a-light`.
@@ -1678,6 +1687,89 @@ AC:
 - R139-d [M52] (e2e): Given a Schedule with run Panes. When Delete… is confirmed with the check box off. Then the Schedule is gone and its Panes stay.
 - R139-e [M52] (e2e): Given the page on a Schedule with a closed Run and an open one. When the closed Run's Resume, then (page opened again) the open Run's Show, are pressed. Then each time the page closes and the focused Pane is the resumed Pane, then the open Run's Pane.
 - R139-f [M52] (unit): Given times around now and Runs of each outcome and Agent status. When shown on the page. Then times read `in 25m` / `in 2h 10m` / `in 1d 6h` / `5m ago` / `just now`, and a Run's chip is `running`, `needs input`, `done`, `error`, `interrupted`, `started` (open, no status yet), `ended`, `skipped`, `missed` or `failed`.
+
+## R140 — Nothing waits forever (M53, ADR-0052)
+
+1. **One process runner** (`rade-core/src/proc.rs`): null stdin, its own session, a time limit that kills the process group, done on exit even when a grandchild still holds stdout, an output cap. Every child process RADE starts goes through it: shell probes, git (local 30 s, network `fetch` / `pull` / `push` 120 s), `gh`, curl, setup commands keep their own documented limits. git runs with `LC_ALL=C`, `GIT_TERMINAL_PROMPT=0` and, `GIT_SSH_COMMAND` = `ssh -o BatchMode=yes -o ConnectTimeout=10`, or, when the user (or a Workspace's `core.sshCommand`, read with the Workspace env) set one, that command with `-o BatchMode=yes -o ConnectTimeout=10` appended (ssh keeps the first value of an option, so the user's own `-o BatchMode=no` wins; a `GIT_SSH` program is left alone); a background timer (auto-fetch, git facts) never opens a password prompt.
+2. **`rade` calls time out.** A socket call the app doesn't answer within 30 s exits 6 `TIMEOUT` with `rade: the app did not answer within 30 s`. `--call-timeout <secs>` (global) or `RADE_TIMEOUT` changes it; `0` = no limit. Methods that wait by design keep their own limit plus 10 s: `pane.wait` / `fanout.wait` (`--timeout`), `code.*` (its `--wait` budget, at least the 30 s a server may take to start), `browser.wait` (`--timeout`), the browser calls that wait for a page load (40 s), also with `--engine chromium`, and the git-heavy ones (`worktree.add|remove|move`, `pane.spawn` with `worktree: "new"`, `fanout.start`, `source.add`) get 300 s.
+3. **Language servers**: writes to a server go through a writer thread with a bounded queue; a server that stops reading is reported (state `error`, hint `hung: …`) within the query budget (R88) and restarted on the next query; LSP header lines are capped at 8 KB.
+4. **E2E harness**: `rpc` fails on EOF with the app's last log lines; `stop_app` waits 10 s then kills; each suite in `ci/e2e.sh` runs under a 20 min limit.
+5. A cron step larger than its field's range is a parse error (R136.5); one Chromium daemon per socket (a lock while starting); a Worktree setup's "type when settled" (R13) gives up after 10 minutes without its done / failed marker and types nothing.
+
+AC:
+- R140-a [M53] (unit): Given a child that ignores SIGTERM and whose grandchild keeps stdout open. When it runs under a 1 s limit. Then the call returns within 2 s with a timeout error and the whole group is gone.
+- R140-b [M53] (unit): Given a git remote (a fake `ssh` that never answers). When `scm::fetch` runs with a 2 s network limit. Then it returns a timeout error and `GIT_TERMINAL_PROMPT=0` / `BatchMode=yes` were in its env.
+- R140-c [M53] (e2e): Given a test-mode app whose UI thread is held by `debug.ui block`. When `rade list --call-timeout 2` runs. Then it exits 6 within 3 s naming the limit, and `RADE_TIMEOUT=0 rade list` answers once the block ends.
+- R140-d [M53] (unit): Given a fake language server that stops reading after `initialize`. When a 1 MB file is opened and a query runs. Then the query answers `error` with the hint `hung: it stopped reading its input; it restarts on the next request` within its budget, and the next query starts a new server.
+- R140-e [M53] (unit): Given the cron `1/4294967295 * * * *`. When it is parsed. Then it is a `USAGE` error naming the field, no panic.
+- R140-f [M53] (e2e): Given no Chromium daemon. When two `rade browser --engine chromium open` run at once. Then one daemon runs and both calls answer (skipped with the reason without a Chromium).
+- R140-g [M53] (unit): Given the CLI. When `--call-timeout`, `RADE_TIMEOUT` and the method are given. Then the limit is the flag, else the variable, else the method's default above.
+- R140-h [M53] (unit): Given the source tree. When the spawn check runs. Then every `Command::new` outside proc.rs is in its allow-list with a reason, and a new one fails the check.
+
+## R141 — Files with secrets stay private (M53, ADR-0052)
+
+1. **One atomic writer** (`rade-core/src/fs_atomic.rs`): a unique temp file in the same folder, fsync of the file and the folder, rename. `Mode::Private` writes `0600`; `Mode::Keep` keeps the target's mode. A symlinked target is written through (the link stays, its target changes). Every writer of RADE's own files uses it.
+2. `0600`: `state.json` and every backup of it (`.v1.bak`, `.v2.bak`, recovery copies), `accounts.toml`, `.rade/workspace.toml`, the Usage store, the update cache. Mode kept: `config.toml`, `project.toml`, the Agent config files `rade setup` edits.
+3. Read-change-write of `accounts.toml`, `workspace.toml`, `project.toml` and `config.toml` holds an advisory lock (`flock` on a sibling `.<name>.lock`), so the CLI and the app never drop each other's edit.
+4. A trusted `.rade.toml` layer is built from the same bytes its trust was checked on.
+
+AC:
+- R141-a [M53] (unit): Given each `0600` file above, first created `0644`. When RADE writes it. Then its mode is `0600`.
+- R141-b [M53] (unit): Given `accounts.toml` as a symlink to a dotfiles repo. When an account is added. Then it is still a symlink and the target holds the account.
+- R141-c [M53] (unit): Given two threads each adding a different account to the same `accounts.toml`. When they run at once. Then both accounts are in the file.
+- R141-d [M53] (unit): Given a trusted `.rade.toml`. When its bytes change between the trust check and the layer build. Then the layer is the checked bytes or untrusted, never the new bytes as trusted.
+- R141-e [M53] (e2e): Given the app. When Settings → Accounts adds a variable and `rade account add` runs. Then `stat -c %a` of `accounts.toml`, `workspace.toml` and `state.json` is `600`.
+
+## R142 — The UI thread stays free (M53, ADR-0052)
+
+1. **One sync per frame**: model changes within a frame cause one `sync` on the next frame, and each part (Navigator, chrome, Files root, Changes, Search, Project home) syncs only when its inputs changed.
+2. **No git, `/proc` or config file reads on the UI thread** on a timer or a hook: the focused checkout's git facts, listening ports, Worktree branches and the main branch, the layered config for a hook's status run off it, at most one read in flight per kind; a result for a checkout that is no longer focused is dropped.
+3. `pane.wait --until <pattern>` and the setup's "type when settled" read only the screen text added since their last look.
+4. The Terminal tick runs while Ghostty asks for it (wakeup) and stops when idle.
+5. No `RefCell` borrow of the Terminals, the surface map or the Ghostty callbacks is held across a GTK call that can run another handler.
+6. **A Layout change moves only what changed**: only the Tab whose Layout changed is rebuilt, and in it only the Panes whose place in the split tree changed are taken out of their container; every other Pane frame and split widget stays (a Terminal taken out is unrealized and rebuilds its renderer). A Pane header's menu is built when it first opens: a menu model per header makes placing any widget in the window walk every header's action watchers.
+
+**Amendment to R4.3 and R111.3:** add "UI-thread stall p99 ≤ 16 ms with 60 Agents reporting" and "≤ 5 timer wakeups/s idle".
+
+AC:
+- R142-a [M53] (e2e): Given 60 fake Agents each reporting a status every 200 ms for 30 s. When `debug.ui perf` is read. Then the UI-thread stall p99 is ≤ 16 ms and `sync` ran at most once per frame (skipped under `E2E_SKIP_PERF`, recorded on the reference machine).
+- R142-b [M53] (e2e): Given an idle app with 4 Terminals for 10 s. When `debug.ui wakeups` is read. Then RADE's own timers woke ≤ 50 times.
+- R142-c [M53] (unit): Given a git facts read for checkout A in flight. When the focus moves to B and A's result arrives. Then A's result is dropped and B's facts are shown.
+- R142-d [M53] (e2e): Given a `git` that takes 5 s (a wrapper on `PATH`). When the window stays active for 12 s. Then at most one facts read was in flight at any time.
+- R142-e [M53] (unit): Given a status hook from a Pane whose config files did not change. When it is handled. Then the layered config is not read again (cache by file mtimes).
+- R142-f [M53] (unit): Given screen text with a pattern added after the last look. When the tail rule runs. Then it finds the pattern reading only the new text.
+- R142-g [M53] (e2e): Given 60 Agents spawned in one Source. When they report a status every 200 ms for 30 s. Then every spawn answered within 2 s, `rade list` answers within 2 s throughout, and the UI-thread stall p99 is ≤ 16 ms (timing skipped under E2E_SKIP_PERF).
+- R142-h [M53] (unit): Given a Tab of 40 Panes. When one more Pane splits its focused Pane, a Pane closes, or nothing but a status changes. Then only the split Pane and the new one (the closed Pane's sibling; none) move to a new place, and every other Pane frame and split widget is kept.
+
+## R143 — Tests tell the truth (M53)
+
+1. Every E2E suite runs in CI (`.github/workflows/ci.yml` shards); a suite not in a shard fails the `check` stage.
+2. A suite that passes only on the serial retry fails the job, except the suites named in `ci/flaky.txt` with a reason; the file is empty when M53 closes.
+3. Known failures carried from M44–M52 are fixed (fixture dates computed from now, free ports instead of fixed ones, checks following renamed labels, the test app's own socket for font checks, a deterministic fake language server).
+4. Shared E2E helpers (`ui`, `state`, `code` and the like) live in `tests/e2e/lib.sh`; a fixed `sleep` waiting for a state becomes a poll.
+
+AC:
+- R143-a [M53] (unit): Given `ci.yml` and `tests/e2e/`. When `scripts/check-ci-suites.sh` runs. Then it exits 0, and exits 1 naming a suite file added outside every shard.
+- R143-b [M53] (unit): Given an AC whose only proving check is in a suite outside every CI shard. When `scripts/trace.sh --strict` runs. Then it fails naming the AC and the suite (self-test in `scripts/trace_test.sh`).
+- R143-c [M53] (unit): Given `ci/e2e.sh`'s retry rule. When a suite fails then passes serially. Then the job fails unless the suite is in `ci/flaky.txt`.
+
+## R144 — Agents get what they type (M53)
+
+1. Free-text arguments (`rade send <text>`, `rade spawn [prompt]`, `rade fanout` prompts, `rade schedule add|edit` prompts, `rade notify <text>`) accept values starting with `-`; `--` works after the flags.
+2. The skills (`skills/*/SKILL.md`) teach only commands and flags that exist: Named Bases are gone from `skills/rade`; every `rade …` example line parses with the real CLI.
+
+AC:
+- R144-a [M53] (unit): Given the CLI parser. When `send rev "- also check tests" --enter`, `spawn --agent codex "-v is broken"` and `send rev -- "-x"` are parsed. Then each parses with that text and no error.
+- R144-b [M53] (unit): Given the three skills. When every `rade …` example line is parsed by the CLI (no app). Then each parses, and none mentions Named Bases.
+
+## R145 — Release and Viewer fixes (M53)
+
+1. `scripts/release.sh` orders versions by SemVer precedence (`1.6.0` is above `1.6.0-rc.1`; `scripts/semver.sh`, the rules of `rade_core::update::Version`).
+2. The Viewer gives an HTML page without its own styles the theme's text and background colours.
+
+AC:
+- R145-a [M53] (unit): Given the last tag `v1.6.0-rc.1`. When the release version check runs for `1.6.0` and `1.5.9`. Then `1.6.0` is accepted and `1.5.9` refused.
+- R145-b [M53] (e2e): Given an HTML file without a `<style>` or `style=`. When it opens in the Viewer in dark. Then its text colour is the theme's `fg`, not black.
 
 ## Non-goals (v1)
 

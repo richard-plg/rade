@@ -19,6 +19,7 @@ use serde_json::{json, Value};
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 use std::time::Duration;
 
 #[derive(Parser)]
@@ -27,6 +28,10 @@ struct Cli {
     /// Print the raw JSON result.
     #[arg(long, global = true)]
     json: bool,
+    /// Seconds the app may take to answer a call (default 30, longer for
+    /// calls that wait or run git by design; `RADE_TIMEOUT`; 0 = no limit).
+    #[arg(long, global = true, value_name = "SECS")]
+    call_timeout: Option<u64>,
     #[command(subcommand)]
     cmd: Cmd,
 }
@@ -70,11 +75,13 @@ enum Cmd {
         #[arg(long)]
         source: Option<String>,
         /// Prompt for the Agent.
+        #[arg(allow_hyphen_values = true)] // R144.1: text may start with "-"
         prompt: Option<String>,
     },
     /// Type text into a Pane.
     Send {
         pane: String,
+        #[arg(allow_hyphen_values = true)] // R144.1: text may start with "-"
         text: String,
         /// Press Enter after the text.
         #[arg(long)]
@@ -158,6 +165,7 @@ enum Cmd {
     },
     /// Raise a Notification on a Pane.
     Notify {
+        #[arg(allow_hyphen_values = true)] // R144.1: text may start with "-"
         text: String,
         #[arg(long)]
         title: Option<String>,
@@ -378,6 +386,7 @@ enum ReviewCmd {
     /// Comment on new-file lines: `path:line` or `path:line-end`.
     Add {
         target: String,
+        #[arg(allow_hyphen_values = true)] // R144.1: text may start with "-"
         text: String,
         #[command(flatten)]
         at: WtArgs,
@@ -886,7 +895,21 @@ fn call_at(
         )
     };
     let mut stream = UnixStream::connect(socket).map_err(not_running)?;
-    let io = |e: std::io::Error| Error::internal(format!("socket: {e}"));
+    let io = |e: std::io::Error| {
+        if let (true, Some(t)) = (
+            matches!(
+                e.kind(),
+                std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+            ),
+            timeout,
+        ) {
+            return Error::new(
+                ErrorKind::Timeout,
+                format!("the app did not answer within {} s ({method})", t.as_secs()),
+            );
+        }
+        Error::internal(format!("socket: {e}"))
+    };
     stream.set_read_timeout(timeout).map_err(io)?;
     stream.set_write_timeout(timeout).map_err(io)?;
     if let Some(caller) = paths::process_env("RADE_PANE_ID") {
@@ -905,12 +928,68 @@ fn call_at(
     resp.into_result()
 }
 
+/// `--call-timeout`, set once by `main`.
+static CALL_TIMEOUT: OnceLock<Option<u64>> = OnceLock::new();
+
+/// How long the app may take to answer `method` (R140.2, API "Call limits"):
+/// the flag, else `RADE_TIMEOUT`, else the method's default; `0` = none.
+fn call_limit(
+    method: &str,
+    params: &Value,
+    flag: Option<u64>,
+    env: Option<&str>,
+) -> Option<Duration> {
+    let secs = flag
+        .or_else(|| env.and_then(|v| v.trim().parse().ok()))
+        .unwrap_or_else(|| default_limit(method, params));
+    (secs > 0).then(|| Duration::from_secs(secs))
+}
+
+/// The per-method default, in seconds.
+fn default_limit(method: &str, params: &Value) -> u64 {
+    // Whatever the JSON type (the CLI sends `--wait` as a float).
+    let n = |k: &str, d: u64| {
+        params[k]
+            .as_f64()
+            .filter(|v| *v >= 0.0)
+            .map_or(d, |v| v.ceil() as u64)
+    };
+    match method {
+        // Wait by design: their own limit plus 10 s.
+        "pane.wait" => n("timeout", 600) + 10,
+        "fanout.wait" => n("timeout", 1800) + 10,
+        "browser.wait" => n("timeout", 30) + 10,
+        // Wait for a page load (up to 30 s) before answering.
+        "browser.open" | "browser.back" | "browser.forward" | "browser.reload"
+        | "browser.click" | "browser.press" => 30 + 10,
+        // A first query may wait out a server's 30 s start (R83) whatever --wait is.
+        m if m.starts_with("code.") => n("wait", 60).max(30) + 10,
+        // git-heavy.
+        "worktree.add" | "worktree.remove" | "worktree.move" | "fanout.start" | "source.add" => 300,
+        "pane.spawn" if params["worktree"] == "new" => 300,
+        _ => 30,
+    }
+}
+
+/// The limit of a call to `method` with the global flag and `RADE_TIMEOUT`
+/// applied (also for the Chromium daemon's calls).
+fn limit_for(method: &str, params: &Value) -> Option<Duration> {
+    let env = std::env::var("RADE_TIMEOUT").ok();
+    call_limit(
+        method,
+        params,
+        CALL_TIMEOUT.get().copied().flatten(),
+        env.as_deref(),
+    )
+}
+
 fn call(method: &str, params: Value) -> Result<Value, Error> {
+    let limit = limit_for(method, &params);
     call_at(
         &paths::socket_path(&paths::process_env),
         method,
         params,
-        None,
+        limit,
     )
 }
 
@@ -1157,6 +1236,7 @@ fn main() {
         std::process::exit(e.kind.exit_code());
     }
     let cli = Cli::parse();
+    let _ = CALL_TIMEOUT.set(cli.call_timeout);
     let result = match &cli.cmd {
         Cmd::Status {
             statusline: true,
@@ -1235,6 +1315,258 @@ fn is_clone_spec(spec: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn parse(args: &[&str]) -> Result<Cli, clap::Error> {
+        Cli::try_parse_from(std::iter::once("rade").chain(args.iter().copied()))
+    }
+
+    #[test]
+    fn r144_a_free_text_may_start_with_a_hyphen() {
+        match parse(&["send", "rev", "- also check tests", "--enter"])
+            .unwrap()
+            .cmd
+        {
+            Cmd::Send {
+                pane, text, enter, ..
+            } => {
+                assert_eq!(
+                    (pane.as_str(), text.as_str(), enter),
+                    ("rev", "- also check tests", true)
+                )
+            }
+            _ => panic!("not send"),
+        }
+        match parse(&["spawn", "--agent", "codex", "-v is broken"])
+            .unwrap()
+            .cmd
+        {
+            Cmd::Spawn { prompt, .. } => assert_eq!(prompt.as_deref(), Some("-v is broken")),
+            _ => panic!("not spawn"),
+        }
+        match parse(&["send", "rev", "--", "-x"]).unwrap().cmd {
+            Cmd::Send { text, enter, .. } => assert_eq!((text.as_str(), enter), ("-x", false)),
+            _ => panic!("not send"),
+        }
+        match parse(&["send", "rev", "--enter", "--", "--paste"])
+            .unwrap()
+            .cmd
+        {
+            Cmd::Send {
+                text, enter, paste, ..
+            } => {
+                assert_eq!((text.as_str(), enter, paste), ("--paste", true, false))
+            }
+            _ => panic!("not send"),
+        }
+        match parse(&["notify", "- done"]).unwrap().cmd {
+            Cmd::Notify { text, .. } => assert_eq!(text, "- done"),
+            _ => panic!("not notify"),
+        }
+        for args in [
+            &["review", "add", "src/a.rs:3", "- rename this"][..],
+            &["fanout", "--agents", "claude,codex", "- fix the bug"][..],
+            &[
+                "schedule",
+                "add",
+                "n",
+                "--dir",
+                "/tmp",
+                "--cron",
+                "0 9 * * *",
+                "- check deps",
+            ][..],
+            &["browser", "fill", "e3", "-42"][..],
+        ] {
+            parse(args).unwrap_or_else(|e| panic!("{args:?}: {e}"));
+        }
+        // A real flag is still a flag.
+        match parse(&["send", "rev", "hi", "--paste"]).unwrap().cmd {
+            Cmd::Send { text, paste, .. } => assert_eq!((text.as_str(), paste), ("hi", true)),
+            _ => panic!("not send"),
+        }
+    }
+
+    /// Shell words of one example (quotes, backslash escapes); `None` on an
+    /// unclosed quote.
+    fn words(line: &str) -> Option<Vec<String>> {
+        let (mut out, mut cur, mut quote, mut any) = (Vec::new(), String::new(), None, false);
+        let mut it = line.chars();
+        while let Some(c) = it.next() {
+            match (quote, c) {
+                (None, '\'' | '"') => (quote, any) = (Some(c), true),
+                (Some(q), _) if c == q => quote = None,
+                (None | Some('"'), '\\') => cur.extend(it.next()),
+                (None, c) if c.is_whitespace() => {
+                    if any || !cur.is_empty() {
+                        out.push(std::mem::take(&mut cur));
+                    }
+                    any = false;
+                }
+                _ => cur.push(c),
+            }
+        }
+        if quote.is_some() {
+            return None;
+        }
+        if any || !cur.is_empty() {
+            out.push(cur);
+        }
+        Some(out)
+    }
+
+    #[test]
+    fn r144_b_every_skill_example_parses() {
+        let skills = [
+            ("rade", include_str!("../../../skills/rade/SKILL.md")),
+            (
+                "rade-config",
+                include_str!("../../../skills/rade-config/SKILL.md"),
+            ),
+            (
+                "rade-workspace",
+                include_str!("../../../skills/rade-workspace/SKILL.md"),
+            ),
+        ];
+        let mut checked = 0;
+        let mut bad = Vec::new();
+        for (name, text) in skills {
+            assert!(
+                !text.to_lowercase().contains("named base"),
+                "{name}: Named Bases were removed in 1.0.0"
+            );
+            // Lines of fenced blocks, backslash continuations joined.
+            let (mut fenced, mut lines, mut acc) = (false, Vec::new(), String::new());
+            for l in text.lines() {
+                if l.trim_start().starts_with("```") {
+                    fenced = !fenced;
+                    continue;
+                }
+                if !fenced {
+                    continue;
+                }
+                match l.trim_end().strip_suffix('\\') {
+                    Some(head) => acc.push_str(head),
+                    None => lines.push(std::mem::take(&mut acc) + l),
+                }
+            }
+            for line in lines {
+                let code = line.split(" #").next().unwrap_or("");
+                for seg in code.split(['|', ';', '·']).flat_map(|s| s.split("&&")) {
+                    let seg = seg.trim().trim_start_matches("$(").trim_end_matches(')');
+                    let Some(rest) = seg.strip_prefix("rade ") else {
+                        continue;
+                    };
+                    // Placeholders and alternatives are prose, not commands.
+                    if ['<', '[', '…', '{'].iter().any(|c| rest.contains(*c))
+                        || rest.contains("...")
+                    {
+                        continue;
+                    }
+                    let Some(w) = words(rest) else { continue };
+                    let args: Vec<&str> = w.iter().map(String::as_str).collect();
+                    checked += 1;
+                    if let Err(e) = parse(&args) {
+                        bad.push(format!(
+                            "{name}: rade {rest}\n  {}",
+                            e.to_string().lines().next().unwrap_or("")
+                        ));
+                    }
+                }
+            }
+        }
+        assert!(checked >= 40, "only {checked} examples found");
+        assert!(
+            bad.is_empty(),
+            "skill examples that don't parse:\n{}",
+            bad.join("\n")
+        );
+    }
+
+    #[test]
+    fn r140_g_call_limit_is_the_flag_else_the_variable_else_the_method_default() {
+        let secs = |m: &str, p: Value, f: Option<u64>, e: Option<&str>| {
+            call_limit(m, &p, f, e).map(|d| d.as_secs())
+        };
+        let none = json!({});
+        // Defaults.
+        assert_eq!(secs("pane.list", none.clone(), None, None), Some(30));
+        assert_eq!(
+            secs("pane.wait", json!({"timeout": 600}), None, None),
+            Some(610)
+        );
+        assert_eq!(
+            secs("fanout.wait", json!({"timeout": 5}), None, None),
+            Some(15)
+        );
+        assert_eq!(secs("code.def", json!({"wait": 20}), None, None), Some(40));
+        // --wait 0: the server's 30 s start still fits (m30 R83 hung initialize).
+        assert_eq!(secs("code.def", json!({"wait": 0}), None, None), Some(40));
+        assert_eq!(secs("code.impact", none.clone(), None, None), Some(70));
+        // The CLI sends `--wait` as a float.
+        assert_eq!(
+            secs("code.impact", json!({"wait": 200.0}), None, None),
+            Some(210)
+        );
+        assert_eq!(
+            secs("code.def", json!({"wait": 45.5}), None, None),
+            Some(56)
+        );
+        assert_eq!(
+            secs("browser.wait", json!({"timeout": 90}), None, None),
+            Some(100)
+        );
+        assert_eq!(secs("browser.wait", none.clone(), None, None), Some(40));
+        assert_eq!(secs("browser.open", none.clone(), None, None), Some(40));
+        assert_eq!(secs("browser.snapshot", none.clone(), None, None), Some(30));
+        assert_eq!(secs("fanout.wait", none.clone(), None, None), Some(1810));
+        for m in [
+            "worktree.add",
+            "worktree.remove",
+            "worktree.move",
+            "fanout.start",
+            "source.add",
+        ] {
+            assert_eq!(secs(m, none.clone(), None, None), Some(300), "{m}");
+        }
+        assert_eq!(
+            secs("pane.spawn", json!({"worktree": "new"}), None, None),
+            Some(300)
+        );
+        assert_eq!(
+            secs("pane.spawn", json!({"worktree": "wt-1"}), None, None),
+            Some(30)
+        );
+        // The variable beats the default, the flag beats the variable.
+        assert_eq!(secs("pane.list", none.clone(), None, Some("7")), Some(7));
+        assert_eq!(secs("worktree.add", none.clone(), None, Some("7")), Some(7));
+        assert_eq!(secs("pane.list", none.clone(), Some(2), Some("7")), Some(2));
+        // 0 = no limit, from either; a bad variable is ignored.
+        assert_eq!(secs("pane.list", none.clone(), Some(0), Some("7")), None);
+        assert_eq!(secs("pane.wait", none.clone(), None, Some("0")), None);
+        assert_eq!(secs("pane.list", none, None, Some("soon")), Some(30));
+    }
+
+    #[test]
+    fn r140_c_a_silent_app_ends_the_call_with_timeout() {
+        let dir = std::env::temp_dir().join(format!("rade-r140-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let sock = dir.join("s.sock");
+        let _ = std::fs::remove_file(&sock);
+        let l = std::os::unix::net::UnixListener::bind(&sock).unwrap();
+        let h = std::thread::spawn(move || {
+            let (c, _) = l.accept().unwrap();
+            std::thread::sleep(Duration::from_secs(3));
+            drop(c);
+        });
+        let t = std::time::Instant::now();
+        let e = call_at(&sock, "pane.list", json!({}), Some(Duration::from_secs(1))).unwrap_err();
+        assert_eq!(e.kind, ErrorKind::Timeout);
+        assert_eq!(e.kind.exit_code(), 6);
+        assert_eq!(e.message, "the app did not answer within 1 s (pane.list)");
+        assert!(t.elapsed() < Duration::from_secs(2));
+        h.join().unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn r31_b_project_flag_is_gone_and_clone_specs() {

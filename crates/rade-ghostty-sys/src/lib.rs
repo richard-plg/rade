@@ -470,6 +470,19 @@ pub struct ghostty_action_scrollbar_s {
     pub len: u64,
 }
 
+/// cmux fork: the terminal's own scrollbar numbers, read under its lock
+/// whether or not anything was drawn (`ghostty_surface_scrollbar`).
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+pub struct ghostty_surface_scrollbar_s {
+    pub total: u64,
+    pub offset: u64,
+    pub len: u64,
+    /// Identity of the absolute row numbering; moves when rows are pruned,
+    /// erased or reflowed.
+    pub row_space_revision: u64,
+}
+
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct ghostty_action_desktop_notification_s {
@@ -631,6 +644,10 @@ extern "C" {
     pub fn ghostty_surface_set_occlusion(surface: ghostty_surface_t, visible: bool);
     pub fn ghostty_surface_set_size(surface: ghostty_surface_t, width: u32, height: u32);
     pub fn ghostty_surface_size(surface: ghostty_surface_t) -> ghostty_surface_size_s;
+    pub fn ghostty_surface_scrollbar(
+        surface: ghostty_surface_t,
+        result: *mut ghostty_surface_scrollbar_s,
+    ) -> bool;
     pub fn ghostty_surface_process_exited(surface: ghostty_surface_t) -> bool;
     pub fn ghostty_surface_key(surface: ghostty_surface_t, event: ghostty_input_key_s) -> bool;
     pub fn ghostty_surface_text(surface: ghostty_surface_t, text: *const c_char, len: usize);
@@ -672,6 +689,18 @@ extern "C" {
         text: *mut ghostty_text_s,
     ) -> bool;
     pub fn ghostty_surface_free_text(surface: ghostty_surface_t, text: *mut ghostty_text_s);
+    /// cmux fork: the text of the inclusive absolute screen rows
+    /// `top_y..=bottom_y` (scrollback + active area), no clamping to the
+    /// visible rows (an exact `ghostty_point_s` is clamped to them), at most
+    /// `max_bytes` (a scratch buffer of that size; `max_bytes / 4` cells of
+    /// work). Free with `ghostty_surface_free_text`.
+    pub fn ghostty_surface_read_screen_clipboard_text(
+        surface: ghostty_surface_t,
+        top_y: u32,
+        bottom_y: u32,
+        max_bytes: usize,
+        text: *mut ghostty_text_s,
+    ) -> bool;
 
     // Clipboard
     pub fn ghostty_surface_complete_clipboard_request(

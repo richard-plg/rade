@@ -16,10 +16,150 @@ use std::time::{Duration, Instant};
 /// At most this many samples per name (the oldest go).
 const KEEP: usize = 4096;
 
+/// Stall histogram: 0.5 ms buckets up to 64 ms, then one overflow bucket.
+const BUCKETS: usize = 129;
+
+/// What the main-loop probe counts (R142, test mode only).
+struct LoopStats {
+    /// Busy periods of the main loop (poll end → next poll start).
+    stalls: [u32; BUCKETS],
+    max_ms: f64,
+    /// `poll` returns whose timeout ran out (a timer woke the loop) / that
+    /// had a file descriptor ready (socket, Wayland, a thread's wakeup).
+    timer: u64,
+    fd: u64,
+    /// `App::sync` runs, and those in a frame that already had one.
+    syncs: u64,
+    same_frame: u64,
+    since: Instant,
+}
+
+impl LoopStats {
+    fn new() -> Self {
+        Self {
+            stalls: [0; BUCKETS],
+            max_ms: 0.0,
+            timer: 0,
+            fd: 0,
+            syncs: 0,
+            same_frame: 0,
+            since: Instant::now(),
+        }
+    }
+}
+
 thread_local! {
     static SAMPLES: RefCell<BTreeMap<String, Vec<f64>>> = RefCell::default();
     static MARKS: RefCell<HashMap<String, Instant>> = RefCell::default();
     static SCROLLING: Cell<bool> = const { Cell::new(false) };
+    static LOOP: RefCell<Option<LoopStats>> = const { RefCell::new(None) };
+    static POLL_END: Cell<Option<Instant>> = const { Cell::new(None) };
+    static LAST_SYNC_FRAME: Cell<i64> = const { Cell::new(-1) };
+}
+
+/// Count the main loop from now on (test mode): how long each iteration
+/// keeps the UI thread (`poll` end → next `poll` start) and what woke it.
+/// Costs two clock reads per iteration and no wakeup of its own.
+pub fn install_loop_probe() {
+    unsafe extern "C" fn poll(
+        fds: *mut glib::ffi::GPollFD,
+        n: std::ffi::c_uint,
+        timeout: std::ffi::c_int,
+    ) -> std::ffi::c_int {
+        let before = Instant::now();
+        if let Some(end) = POLL_END.with(Cell::get) {
+            let ms = before.duration_since(end).as_secs_f64() * 1000.0;
+            LOOP.with(|l| {
+                if let Some(l) = l.borrow_mut().as_mut() {
+                    let b = ((ms * 2.0) as usize).min(BUCKETS - 1);
+                    l.stalls[b] += 1;
+                    l.max_ms = l.max_ms.max(ms);
+                }
+            });
+        }
+        let r = unsafe { glib::ffi::g_poll(fds, n, timeout) };
+        LOOP.with(|l| {
+            if let Some(l) = l.borrow_mut().as_mut() {
+                if r > 0 {
+                    l.fd += 1;
+                } else if timeout > 0 {
+                    l.timer += 1;
+                }
+            }
+        });
+        POLL_END.with(|e| e.set(Some(Instant::now())));
+        r
+    }
+    LOOP.with(|l| *l.borrow_mut() = Some(LoopStats::new()));
+    unsafe {
+        glib::ffi::g_main_context_set_poll_func(glib::ffi::g_main_context_default(), Some(poll))
+    };
+}
+
+/// `App::sync` ran, in the frame `frame` of the frame clock.
+pub fn sync_ran(frame: i64) {
+    LOOP.with(|l| {
+        if let Some(l) = l.borrow_mut().as_mut() {
+            l.syncs += 1;
+            if LAST_SYNC_FRAME.with(|f| f.replace(frame)) == frame {
+                l.same_frame += 1;
+            }
+        }
+    });
+}
+
+/// `debug.ui {"op":"wakeups"}`: RADE's loop wakeups since start / reset.
+pub fn wakeups(reset: bool) -> Value {
+    LOOP.with(|l| {
+        let mut l = l.borrow_mut();
+        let Some(s) = l.as_mut() else {
+            return json!({"error": "the loop probe is not installed"});
+        };
+        let out = json!({
+            "timer": s.timer, "fd": s.fd,
+            "since_ms": s.since.elapsed().as_millis() as u64,
+        });
+        if reset {
+            s.timer = 0;
+            s.fd = 0;
+            s.since = Instant::now();
+        }
+        out
+    })
+}
+
+/// p50 / p99 / max (ms) of the main loop's busy periods since the last reset.
+fn stall_summary() -> Value {
+    LOOP.with(|l| {
+        let l = l.borrow();
+        let Some(s) = l.as_ref() else {
+            return Value::Null;
+        };
+        let n: u64 = s.stalls.iter().map(|c| u64::from(*c)).sum();
+        let at = |p: f64| {
+            let want = ((p / 100.0 * n as f64).ceil() as u64).max(1);
+            let mut seen = 0;
+            for (i, c) in s.stalls.iter().enumerate() {
+                seen += u64::from(*c);
+                if seen >= want {
+                    // The bucket's upper edge.
+                    return (i + 1) as f64 / 2.0;
+                }
+            }
+            0.0
+        };
+        let r = |x: f64| (x * 1000.0).round() / 1000.0;
+        json!({"n": n, "p50": at(50.0), "p99": at(99.0), "max": r(s.max_ms)})
+    })
+}
+
+fn sync_summary() -> Value {
+    LOOP.with(|l| {
+        l.borrow().as_ref().map_or(
+            Value::Null,
+            |s| json!({"n": s.syncs, "same_frame": s.same_frame}),
+        )
+    })
 }
 
 fn push(name: &str, ms: f64) {
@@ -190,12 +330,21 @@ pub fn summary() -> Value {
                        "max": r(v.iter().copied().fold(0.0, f64::max))}),
             );
         }
-        json!({"samples": out, "scrolling": scrolling()})
+        json!({"samples": out, "scrolling": scrolling(), "stall": stall_summary(), "sync": sync_summary()})
     })
 }
 
 /// Forget every sample (`name` = only that one and its `:` variants).
 pub fn reset(name: Option<&str>) {
+    if name.is_none() {
+        LOOP.with(|l| {
+            if let Some(s) = l.borrow_mut().as_mut() {
+                let (timer, fd, since) = (s.timer, s.fd, s.since);
+                *s = LoopStats::new();
+                (s.timer, s.fd, s.since) = (timer, fd, since);
+            }
+        });
+    }
     SAMPLES.with(|s| match name {
         None => s.borrow_mut().clear(),
         Some(n) => s

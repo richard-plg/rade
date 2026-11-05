@@ -23,8 +23,6 @@ command = "$FAKE"
 EOF
 
 G() { git -c user.email=t@t -c user.name=t -c commit.gpgsign=false "$@"; }
-code() { set +e; "$@" >"$T/out" 2>"$T/err"; local c=$?; set -e; echo $c; }
-ui() { rpc debug.ui "{\"op\": \"$1\"${2:+, \"arg\": \"$2\"}}"; }
 uij() { rpc debug.ui "$1"; }
 export -f ui uij rpc
 # Navigator rows (1.0.0, R104): kind:title@depth, its suggestion (`→ BEACON?`),

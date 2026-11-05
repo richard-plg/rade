@@ -162,6 +162,9 @@ pub struct Context {
     pub worktree: Option<String>,
     /// The Source's `.rade.toml` exists and its content is trusted.
     pub trusted: Option<bool>,
+    /// The `.rade.toml` bytes `trusted` was checked on: the Source layer is
+    /// built from these, never from a second read (R141.4).
+    pub source_text: Option<String>,
 }
 
 impl Context {
@@ -299,10 +302,13 @@ impl State {
                 None => None,
             };
             let file = s.path.join(SOURCE_FILE);
-            let trusted = (!s.is_general())
+            // One read: the trust check and the layer share these bytes.
+            let source_text = (!s.is_general())
                 .then(|| project::read_file(&file).ok())
-                .flatten()
-                .map(|text| self.trusted_configs.get(&s.id) == Some(&text));
+                .flatten();
+            let trusted = source_text
+                .as_ref()
+                .map(|text| self.trusted_configs.get(&s.id) == Some(text));
             return Ok(Context {
                 workspace: ws.id.clone(),
                 root: ws.root.clone(),
@@ -316,6 +322,7 @@ impl State {
                     .and_then(|w| self.worktree(&s.id, &w))
                     .map(|w| w.name.clone()),
                 trusted,
+                source_text,
             });
         }
         let ws = match (project, workspace) {
@@ -344,6 +351,7 @@ impl State {
             source: None,
             worktree: None,
             trusted: None,
+            source_text: None,
         })
     }
 }
@@ -392,7 +400,13 @@ pub fn load(user: &Path, ctx: &Context) -> Vec<Layer> {
         out.push(l);
     }
     if let Some((id, path)) = &ctx.source {
-        if let Some(mut l) = file_layer("source", &path.join(SOURCE_FILE), Some(id)) {
+        let file = path.join(SOURCE_FILE);
+        let layer = match &ctx.source_text {
+            // The bytes the trust was checked on (R141.4).
+            Some(text) => Some(Layer::from_text("source", &file, text, Some(id))),
+            None => file_layer("source", &file, Some(id)),
+        };
+        if let Some(mut l) = layer {
             l.untrusted = ctx.trusted != Some(true);
             out.push(l);
         }
@@ -805,6 +819,27 @@ mod tests {
         let ctx = st.config_context(None, None, Some("one"), None).unwrap();
         assert_eq!((ctx.workspace.as_str(), ctx.source.is_none()), ("v", true));
         assert!(st.find_project(None, "nope").is_err());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn r141_d_the_source_layer_is_the_text_its_trust_was_checked_on() {
+        let root = std::env::temp_dir().join(format!("rade-r141d-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("api")).unwrap();
+        let mut st = State::new(Path::new("/home/u"));
+        st.add_workspace(&root, "V").unwrap();
+        st.add_source(&root.join("api"), None).unwrap();
+        let f = root.join("api/.rade.toml");
+        std::fs::write(&f, "setup = \"trusted\"").unwrap();
+        st.trusted_configs
+            .insert("api".into(), "setup = \"trusted\"".into());
+        let ctx = st.config_context(Some("api"), None, None, None).unwrap();
+        assert_eq!(ctx.trusted, Some(true));
+        // The file changes between the check and the build.
+        std::fs::write(&f, "setup = \"evil\"").unwrap();
+        let c = effective(&load(&root.join("none.toml"), &ctx));
+        assert_eq!(c.setup_for("api", "api").as_deref(), Some("trusted"));
         let _ = std::fs::remove_dir_all(&root);
     }
 

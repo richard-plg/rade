@@ -50,11 +50,16 @@ pub fn call(method: &str, mut params: Value, headed: bool) -> Result<Value> {
     if method == "browser.open" {
         params["headed"] = json!(headed);
     }
-    match crate::call_at(&sock, method, params.clone(), None) {
+    let limit = crate::limit_for(method, &params);
+    match crate::call_at(&sock, method, params.clone(), limit) {
         Err(e) if e.kind == ErrorKind::NotRunning => match method {
             "browser.open" => {
-                start(&sock, headed)?;
-                crate::call_at(&sock, method, params, None)
+                ensure_daemon(
+                    &sock,
+                    || std::os::unix::net::UnixStream::connect(&sock).is_ok(),
+                    || start(&sock, headed),
+                )?;
+                crate::call_at(&sock, method, params, limit)
             }
             "browser.close" => Ok(json!({"pane": PANE, "closed": false})),
             _ => Err(Error::not_found(
@@ -63,6 +68,37 @@ pub fn call(method: &str, mut params: Value, headed: bool) -> Result<Value> {
         },
         r => r,
     }
+}
+
+/// One daemon per socket (R140.5): the start runs under an exclusive
+/// `flock` on `<socket>.lock`, and a caller that waited for it finds the
+/// daemon of the one before serving instead of replacing its socket.
+fn ensure_daemon(
+    sock: &Path,
+    serving: impl Fn() -> bool,
+    start: impl FnOnce() -> Result<()>,
+) -> Result<()> {
+    use std::os::fd::AsRawFd;
+    if let Some(d) = sock.parent() {
+        let _ = std::fs::create_dir_all(d);
+    }
+    let lock = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(sock.with_extension("lock"))
+        .map_err(|e| Error::internal(format!("{}: {e}", sock.with_extension("lock").display())))?;
+    // Held until `lock` drops (the start returns once the daemon serves).
+    if unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX) } != 0 {
+        return Err(Error::internal(format!(
+            "locking the Chromium daemon start: {}",
+            std::io::Error::last_os_error()
+        )));
+    }
+    if serving() {
+        return Ok(());
+    }
+    start()
 }
 
 /// Start the daemon and wait until it serves (it binds only after
@@ -1074,5 +1110,42 @@ impl Engine {
             "Target.detachedFromTarget" | "Inspector.detached" => SHUTDOWN.with_exit(),
             _ => {}
         }
+    }
+}
+
+#[cfg(test)]
+mod lock_tests {
+    use super::*;
+    use std::sync::atomic::AtomicBool;
+
+    #[test]
+    fn r140_f_two_concurrent_starts_make_one_daemon() {
+        let dir = std::env::temp_dir().join(format!("rade-r140f-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let sock = dir.join("rade-chromium.sock");
+        let up = Arc::new(AtomicBool::new(false));
+        let starts = Arc::new(AtomicU64::new(0));
+        let hs: Vec<_> = (0..4)
+            .map(|_| {
+                let (sock, up, starts) = (sock.clone(), up.clone(), starts.clone());
+                std::thread::spawn(move || {
+                    ensure_daemon(
+                        &sock,
+                        || up.load(Ordering::SeqCst),
+                        || {
+                            starts.fetch_add(1, Ordering::SeqCst);
+                            std::thread::sleep(Duration::from_millis(300));
+                            up.store(true, Ordering::SeqCst);
+                            Ok(())
+                        },
+                    )
+                })
+            })
+            .collect();
+        for h in hs {
+            h.join().unwrap().unwrap();
+        }
+        assert_eq!(starts.load(Ordering::SeqCst), 1);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

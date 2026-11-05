@@ -796,3 +796,50 @@ fn recent_messages_newest_first() {
     );
     assert_eq!(recent_messages(&d, 1).len(), 1);
 }
+
+#[test]
+fn r140_b_fetch_gives_up_on_a_remote_that_never_answers_and_never_prompts() {
+    if std::env::var_os("GIT_SSH_COMMAND").is_some() || std::env::var_os("GIT_SSH").is_some() {
+        return; // the user's own ssh command is respected, so not testable here
+    }
+    let d = repo_with_id("scm-fetch-timeout");
+    sh(
+        &d,
+        &["remote", "add", "origin", "ssh://example.invalid/x.git"],
+    );
+    if crate::git::ssh_command(&d, &[]).is_none() {
+        return; // core.sshCommand in the user's config
+    }
+    let bin = d.join("fakebin");
+    std::fs::create_dir_all(&bin).unwrap();
+    let log = d.join("ssh.log");
+    let script = bin.join("ssh");
+    std::fs::write(
+        &script,
+        format!(
+            "#!/bin/sh\n{{ echo \"args:$*\"; echo \"prompt:$GIT_TERMINAL_PROMPT\"; }} > '{}'\nsleep 30\n",
+            log.display()
+        ),
+    )
+    .unwrap();
+    std::fs::set_permissions(&script, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+    let path = format!(
+        "{}:{}",
+        bin.display(),
+        std::env::var("PATH").unwrap_or_default()
+    );
+    let t = Instant::now();
+    let err = fetch_within(
+        &d,
+        "origin",
+        &[("PATH".to_string(), path)],
+        Duration::from_secs(2),
+    )
+    .unwrap_err();
+    assert_eq!(err.kind, ErrorKind::Timeout, "{}", err.message);
+    assert!(t.elapsed() < Duration::from_secs(5), "{:?}", t.elapsed());
+    let seen = std::fs::read_to_string(&log).unwrap();
+    assert!(seen.contains("BatchMode=yes"), "{seen}");
+    assert!(seen.contains("ConnectTimeout=10"), "{seen}");
+    assert!(seen.contains("prompt:0"), "{seen}");
+}

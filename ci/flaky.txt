@@ -1,0 +1,4 @@
+# Suites whose CI failure may be retried once, serially (PRD R143.2). One per line:
+#   <suite>  <reason, with a link to where it is written down>
+# Any other suite that fails is a failure, even if it would pass on a retry.
+# Empty when M53 closes.

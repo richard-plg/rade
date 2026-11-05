@@ -23,7 +23,7 @@ use std::time::Duration;
 pub const PAGES: [(&str, &str); 3] = INSPECTOR_TABS;
 
 /// Width of the Inspector (spec A.53).
-pub const INSPECTOR_WIDTH: i32 = 340;
+pub const INSPECTOR_WIDTH: i32 = rade_core::chrome::INSPECTOR_WIDTH;
 
 /// An empty state (R103.6): one mono line, then its key hints as key caps.
 pub fn empty_state(e: &Empty) -> gtk::Box {
@@ -700,6 +700,20 @@ pub fn set_voice_rec(time: Option<&str>) {
 /// A Toast's button: its label and what it does.
 pub type ToastButton<'a> = (&'a str, Box<dyn Fn()>);
 
+thread_local! {
+    /// `debug.ui {"op":"force_active"}` (test mode): the 3 s facts timer runs
+    /// as if the window were in front (a headless compositor never says so).
+    static FORCE_ACTIVE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Test mode: run the facts timer even when the window is not in front.
+pub fn force_active(on: bool) {
+    FORCE_ACTIVE.with(|f| f.set(on));
+}
+
+/// The checkout whose facts are read: its folder and recorded base.
+type FactsKey = (std::path::PathBuf, Option<String>);
+
 pub struct Chrome {
     pub titlebar: crate::titlebar::Titlebar,
     pub right: RightPanel,
@@ -729,7 +743,13 @@ pub struct Chrome {
     bar_shown: std::cell::Cell<Option<bool>>,
     /// The focused checkout's git facts, and the one being read.
     facts: RefCell<Facts>,
-    reading: RefCell<Option<(std::path::PathBuf, Option<String>)>>,
+    /// The last checkout asked for, the read in flight (at most one, R142.2)
+    /// and the checkout wanted now with its Source.
+    requested: RefCell<Option<FactsKey>>,
+    reader: RefCell<rade_core::ui_work::Reader<FactsKey>>,
+    wanted: RefCell<Option<(FactsKey, String)>>,
+    /// The Toast lift timer runs (R142.4: only while a Toast shows).
+    lifting: std::cell::Cell<bool>,
 }
 
 impl Chrome {
@@ -789,28 +809,12 @@ impl Chrome {
         glib::timeout_add_local(Duration::from_secs(3), || {
             if let Some(app) = try_app() {
                 if app.chrome.statusline.root.is_mapped() {
-                    let wt = app.model.borrow().active().1.id.clone();
-                    let mut ports: Vec<u16> = crate::sidebar::ports()
-                        .into_iter()
-                        .filter(|p| p.at.1 == wt)
-                        .map(|p| p.port)
-                        .collect();
-                    ports.sort();
-                    ports.dedup();
-                    *app.chrome.statusline.ports.borrow_mut() = ports;
+                    app.chrome.update_ports(&app.model.borrow());
                 }
-                if app.window.is_active() {
+                if app.window.is_active() || FORCE_ACTIVE.with(std::cell::Cell::get) {
                     app.chrome.refresh_facts(&app.model.borrow(), true);
                 }
                 app.chrome.render(&app.model.borrow());
-            }
-            glib::ControlFlow::Continue
-        });
-
-        // A Toast never covers an action (R103.6): checked while one shows.
-        glib::timeout_add_local(Duration::from_millis(150), || {
-            if let Some(app) = try_app() {
-                app.chrome.lift_toasts(app.window.upcast_ref());
             }
             glib::ControlFlow::Continue
         });
@@ -835,8 +839,53 @@ impl Chrome {
             forecasts: RefCell::default(),
             bar_shown: Default::default(),
             facts: RefCell::default(),
-            reading: RefCell::default(),
+            requested: RefCell::default(),
+            reader: RefCell::default(),
+            wanted: RefCell::default(),
+            lifting: std::cell::Cell::new(false),
         }
+    }
+
+    /// The focused Worktree's listening ports for the Statusline, from the
+    /// last scan (a stale one starts a background scan, R142.2).
+    pub fn update_ports(&self, ws: &State) {
+        let wt = ws.active().1.id.clone();
+        let mut ports: Vec<u16> = crate::sidebar::ports()
+            .into_iter()
+            .filter(|p| p.at.1 == wt)
+            .map(|p| p.port)
+            .collect();
+        ports.sort();
+        ports.dedup();
+        if *self.statusline.ports.borrow() != ports {
+            *self.statusline.ports.borrow_mut() = ports;
+            self.render(ws);
+        }
+    }
+
+    /// A Toast was added: check its place every 150 ms until none shows
+    /// (R103.6), instead of a timer that runs for the app's lifetime.
+    fn watch_lift(&self) {
+        if self.lifting.replace(true) {
+            return;
+        }
+        let empty = std::cell::Cell::new(0);
+        glib::timeout_add_local(Duration::from_millis(150), move || {
+            let Some(app) = try_app() else {
+                return glib::ControlFlow::Break;
+            };
+            app.chrome.lift_toasts(app.window.upcast_ref());
+            let showing = crate::geometry::find(app.chrome.toasts.upcast_ref(), "toast")
+                .into_iter()
+                .any(|w| w.is_mapped());
+            // A new Toast takes a few frames to map: wait before stopping.
+            empty.set(if showing { 0 } else { empty.get() + 1 });
+            if empty.get() >= 4 {
+                app.chrome.lifting.set(false);
+                return glib::ControlFlow::Break;
+            }
+            glib::ControlFlow::Continue
+        });
     }
 
     /// R103.6: a shown Toast moves up above any visible button it would
@@ -885,24 +934,42 @@ impl Chrome {
     /// changed (or `again`); [`Chrome::render`] shows them when done.
     fn refresh_facts(&self, ws: &State, again: bool) {
         let (s, w) = ws.active();
-        let key = (w.path.clone(), w.base.clone());
-        if !again && self.reading.borrow().as_ref() == Some(&key) {
+        let key: FactsKey = (w.path.clone(), w.base.clone());
+        *self.wanted.borrow_mut() = Some((key.clone(), s.id.clone()));
+        if !again && self.requested.borrow().as_ref() == Some(&key) {
             return;
         }
-        *self.reading.borrow_mut() = Some(key.clone());
-        let env = crate::app::workspace_env(ws, &s.id);
-        let (path, base) = key;
+        *self.requested.borrow_mut() = Some(key.clone());
+        // One read at a time (R142-d): while one runs, its end starts the
+        // read for whatever is wanted then.
+        if !self.reader.borrow_mut().request(&key) {
+            return;
+        }
+        self.start_facts(key, crate::app::workspace_env(ws, &s.id));
+    }
+
+    fn start_facts(&self, key: FactsKey, env: Vec<(String, String)>) {
+        let asked = key.clone();
         crate::worktrees::in_background(
-            move || crate::titlebar::read_facts(&path, base, env),
-            |f| {
+            move || crate::titlebar::read_facts(&key.0, key.1, env),
+            move |f| {
                 let Some(app) = try_app() else { return };
-                if *app.chrome.facts.borrow() != f {
+                let wanted = app.chrome.wanted.borrow().clone();
+                let (wkey, source) = wanted.unwrap_or_else(|| (asked.clone(), String::new()));
+                // A result for a checkout that is no longer focused is
+                // dropped (R142-c).
+                let done = app.chrome.reader.borrow_mut().done(&asked, &wkey);
+                if done.apply && *app.chrome.facts.borrow() != f {
                     *app.chrome.facts.borrow_mut() = f;
                     app.chrome.render(&app.model.borrow());
                     // The identity line of Changes by Project (R107.5).
                     if let Some(c) = crate::changes::get() {
                         c.follow_project(&app.model.borrow());
                     }
+                }
+                if let Some(next) = done.next {
+                    let env = crate::app::workspace_env(&app.model.borrow(), &source);
+                    app.chrome.start_facts(next, env);
                 }
             },
         );
@@ -990,6 +1057,15 @@ impl Chrome {
     /// After every sync: breadcrumb, Inspector toggle, Statusline.
     pub fn sync(&self, app: &App, ws: &State) {
         self.titlebar.inspector.set_active(ws.file_tree);
+        // A list–detail page may need the docked Inspector's room (R110.2).
+        let page = if crate::usage_view::is_shown(ws) {
+            Some(rade_core::chrome::USAGE_PAGE)
+        } else if crate::schedules_view::is_shown(ws) {
+            Some(rade_core::chrome::SCHEDULES_PAGE)
+        } else {
+            None
+        };
+        crate::layout_mode::set_page(page);
         let want = self
             .bar_shown
             .get()
@@ -1036,6 +1112,7 @@ impl Chrome {
             t.connect_button_clicked(move |_| f());
         }
         self.toasts.add_toast(t.clone());
+        self.watch_lift();
         {
             let mut shown = self.shown.borrow_mut();
             shown.push(t);
@@ -1113,6 +1190,7 @@ impl Chrome {
             }
         }
         self.toasts.add_toast(toast.clone());
+        self.watch_lift();
         crate::activity_view::push(rade_core::activity::Event::limit_line(
             &t.activity_line(),
             crate::panes::now(),
@@ -1163,6 +1241,7 @@ impl Chrome {
             let id = pane.clone();
             t.connect_button_clicked(move |_| show_pane(&id));
             self.toasts.add_toast(t.clone());
+            self.watch_lift();
             let mut raised = self.raised.borrow_mut();
             raised.push((pane, t));
             let extra = raised.len().saturating_sub(20);
@@ -1199,6 +1278,7 @@ impl Chrome {
             let id = pane.clone();
             t.connect_button_clicked(move |_| crate::review::open_for(&id));
             self.toasts.add_toast(t.clone());
+            self.watch_lift();
             let mut r = self.reviews.borrow_mut();
             r.push((pane.clone(), t));
             let extra = r.len().saturating_sub(20);

@@ -199,6 +199,7 @@ fn open(mut q: Query, flip: bool) {
         return;
     };
     crate::perf::start("overview");
+    let opened_at = std::time::Instant::now(); // R117.8: RADE's own work to open
     crate::palette::get().inspect(|p| p.close(false));
     crate::settings_view::close();
     crate::project_dialogs::close();
@@ -382,7 +383,9 @@ fn open(mut q: Query, flip: bool) {
     layer.set_visible(true);
     layer.add_css_class("ov-in");
     filter.grab_focus();
-    // R117.8: first frame with the cards, and each frame of the motion.
+    // R117.8: RADE's own work (facts, cards, tails), then the first frame
+    // with the cards and each frame of the motion.
+    crate::perf::record("overview:build", opened_at.elapsed(), true);
     crate::perf::ready("overview", &app.window);
     crate::perf::frames("overview", &app.window, u64::from(IN_MS) + 200);
 

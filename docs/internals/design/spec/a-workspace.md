@@ -50,7 +50,7 @@ Window 1440 × 900 px. Columns: Navigator 268 px · center 832 px · Inspector 3
 | A.40 | Tab padding, gap, font, right border | 0 12 px, 8 px, Inter 12.5 px `fg2`, 1 px `line` | ±1 px; exact | `geometry tab → padding, font, color, border.right` |
 | A.41 | Active tab (`agents`) | fill `bg0`, text `fg`, top bar 2 px `acc` full tab width | ±1 px; exact | `class tab has active`; `geometry tab-activebar → height, width = tab width, background` |
 | A.42 | Tab count / close | `2` JetBrains Mono 11 px `fg3`; close `x` 12 px `fg3` | ±0.5 px; exact | `geometry tab-count → font, color`; `geometry tab-close → width, color` |
-| A.43 | Tab glyph and type icon | the lead Agent's glyph 14 px in the Tab's status colour (A.29, A.30) for Agent tabs; `globe-simple` / `git-diff` 13 px `fg3` for Browser / Review | ±1 px; exact | `geometry tab-glyph → width, color`; `geometry tab-icon → width, color` |
+| A.43 | Tab glyph and type icon | the lead Agent's glyph 14 px in the worst status colour of its kind in the Tab (A.29, A.30), then each other kind's glyph 12 px in that kind's worst status (R115.3, M49) for Agent tabs — scene A: `planner` claude `ok`, `tests` codex `wait`; `globe-simple` / `git-diff` 13 px `fg3` for Browser / Review | ±1 px; exact | `geometry tab-glyph → width, color`; `geometry tab-glyph-extra → classes, color`; `geometry tab-icon → width, color` |
 | A.44 | New tab button | 34 px wide, `plus` 16 px `fg3` | ±1 px | `geometry tab-add → width, color` |
 | A.45 | Pane grid padding and gap | 6 px / 6 px | ±1 px | `geometry panes → padding`; x of pane 2 − (x + width of pane 1) = 6 |
 | A.46 | Pane border, radius, body | 1 px `line`, 6 px, `bg0` | ±1 px; exact | `geometry pane → border, radius, background` |

@@ -23,7 +23,6 @@ printf 'idle_seconds = 1\n\n[agents.claude]\ncommand = "%s"\n\n[agents.codex]\nc
 ACC=$XDG_CONFIG_HOME/rade/accounts.toml
 TOKEN=tok-e2e-5f1c0ffee
 G() { git -c user.email=t@t -c user.name=t -c commit.gpgsign=false "$@"; }
-code() { set +e; "$@" >"$T/out" 2>"$T/err"; local c=$?; set -e; echo $c; }
 npanes() { rade list --all --json | jq '.panes | length'; }
 line_is() { rade read "$1" --scrollback | sed 's/[[:space:]]*$//' | grep -qxF -- "$2"; }
 pane_field() { rade list --all --json | jq -r --arg p "$1" --arg f "$2" '.panes[] | select(.pane == $p) | .[$f]'; }

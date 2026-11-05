@@ -9,6 +9,7 @@ use gtk::{gio, glib};
 use gtk4 as gtk;
 use libadwaita as adw;
 use rade_core::checkout::{self, LinkCheckout};
+use rade_core::fs_atomic;
 use rade_core::layers;
 use rade_core::project::{self, Project};
 use rade_core::rpc::{Error, Result};
@@ -850,8 +851,17 @@ fn add(a: Add) -> Result<(Value, String)> {
     }
     let text = project::template_links(a.name.trim(), &sources);
     let io = |e: std::io::Error| Error::internal(format!("{}: {e}", file.display()));
-    std::fs::create_dir_all(file.parent().unwrap()).map_err(io)?;
-    std::fs::write(&file, text).map_err(io)?;
+    // Create-if-absent under the lock (R141.1, R141.3): a `project.toml`
+    // another process made since the check above is never overwritten.
+    let mut created = false;
+    fs_atomic::with_lock(&file, fs_atomic::Mode::Keep, |_| {
+        created = !file.exists();
+        Ok::<_, std::io::Error>(created.then_some(text))
+    })
+    .map_err(io)?;
+    if !created {
+        return Ok((json!({"project": id, "file": file, "existing": true}), ws));
+    }
     drop(m);
     // A new Project goes last in the Navigator (R104.4).
     if app.update(|m| m.note_projects(&ws, std::slice::from_ref(&id))) {

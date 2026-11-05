@@ -250,8 +250,9 @@ done
 sleep 0.5
 n=$(pf navigator_sync:changed n) p95=$(pf navigator_sync:changed p95)
 echo "  Navigator row update: n=$n p95=$p95 ms max=$(pf navigator_sync:changed max) ms"
+# Status changes within one frame are one update (R142.1): at most 100 updates, at least one.
 check "R111-c 100 status changes: the Navigator row update is ≤ 16 ms at p95 ($p95 ms over $n updates)" \
-    bash -c "[[ $n != none && $n -ge 100 ]] && python3 -c 'import sys; sys.exit(0 if $p95 <= 16 else 1)'"
+    bash -c "[[ $n != none && $n -ge 1 ]] && python3 -c 'import sys; sys.exit(0 if $p95 <= 16 else 1)'"
 shot r111-c-navigator
 perf reset nav_scroll >/dev/null
 perf "scroll 240" >/dev/null

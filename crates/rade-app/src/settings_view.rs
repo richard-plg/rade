@@ -625,25 +625,17 @@ pub(crate) fn write_setting(
     value: Option<toml::Value>,
 ) -> std::result::Result<Config, String> {
     let path = app().paths.config.clone();
-    let old = match std::fs::read_to_string(&path) {
-        Ok(t) => t,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
-        Err(e) => return Err(format!("{}: {e}", path.display())),
-    };
+    use rade_core::fs_atomic as fsa;
+    let fail = |e: std::io::Error| format!("{}: {e}", path.display());
+    // Read, change and write under one lock; through a symlinked config.toml.
+    let _lock = fsa::Lock::acquire(&path).map_err(fail)?;
+    let old = fsa::read_text(&fsa::resolve(&path)).map_err(fail)?;
     let new = match value {
         Some(v) => st::set(&old, key, v)?,
         None => st::reset(&old, key)?,
     };
     if new != old {
-        // Through a symlinked config.toml to its target.
-        let file = std::fs::canonicalize(&path).unwrap_or_else(|_| path.clone());
-        if let Some(dir) = file.parent() {
-            std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-        }
-        let tmp = file.with_extension("toml.tmp");
-        std::fs::write(&tmp, &new)
-            .and_then(|_| std::fs::rename(&tmp, &file))
-            .map_err(|e| format!("{}: {e}", path.display()))?;
+        fsa::write(&path, new.as_bytes(), fsa::Mode::Keep).map_err(fail)?;
     }
     Config::parse(&new).map_err(|e| format!("config.toml: {e}"))
 }

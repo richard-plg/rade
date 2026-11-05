@@ -197,5 +197,37 @@ failing = [a for a in missing if strict or gated(acs[a][2])]
 if failing:
     why = "--strict" if strict else "gated milestone"
     print(f"trace.sh: {len(failing)} AC(s) without a test ({why}): {' '.join(failing)}", file=sys.stderr)
+
+# --strict, R143.1: an AC proven only by E2E suites that run in no CI shard.
+# Suites CI runs = the `suites:` lists and `ci/e2e.sh "<image>" <suites>` lines
+# of .github/workflows/*.yml (as scripts/check-ci-suites.sh); a part
+# `<suite>-<part>.sh` counts as its suite. No workflows under the root → skipped.
+wf = os.path.join(root, ".github", "workflows")
+outside = []
+if strict and os.path.isdir(wf):
+    in_ci = set()
+    for fn in sorted(os.listdir(wf)):
+        if not fn.endswith(".yml"):
+            continue
+        with open(os.path.join(wf, fn), encoding="utf-8", errors="replace") as f:
+            for line in f:
+                m = re.match(r"\s*suites:\s*(.*)$", line) or re.search(r'ci/e2e\.sh\s+"[^"]*"\s+([^$]*)$', line)
+                if m:
+                    in_ci.update(w for w in m.group(1).split() if re.fullmatch(r"[A-Za-z0-9_-]+", w))
+    def suite(hit):
+        m = re.fullmatch(r"tests/e2e/([A-Za-z0-9_-]+)\.sh:\d+", hit)
+        if not m:
+            return None
+        s = m.group(1)
+        base = s.split("-")[0]
+        return base if "-" in s and os.path.isfile(os.path.join(root, "tests", "e2e", base + ".sh")) else s
+    for a in covered:
+        suites = [suite(h) for h in hits[a]]
+        if all(x is not None and x not in in_ci for x in suites):
+            outside.append(f"{a} ({', '.join(sorted(set(suites)))})")
+    if outside:
+        print(f"trace.sh: {len(outside)} AC(s) proven only by suites outside CI (--strict): {' '.join(outside)}",
+              file=sys.stderr)
+if failing or (strict and os.path.isdir(wf) and outside):
     sys.exit(1)
 PY

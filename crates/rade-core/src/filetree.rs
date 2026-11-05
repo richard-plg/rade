@@ -145,15 +145,9 @@ pub fn status_map(top: &Path, entries: &[(PathBuf, GitState)]) -> HashMap<PathBu
 /// repository's top level; `None` outside a repository.
 pub fn git_status(root: &Path) -> Option<HashMap<PathBuf, GitState>> {
     let git = |args: &[&str]| {
-        std::process::Command::new("git")
-            .arg("-C")
-            .arg(root)
-            .args(args)
-            // Never write the index: its change would trigger another refresh.
-            .env("GIT_OPTIONAL_LOCKS", "0")
-            .stdin(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .output()
+        // `git::command` never writes the index (no optional locks): its
+        // change would trigger another refresh.
+        crate::proc::output(crate::git::command(root).args(args), crate::proc::GIT_LOCAL)
             .ok()
             .filter(|o| o.status.success())
     };

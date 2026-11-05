@@ -15,14 +15,14 @@ pub struct TerminalCallbacks {
     pub on_bell: Box<BellCallback>,
     pub on_close: Box<VoidCallback>,
     /// The process exited (exit code); fires before any close.
-    pub on_child_exited: Box<ChildExitedCallback>,
+    pub on_child_exited: Rc<ChildExitedCallback>,
     /// Ctrl+click on a link: Ghostty's matched text or OSC 8 URI (R7.1).
     pub on_open_url: Box<PwdChangedCallback>,
     /// Whether a Ctrl+click text opens something (a URL, an existing
     /// file): which join of a wrapped token to take (R134).
     pub link_resolves: Box<LinkResolves>,
     /// OSC 133 command finished (shell integration, R10.2 fallback).
-    pub on_command_finished: Box<VoidCallback>,
+    pub on_command_finished: Rc<VoidCallback>,
     /// RADE (R19.6): a right-click the program did not take (no mouse
     /// reporting, or Shift held), at widget point (x, y): show the menu.
     pub on_context_menu: Box<dyn Fn(f64, f64)>,
@@ -36,10 +36,10 @@ impl TerminalCallbacks {
             on_desktop_notification: Box::new(|_, _, _| {}),
             on_bell: Box::new(|_| {}),
             on_close: Box::new(|| {}),
-            on_child_exited: Box::new(|_| {}),
+            on_child_exited: Rc::new(|_| {}),
             on_open_url: Box::new(|_| {}),
             link_resolves: Box::new(|_| false),
-            on_command_finished: Box::new(|| {}),
+            on_command_finished: Rc::new(|| {}),
             on_context_menu: Box::new(|_, _| {}),
         }
     }
@@ -427,11 +427,13 @@ pub fn create_terminal(
                                 (callbacks.on_close)();
                             }
                         })),
-                        on_child_exited: Some(Box::new({
+                        on_child_exited: Some(Rc::new({
                             let cb = callbacks.clone();
                             move |code| {
-                                let callbacks = cb.borrow();
-                                (callbacks.on_child_exited)(code);
+                                // Not under the callbacks' borrow: the handler
+                                // runs `App::update` (R142.5).
+                                let f = cb.borrow().on_child_exited.clone();
+                                f(code);
                             }
                         })),
                         on_open_url: Some(Box::new({
@@ -442,9 +444,12 @@ pub fn create_terminal(
                             let cb = callbacks.clone();
                             move |t| (cb.borrow().link_resolves)(t)
                         })),
-                        on_command_finished: Some(Box::new({
+                        on_command_finished: Some(Rc::new({
                             let cb = callbacks.clone();
-                            move || (cb.borrow().on_command_finished)()
+                            move || {
+                                let f = cb.borrow().on_command_finished.clone();
+                                f()
+                            }
                         })),
                         clipboard_context,
                         mouse_cursor: Cell::new(MouseCursorState::default()),

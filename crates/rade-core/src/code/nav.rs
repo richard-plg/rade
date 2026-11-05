@@ -854,11 +854,12 @@ pub fn text_matches(root: &Path, word: &str, def: bool) -> Vec<Item> {
 /// a removed line's name that is gone from the working tree, R87.2),
 /// capped at 500; paths under `root` (the file may no longer exist).
 pub fn base_matches(root: &Path, base: &str, word: &str) -> Vec<Item> {
-    let out = crate::git::command(root)
-        .args([
+    let out = crate::proc::output(
+        crate::git::command(root).args([
             "grep", "-n", "-w", "-I", "--column", "--null", "-F", "-e", word, base, "--",
-        ])
-        .output();
+        ]),
+        crate::proc::GIT_LOCAL,
+    );
     let Ok(out) = out else { return vec![] };
     let text = String::from_utf8_lossy(&out.stdout);
     let prefix = format!("{base}:");

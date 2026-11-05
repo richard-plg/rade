@@ -24,7 +24,6 @@ dpkg-deb -x "$DEB" "$R"
 unset LD_LIBRARY_PATH GHOSTTY_RESOURCES_DIR TERMINFO GHOSTTY_SHELL_INTEGRATION_XDG_DIR
 BIN=$R/usr/bin # start_app runs $BIN/rade-app: the /usr/bin symlink
 export PATH=$R/usr/bin:${PATH#"$ROOT/target/release:"}
-field() { rade list --json | jq -r --arg p "$1" ".panes[] | select(.pane==\$p) | .$2"; }
 
 echo "== package layout"
 check "rade on PATH is the extracted one" test "$(command -v rade)" = "$R/usr/bin/rade"

@@ -29,7 +29,7 @@ ci=$(gh api "repos/${REPO#https://github.com/}/actions/workflows/ci.yml/runs?hea
      --jq '.workflow_runs[0] | "\(.status) \(.conclusion)"' 2>/dev/null || true)
 [[ $ci == "completed success" ]] || fail "CI on ${head:0:7} is '${ci:-not found}': release once it is green ($REPO/actions)"
 OLD=$(scripts/version.sh --base)
-[[ $OLD != "$V" && $(printf '%s\n%s\n' "$OLD" "$V" | sort -V | tail -1) == "$V" ]] || fail "$V is not above $OLD"
+scripts/semver.sh gt "$V" "$OLD" || fail "$V is not above $OLD" # SemVer order, not sort -V (R145.1)
 have=$(git cliff --version 2>/dev/null | awk '{print $2}' || true)
 [[ $have == "$CLIFF_VERSION" ]] || fail "needs git-cliff $CLIFF_VERSION on PATH (found: ${have:-none}); see docs/RELEASING.md"
 notes=$(awk '/^## \[Unreleased\]/{f=1;next} /^## \[/{f=0} /^\[[^]]+\]: /{next} f' CHANGELOG.md | grep -v '^\s*$' || true)
