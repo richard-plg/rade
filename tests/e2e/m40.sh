@@ -106,7 +106,7 @@ PY
     echo "  first scan: $ms ms, read $read1 bytes; probe: $probes answers, slowest $worst ms"
     check "R111-e the first scan reads the whole folder ($read1 bytes) within 10 s ($ms ms)" \
         bash -c "[[ $read1 -ge $total && $ms -le 10000 ]]"
-    check "R111-e the main loop answered every 50 ms probe during the scan ($probes answers, slowest $worst ms)" \
+    perf_check "R111-e the main loop answered every 50 ms probe during the scan ($probes answers, slowest $worst ms)" \
         bash -c "[[ $probes -ge $((ms / 100)) ]] && python3 -c 'import sys; sys.exit(0 if $worst <= 50 else 1)'"
     # 10 lines appended to one file: the next tail reads exactly them.
     F=$HOME/.codex-big/sessions/2026/10/23/rollout-big-07.jsonl
@@ -196,7 +196,7 @@ rpc debug.ui '{"op":"layout","width":1440,"height":900}' >/dev/null
 check "R111-d relaunched on the Workspace with 20 accounts" eventually 10 is "rade workspace list --json | jq -r '.workspaces[] | select(.active) | .workspace'" many
 sleep 1
 open_both relaunch
-check "R111-d the Usage page (20 accounts × 90 days) is drawn within 100 ms ($up ms, $rows rows)" \
+perf_check "R111-d the Usage page (20 accounts × 90 days) is drawn within 100 ms ($up ms, $rows rows)" \
     bash -c "[[ $rows == 20 ]] && python3 -c 'import sys; sys.exit(0 if $up <= 100 else 1)'"
 perf_check "R111-d the + menu (10 accounts of each agent) is drawn within 50 ms ($nm ms)" le "$nm" 50
 [[ -z ${DIAG:-} ]] || source "$DIAG"
@@ -251,7 +251,7 @@ sleep 0.5
 n=$(pf navigator_sync:changed n) p95=$(pf navigator_sync:changed p95)
 echo "  Navigator row update: n=$n p95=$p95 ms max=$(pf navigator_sync:changed max) ms"
 # Status changes within one frame are one update (R142.1): at most 100 updates, at least one.
-check "R111-c 100 status changes: the Navigator row update is ≤ 16 ms at p95 ($p95 ms over $n updates)" \
+perf_check "R111-c 100 status changes: the Navigator row update is ≤ 16 ms at p95 ($p95 ms over $n updates)" \
     bash -c "[[ $n != none && $n -ge 1 ]] && python3 -c 'import sys; sys.exit(0 if $p95 <= 16 else 1)'"
 shot r111-c-navigator
 perf reset nav_scroll >/dev/null
@@ -262,7 +262,7 @@ echo "  Navigator scroll: $frames frames, work p95 $work ms (max $(pf nav_scroll
 # The interval follows the headless compositor (llvmpipe paints every other
 # vblank); RADE's own work per frame is the budget here, the interval is
 # checked on the real desktop (tests/live/m40.sh, R111-f).
-check "R111-c an end-to-end Navigator scroll: each frame's work ≤ 16.7 ms at p95 ($work ms over $frames frames)" \
+perf_check "R111-c an end-to-end Navigator scroll: each frame's work ≤ 16.7 ms at p95 ($work ms over $frames frames)" \
     bash -c "[[ $frames != none && $frames -ge 200 ]] && python3 -c 'import sys; sys.exit(0 if $work <= 16.7 else 1)'"
 shot r111-c-navigator-end
 fi
