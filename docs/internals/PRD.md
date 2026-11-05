@@ -1784,7 +1784,7 @@ AC:
 - R146-b [M54] (unit): Given Worktrees active / pending / hidden / just pushed. When the schedule is asked. Then their due times are 60 s / 20 s / 10 min / now, a timeout marks only that Workspace down for 10 min, and a Worktree without upstream or PR is never due.
 - R146-c [M54] (unit): Given a run's reads. When states change. Then the first read is silent, passing → failing gives one Notification and one Activity row, failing again on the same head gives nothing, a new failing head gives them again, merged gives the Toast and a changes-requested review a Notification.
 - R146-d [M54] (e2e): Given fake gh answering per branch from files. When the fixture goes pending → failing → passing. Then the Navigator chip, the Changes card chip and Project home's KPI follow within one period, dark + light screenshots.
-- R146-e [M54] (e2e): Given 20 Worktrees with upstreams and the window not active. When 10 minutes pass on the test clock. Then gh ran at most twice per Workspace; with `pr_status = false` 0 times; a gh that sleeps 60 s gives `unavailable` after 20 s, one Activity row and a UI-thread stall p99 ≤ 16 ms.
+- R146-e [M54] (e2e): Given 20 Worktrees with upstreams and the window not active. When 10 minutes pass on the test clock. Then gh ran at most twice per Worktree (`--head` reads one branch) and never twice at once in a Workspace; with `pr_status = false` 0 times; a gh that sleeps 60 s gives `unavailable` after 20 s, one Activity row and a UI-thread stall p99 ≤ 16 ms.
 - R146-f [M54] (e2e): Given a Worktree. When Create PR runs from the Changes card with fake gh. Then the chip shows the number at once, and after a relaunch it shows greyed before the first read.
 - R146-g [M54] (live): Given a temp Workspace with a Worktree of the real `m53-solid` branch and the owner's gh. When RADE reads it. Then the chip shows `#10` with the real checks (read only).
 
@@ -1802,7 +1802,7 @@ AC:
 - R147-c [M54] (unit): Given `send`. When failing heads arrive with the Agent running / waiting, passing reads between or not. Then nothing is sent while running, one send per head, none after the 3rd until a pass, then the still-failing Notification; `ask` never sends.
 - R147-d [M54] (e2e): Given a failing fixture with run logs and a fake Agent. When the Notification's Send to Agent is used and the preview is sent. Then the preview holds the job heading and its tail and the Agent's screen gets `CI failed on PR #7`.
 - R147-e [M54] (e2e): Given `ci_failures = "send"` and a running fake Agent. When CI fails. Then nothing is sent until the Agent waits, then one prompt; a new failing head → a second; the 4th → none and the still-failing Notification.
-- R147-f [M54] (e2e): Given the failing fixture. When `rade pr failures --json` runs. Then it names the same jobs; with no PR → `NOT_FOUND`; gh missing → its message, exit 1.
+- R147-f [M54] (e2e): Given the failing fixture. When `rade pr failures --json` runs. Then it names the same jobs; with no PR → `NOT_FOUND`; gh missing → `USAGE` with its message (exit 2).
 
 ## R148 — `rade pr` (M54)
 

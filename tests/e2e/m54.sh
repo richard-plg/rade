@@ -348,7 +348,6 @@ if want auto; then
     turn failing
     check "R147-e the third failing head: a third prompt" eventually 20 is sent 3
     eventually 20 is "field $agent status" done || true
-    sleep 6 # past the 5 s window in which a Message folds into the Agent's "finished" entry (notify.rs coalesce)
     newhead h4
     turn failing
     sleep 4

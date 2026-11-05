@@ -29,6 +29,10 @@ pub struct Notification {
     /// What raised it, for coalescing one Agent event into one entry.
     #[serde(default, skip_serializing_if = "Origin::is_message")]
     pub source: Origin,
+    /// RADE's own notice (PR / CI, R146.4): never coalesced with an Agent
+    /// event, so it is never absorbed into one.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub own: bool,
 }
 
 /// Where a Notification came from (R3.1 coalescing).
@@ -98,18 +102,30 @@ impl State {
         text: &str,
         now: u64,
     ) -> Option<u64> {
-        self.post(pane, title, text, Origin::Message, now)
+        self.post(pane, title, text, Origin::Message, now, false)
     }
 
     /// BEL (R3.1): "Bell", or nothing new when it reports an Agent event
     /// that already has an entry.
     pub fn notify_bell(&mut self, pane: &str, now: u64) -> Option<u64> {
-        self.post(pane, None, "Bell", Origin::Bell, now)
+        self.post(pane, None, "Bell", Origin::Bell, now, false)
+    }
+
+    /// RADE's own notice on `pane` (R146.4: checks failed, changes
+    /// requested, CI still failing): de-duplicated, never coalesced.
+    pub fn notify_own(
+        &mut self,
+        pane: &str,
+        title: Option<String>,
+        text: &str,
+        now: u64,
+    ) -> Option<u64> {
+        self.post(pane, title, text, Origin::Message, now, true)
     }
 
     /// An Agent Status transition ("<name> finished", R10.3).
     pub(crate) fn notify_status(&mut self, pane: &str, text: &str, now: u64) -> Option<u64> {
-        self.post(pane, None, text, Origin::Status, now)
+        self.post(pane, None, text, Origin::Status, now, false)
     }
 
     fn post(
@@ -119,6 +135,7 @@ impl State {
         text: &str,
         source: Origin,
         now: u64,
+        own: bool,
     ) -> Option<u64> {
         if let Some(last) = self.notifications.iter_mut().rev().find(|n| n.pane == pane) {
             let age = now.abs_diff(last.time);
@@ -127,7 +144,11 @@ impl State {
                 return None;
             }
             // The window counts from the entry's own time, never slides.
-            if age <= COALESCE_SECS && coalesce(last, title.as_deref(), text, source) {
+            if !own
+                && !last.own
+                && age <= COALESCE_SECS
+                && coalesce(last, title.as_deref(), text, source)
+            {
                 return Some(last.id);
             }
         }
@@ -142,6 +163,7 @@ impl State {
             read: false,
             path,
             source,
+            own,
         });
         let extra = self.notifications.len().saturating_sub(MAX_NOTIFICATIONS);
         self.notifications.drain(..extra);

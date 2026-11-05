@@ -1077,6 +1077,7 @@ mod tests {
             read: false,
             path: String::new(),
             source,
+            own: false,
         };
         assert_eq!(
             n(

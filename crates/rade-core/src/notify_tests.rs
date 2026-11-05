@@ -484,3 +484,21 @@ fn r3_1_a_failed_first_notify_retries_the_queued_text_as_new() {
     assert_eq!(s.failed(1), None);
     assert_eq!(s.send(1, "c"), notify(0, "c"));
 }
+
+#[test]
+fn r146_c_rades_own_notice_is_never_absorbed_into_an_agent_event() {
+    // The Agent finished (status + its OSC), then CI failed 1 s later.
+    let (mut w, a, _, _, _) = ws();
+    w.notify_status(&a, "rev finished", 100).unwrap();
+    w.notify(&a, None, "PONG", 100).unwrap();
+    let ci = w.notify_own(&a, Some("#7".into()), "checks failed (1 job)", 101);
+    assert!(ci.is_some());
+    assert_eq!(w.notifications.len(), 2, "own entry");
+    // An Agent event right after the notice gets its own entry too.
+    w.notify_status(&a, "rev finished", 102).unwrap();
+    assert_eq!(w.notifications.len(), 3);
+    assert_eq!(w.notifications[1].text, "checks failed (1 job)");
+    // Still de-duplicated when it repeats.
+    assert!(w.notify_own(&a, None, "CI still failing", 103).is_some());
+    assert_eq!(w.notify_own(&a, None, "CI still failing", 104), None);
+}

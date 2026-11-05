@@ -665,7 +665,7 @@ fn handle_events(app: &App, job: &Job, events: Vec<Event>) {
         // The Notification's Send to Agent action is the UI's
         // (`offers_send_to_agent`, [`send_to_agent`]).
         if let (Some((title, body)), Some(pane)) = (ev.notification(), &pane) {
-            app.update_coalesced(|m| m.notify(pane, Some(title), &body, crate::panes::now()));
+            app.update_coalesced(|m| m.notify_own(pane, Some(title), &body, crate::panes::now()));
         }
         if let Some(t) = ev.toast() {
             let (pid, wid) = (job.pid.clone(), job.wid.clone());
@@ -738,7 +738,7 @@ fn auto_step(app: &App, pid: &str, wid: &str) {
             // The borrow must end before `update_coalesced` borrows the model mutably.
             let pane = notify_pane(&app.model.borrow(), pid, wid);
             if let Some(pane) = pane {
-                app.update_coalesced(|m| m.notify(&pane, None, &text, crate::panes::now()));
+                app.update_coalesced(|m| m.notify_own(&pane, None, &text, crate::panes::now()));
             }
             activity(
                 app,
