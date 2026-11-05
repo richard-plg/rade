@@ -9,10 +9,13 @@ use crate::rpc::Result;
 use crate::scm::Env;
 use serde::Serialize;
 use std::path::Path;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 /// One `gh run view --log-failed` call's limit (R147.1).
 pub const LOG_LIMIT: Duration = Duration::from_secs(30);
+/// All the `gh run view` calls of one answer together (R148.3): later jobs
+/// are named with their URL.
+pub const TOTAL_LOG_LIMIT: Duration = Duration::from_secs(90);
 /// Lines kept per job.
 pub const MAX_LINES: usize = 150;
 /// Jobs in a prompt.
@@ -164,11 +167,11 @@ pub fn tail_lines(text: &str, max: usize) -> String {
 /// Keep the end of `text` within `max` bytes, on a char (and line) boundary,
 /// the cut stated first. `text` within `max` is returned as is.
 pub fn cut_to_bytes(text: &str, max: usize) -> String {
-    const NOTE: &str = "(cut to 24 KB)";
     if text.len() <= max {
         return text.to_string();
     }
-    let room = max.saturating_sub(NOTE.len() + 1);
+    let note = format!("(cut to {})", size_text(max));
+    let room = max.saturating_sub(note.len() + 1);
     let mut start = text.len() - room.min(text.len());
     while !text.is_char_boundary(start) {
         start += 1;
@@ -179,7 +182,25 @@ pub fn cut_to_bytes(text: &str, max: usize) -> String {
             start += nl + 1;
         }
     }
-    format!("{NOTE}\n{}", &text[start..])
+    format!("{note}\n{}", &text[start..])
+}
+
+/// `24 KB`, `9.8 KB`, `40 bytes`.
+pub fn size_text(bytes: usize) -> String {
+    if bytes % 1024 == 0 && bytes >= 1024 {
+        format!("{} KB", bytes / 1024)
+    } else if bytes >= 1024 {
+        format!("{:.1} KB", bytes as f64 / 1024.0)
+    } else {
+        format!("{bytes} bytes")
+    }
+}
+
+/// How long the next `gh run view` may take when `spent` of
+/// [`TOTAL_LOG_LIMIT`] is used; `None` = no time left, the job is only named.
+pub fn log_limit(spent: Duration) -> Option<Duration> {
+    let left = TOTAL_LOG_LIMIT.checked_sub(spent)?;
+    (!left.is_zero()).then(|| left.min(LOG_LIMIT))
 }
 
 // ---------------------------------------------------------------------------
@@ -238,6 +259,17 @@ fn fence_for(text: &str) -> String {
 
 /// R147.2. `omitted`: headings of failed jobs beyond [`MAX_JOBS`].
 pub fn prompt(status: &PrStatus, jobs: &[Job], omitted: &[String]) -> String {
+    prompt_with(status, jobs, omitted, &[])
+}
+
+/// [`prompt`] with `notes` (a log left out for time or size) before the
+/// closing line.
+pub fn prompt_with(
+    status: &PrStatus,
+    jobs: &[Job],
+    omitted: &[String],
+    notes: &[String],
+) -> String {
     let mut out = String::new();
     if status.stale {
         out.push_str(&format!(
@@ -270,6 +302,9 @@ pub fn prompt(status: &PrStatus, jobs: &[Job], omitted: &[String]) -> String {
             omitted.join(", ")
         ));
     }
+    for n in notes {
+        out.push_str(&format!("\n{n}\n"));
+    }
     out.push_str(&format!("\n{CLOSING}\n"));
     out
 }
@@ -277,6 +312,18 @@ pub fn prompt(status: &PrStatus, jobs: &[Job], omitted: &[String]) -> String {
 /// The pure part of `fetch_failures`: `raw_logs` are gh's outputs aligned
 /// with `status.failed` (`None` = not an Actions job, or unreadable).
 pub fn failures(status: &PrStatus, raw_logs: &[Option<String>]) -> Failures {
+    failures_with(status, raw_logs, &[])
+}
+
+/// [`failures`]; `out_of_time[i]` = the log of `status.failed[i]` was not
+/// asked for because [`TOTAL_LOG_LIMIT`] was used up.
+pub fn failures_with(
+    status: &PrStatus,
+    raw_logs: &[Option<String>],
+    out_of_time: &[bool],
+) -> Failures {
+    let mut late: Vec<String> = Vec::new();
+    let mut no_room: Vec<String> = Vec::new();
     let mut jobs: Vec<Job> = Vec::new();
     let mut omitted: Vec<String> = Vec::new();
     let mut used = 0usize;
@@ -297,7 +344,9 @@ pub fn failures(status: &PrStatus, raw_logs: &[Option<String>]) -> Failures {
             .and_then(|l| l.as_deref())
             .map(clean)
             .filter(|l| !l.is_empty());
-        if let Some(text) = cleaned {
+        if out_of_time.get(i).copied().unwrap_or(false) {
+            late.push(job.heading());
+        } else if let Some(text) = cleaned {
             let text = tail_lines(&text, MAX_LINES);
             let left = MAX_BYTES.saturating_sub(used);
             // Too little room left for a useful tail: name + URL only.
@@ -305,11 +354,32 @@ pub fn failures(status: &PrStatus, raw_logs: &[Option<String>]) -> Failures {
                 let text = cut_to_bytes(&text, left);
                 used += text.len();
                 job.log = Some(text);
+            } else {
+                no_room.push(job.heading());
             }
         }
         jobs.push(job);
     }
-    let prompt = (!jobs.is_empty()).then(|| prompt(status, &jobs, &omitted));
+    let mut notes: Vec<String> = Vec::new();
+    let many = |n: usize| if n == 1 { "" } else { "s" };
+    if !late.is_empty() {
+        notes.push(format!(
+            "(log{} not read, the {} s limit for reading logs was reached, see the URL{}: {})",
+            many(late.len()),
+            TOTAL_LOG_LIMIT.as_secs(),
+            many(late.len()),
+            late.join(", ")
+        ));
+    }
+    if !no_room.is_empty() {
+        notes.push(format!(
+            "(log{} left out, the {} limit for all logs was reached: {})",
+            many(no_room.len()),
+            size_text(MAX_BYTES),
+            no_room.join(", ")
+        ));
+    }
+    let prompt = (!jobs.is_empty()).then(|| prompt_with(status, &jobs, &omitted, &notes));
     Failures {
         number: status.number,
         head: status.head.clone(),
@@ -319,7 +389,7 @@ pub fn failures(status: &PrStatus, raw_logs: &[Option<String>]) -> Failures {
     }
 }
 
-/// Run `gh run view … --log-failed` per failed Actions job (30 s each) and
+/// Run `gh run view … --log-failed` per failed Actions job (30 s each, 90 s in all) and
 /// build the answer. A log that can't be read falls back to name + URL.
 /// Not failing → no jobs, no prompt.
 pub fn fetch_failures(dir: &Path, gh: &str, status: &PrStatus, env: &Env) -> Result<Failures> {
@@ -333,15 +403,25 @@ pub fn fetch_failures(dir: &Path, gh: &str, status: &PrStatus, env: &Env) -> Res
         ));
     }
     let mut raw: Vec<Option<String>> = Vec::new();
+    let mut late: Vec<bool> = Vec::new();
+    let started = Instant::now();
     for (i, c) in status.failed.iter().enumerate() {
-        // Jobs past the limit are only named.
+        // Jobs past the limits are only named.
+        let mut out_of_time = false;
         let log = match plan(c) {
-            Some(args) if i < MAX_JOBS => run_gh(dir, gh, &args, env, LOG_LIMIT).ok(),
+            Some(args) if i < MAX_JOBS => match log_limit(started.elapsed()) {
+                Some(limit) => run_gh(dir, gh, &args, env, limit).ok(),
+                None => {
+                    out_of_time = true;
+                    None
+                }
+            },
             _ => None,
         };
         raw.push(log);
+        late.push(out_of_time);
     }
-    Ok(failures(status, &raw))
+    Ok(failures_with(status, &raw, &late))
 }
 
 // ---------------------------------------------------------------------------
@@ -410,6 +490,24 @@ pub struct AutoSend {
 }
 
 impl AutoSend {
+    /// The state kept on the Worktree's `PrRef` (R147.4): what a relaunch
+    /// starts from, so a head already sent is not sent again.
+    pub fn restore(sent_head: Option<String>, in_a_row: u32) -> Self {
+        AutoSend {
+            sent_head,
+            in_a_row,
+            noticed: false,
+        }
+    }
+
+    pub fn sent_head(&self) -> Option<&str> {
+        self.sent_head.as_deref()
+    }
+
+    pub fn in_a_row(&self) -> u32 {
+        self.in_a_row
+    }
+
     /// `agents`: how many Agents the Worktree has; `agent`: the state of the
     /// one when there is exactly one.
     pub fn step(

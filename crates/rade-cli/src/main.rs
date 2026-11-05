@@ -1066,8 +1066,10 @@ fn default_limit(method: &str, params: &Value) -> u64 {
         "browser.wait" => n("timeout", 30) + 10,
         // Reads every 20 s until the checks settle (R148.2).
         "pr.wait" => n("timeout", 1800) + 10,
-        // One gh read now / the failed jobs' logs (R146.2, R147.1).
-        "pr.failures" => 60,
+        // One gh read now (R146.2).
+        // The failed jobs' logs: the Workspace's gh slot (25 s) + a read
+        // (20 s) + all the logs (90 s) + 10 s (R147.1).
+        "pr.failures" => 25 + 20 + 90 + 10,
         "pr.status" if params["refresh"] == true => 60,
         // Wait for a page load (up to 30 s) before answering.
         "browser.open" | "browser.back" | "browser.forward" | "browser.reload"
@@ -1926,7 +1928,7 @@ mod tests {
         assert_eq!(secs("pr.wait", json!({"timeout": null})), Some(1810));
         assert_eq!(secs("pr.status", json!({"refresh": true})), Some(60));
         assert_eq!(secs("pr.status", json!({"refresh": false})), Some(30));
-        assert_eq!(secs("pr.failures", json!({})), Some(60));
+        assert_eq!(secs("pr.failures", json!({})), Some(145));
     }
 
     #[test]

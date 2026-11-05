@@ -135,10 +135,12 @@ fn r147_b_cuts_at_150_lines_6_jobs_and_24_kb_with_each_cut_stated() {
         .map(|l| l.len())
         .sum();
     assert!(total <= MAX_BYTES, "{total}");
+    // The note gives the budget that job had, not always 24 KB.
     assert!(f
         .jobs
         .iter()
-        .any(|j| j.log.as_deref().unwrap().starts_with("(cut to 24 KB)")));
+        .filter_map(|j| j.log.as_deref())
+        .any(|l| l.starts_with("(cut to ") && l.contains(" KB)")));
     assert!(!f.jobs[0].log.as_deref().unwrap().starts_with("(cut"));
 
     // Multi-byte text is cut on char boundaries, whatever the limit.
@@ -147,7 +149,7 @@ fn r147_b_cuts_at_150_lines_6_jobs_and_24_kb_with_each_cut_stated() {
         let c = cut_to_bytes(&text, max);
         assert!(std::str::from_utf8(c.as_bytes()).is_ok());
         assert!(
-            c.len() <= max.max(text.len().min(15)) || c.len() == text.len(),
+            c.len() <= max.max(text.len().min(20)) || c.len() == text.len(),
             "{max} {}",
             c.len()
         );
@@ -295,4 +297,70 @@ fn r147_runner_fetches_logs_per_job_and_falls_back_to_name_and_url() {
     .unwrap();
     let f = fetch_failures(&d, &gh, &ok, &[]).unwrap();
     assert!(f.jobs.is_empty() && f.prompt.is_none());
+}
+
+#[test]
+fn r148_3_log_reading_is_capped_at_90_s_in_all_and_states_it() {
+    assert_eq!(log_limit(Duration::ZERO), Some(LOG_LIMIT));
+    assert_eq!(
+        log_limit(Duration::from_secs(70)),
+        Some(Duration::from_secs(20))
+    );
+    assert_eq!(log_limit(Duration::from_secs(90)), None);
+    assert_eq!(log_limit(Duration::from_secs(120)), None);
+    let st = failing_status(
+        "abcdef0123",
+        "abcdef0123",
+        &[("CI", "a", JOB), ("CI", "b", JOB), ("CI", "c", JOB)],
+    );
+    let logs = vec![Some("boom".to_string()), None, None];
+    let f = failures_with(&st, &logs, &[false, true, true]);
+    let p = f.prompt.unwrap();
+    assert!(
+        p.contains("(logs not read, the 90 s limit for reading logs was reached, see the URLs: CI / b, CI / c)"),
+        "{p}"
+    );
+    assert!(p.contains("## CI / b\nfailure: "));
+    assert!(p.ends_with(&format!("\n{CLOSING}\n")));
+}
+
+#[test]
+fn r147_b_a_job_without_room_and_the_real_budget_are_stated() {
+    assert_eq!(size_text(24 * 1024), "24 KB");
+    assert_eq!(size_text(10_000), "9.8 KB");
+    assert_eq!(size_text(40), "40 bytes");
+    assert!(cut_to_bytes(&"x\n".repeat(500), 300).starts_with("(cut to 300 bytes)\n"));
+    let checks: Vec<(&str, String)> = (1..=6).map(|i| ("CI", format!("j{i}"))).collect();
+    let refs: Vec<(&str, &str, &str)> = checks.iter().map(|(w, n)| (*w, n.as_str(), JOB)).collect();
+    let st = failing_status("abcdef0123", "abcdef0123", &refs);
+    // 150 lines of 59 bytes = 8850 bytes a job: the 3rd is cut to what is
+    // left of 24 KB, the 4th has < 64 bytes left.
+    let log: String = (0..150).map(|_| format!("{}\n", "x".repeat(58))).collect();
+    let logs: Vec<Option<String>> = vec![Some(log); 6];
+    let f = failures(&st, &logs);
+    assert!(f.jobs[2].log.as_deref().unwrap().starts_with("(cut to "));
+    assert!(f.jobs[3..].iter().all(|j| j.log.is_none()));
+    let p = f.prompt.unwrap();
+    assert!(
+        p.contains("(logs left out, the 24 KB limit for all logs was reached: CI / j4, CI / j5, CI / j6)"),
+        "{p}"
+    );
+}
+
+#[test]
+fn r147_c_a_restored_auto_send_does_not_send_a_head_again() {
+    use AgentState::*;
+    let fail = |a: &mut AutoSend, h| a.step(Mode::Send, Read::Failing { head: h }, 1, Some(Waiting));
+    // Relaunch: the last sent head and the count come back from state.json.
+    let mut a = AutoSend::restore(Some("h1".into()), 2);
+    assert_eq!(fail(&mut a, "h1"), Action::Nothing);
+    assert_eq!(fail(&mut a, "h2"), Action::Send);
+    assert_eq!((a.sent_head(), a.in_a_row()), (Some("h2"), 3));
+    // The cap survives a relaunch: no send, the notice once.
+    let mut a = AutoSend::restore(Some("h2".into()), 3);
+    assert_eq!(fail(&mut a, "h2"), Action::Nothing);
+    assert_eq!(fail(&mut a, "h3"), Action::AskStillFailing);
+    assert_eq!(fail(&mut a, "h4"), Action::Nothing);
+    a.step(Mode::Send, Read::Passing, 1, Some(Waiting));
+    assert_eq!((a.sent_head(), a.in_a_row()), (Some("h2"), 0));
 }
