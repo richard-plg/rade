@@ -762,11 +762,11 @@ pub fn inspector_place(
     }
 }
 
-/// The gap between Project home KPI cards (spec B.6).
-pub const KPI_GAP: i32 = 20;
+/// The gap between Project home KPI cards (spec B.13).
+pub const KPI_GAP: i32 = 10;
 
 /// The width of each of `n` KPI cards sharing `content` px (B "1280 px":
-/// (956 − 20 × 2) / 3 … each card shrinks equally).
+/// (956 − 10 × 3) / 4 … each card shrinks equally).
 pub fn kpi_width(content: i32, n: i32) -> i32 {
     if n <= 0 {
         return content;
@@ -1469,11 +1469,13 @@ mod tests {
 
     #[test]
     fn r111_a_kpi_cards_shrink_equally_and_wrap_at_large_text() {
-        assert_eq!(kpi_width(956, 3), 305);
-        assert_eq!(kpi_width(1068, 3), 342);
-        assert!(!kpis_one_per_line(956, 3, 260));
+        assert_eq!(kpi_width(956, 4), 231);
+        assert_eq!(kpi_width(1116, 4), 271);
+        assert_eq!(kpi_width(956, 3), 312);
+        assert!(!kpis_one_per_line(956, 4, 220));
+        assert!(!kpis_one_per_line(1336, 4, 326));
         assert!(
-            kpis_one_per_line(1336, 3, 520),
+            kpis_one_per_line(1336, 4, 327),
             "a 2× value + detail no longer fits"
         );
         assert_eq!(kpi_width(500, 0), 500);

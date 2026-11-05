@@ -460,8 +460,19 @@ fn build(v: &View) -> gtk::Widget {
         open.connect_clicked(move |b| open_clicked(b, &v2));
     }
     actions.append(&open);
-    header.append(&actions);
-    page.append(&header);
+    if large {
+        // Large text (R111.2, as the Usage page): the actions go under the
+        // title, right-aligned, so the header never scrolls sideways.
+        actions.set_halign(gtk::Align::End);
+        actions.add_css_class("home-header-actions");
+        let top = gtk::Box::new(gtk::Orientation::Vertical, 10);
+        top.append(&header);
+        top.append(&actions);
+        page.append(&top);
+    } else {
+        header.append(&actions);
+        page.append(&header);
+    }
 
     // KPIs (B.13–B.17).
     let kpis = gtk::Box::new(gtk::Orientation::Horizontal, 10);

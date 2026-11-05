@@ -74,7 +74,8 @@ Drift actions for `shop-api` are in the row's `dots-three` menu: `Keep`, `Move t
 ## 1280 px
 
 Window 1280 × 800 px: page width 1012 px, content 956 px.
-- KPI cards shrink equally (each (956 − 20) / 3 = 312 px).
+- KPI cards stay in one row and shrink equally (each (956 − 30) / 4 = 231.5 px); a detail that no longer fits ellipsizes.
+- Header keeps title and the three actions on one line.
 - Link table keeps all columns; the Checkout column ellipsizes the path (`.worktrees-dev/…/shared-ui`) first, then the State chip text; Source, Base, HEAD never ellipsize.
 - The lower grid stays two columns (≈ 520 / 414 px).
 - No horizontal scroll.
@@ -82,7 +83,8 @@ Window 1280 × 800 px: page width 1012 px, content 956 px.
 ## Text scale 200 %
 
 - Navigator becomes the 48 px icon rail (A, Text scale); page width 1392 px.
-- KPI cards wrap to one per line (full width) when a card is narrower than its value + detail at 2×.
+- Header: the three actions (`Settings`, `New branch across sources…`, `Open terminal`, same order) move to their own line under the title, right-aligned, 10 px below it (as the Usage page's header), so the header never scrolls sideways.
+- KPI cards wrap to one per line (full width) when a card ((content − 30) / 4) is narrower than its value + detail at 2×.
 - Link table: rows grow to text height + 18 px; the `VS BASE` and `CHECKOUT` columns move into a second line of each row (mono, `fg3`), so the table never scrolls sideways.
 - Lower grid becomes one column (Worktrees, then Recent activity).
 - No text clipped (`geometry` natural height ≤ allocation for every label).
