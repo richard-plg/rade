@@ -1214,10 +1214,10 @@ impl Prs {
         for (src, url) in &out.urls {
             if let Some(l) = self.lines.borrow().iter().find(|l| &l.row.source == src) {
                 crate::activity_view::pr_created(&l.dir, url);
+                crate::pr_status::created(&l.dir, url);
             }
             self.urls.borrow_mut().push((src.clone(), url.clone()));
         }
-        // ponytail: record each PR on its Worktree once `Worktree.pr` exists.
         *self.made.borrow_mut() = out.made;
         *self.edited.borrow_mut() = out.edited;
         *self.failed.borrow_mut() = out.error.clone();
