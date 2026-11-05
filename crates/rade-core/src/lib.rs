@@ -10,6 +10,7 @@ pub mod browser;
 pub mod cdp;
 pub mod checkout;
 pub mod chrome;
+pub mod ci_log;
 pub mod code;
 pub mod config;
 pub mod date;
