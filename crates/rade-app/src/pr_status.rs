@@ -735,7 +735,9 @@ fn auto_step(app: &App, pid: &str, wid: &str) {
         }
         Action::AskStillFailing => {
             let text = ci_log::still_failing(number);
-            if let Some(pane) = notify_pane(&app.model.borrow(), pid, wid) {
+            // The borrow must end before `update_coalesced` borrows the model mutably.
+            let pane = notify_pane(&app.model.borrow(), pid, wid);
+            if let Some(pane) = pane {
                 app.update_coalesced(|m| m.notify(&pane, None, &text, crate::panes::now()));
             }
             activity(
