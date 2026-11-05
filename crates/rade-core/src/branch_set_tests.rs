@@ -371,11 +371,40 @@ fn r151_b_the_cross_link_body_and_a_retry_after_a_failure_at_pr_2() {
     assert_eq!(c, ["api", "infra"]);
     // The first run creates all; after all exist the edit list is all.
     assert_eq!(retry_plan(&rows, &[], &[]).create.len(), 3);
-    assert_eq!(retry_plan(&rows, &made, &[]).edit, [11, 7, 3]);
+    let nums = |r: &Retry| r.edit.iter().map(|p| p.number).collect::<Vec<_>>();
+    assert_eq!(nums(&retry_plan(&rows, &made, &[])), [11, 7, 3]);
     // Nothing twice: all made, 11 edited already.
-    let done = retry_plan(&rows, &made, &[11]);
+    let done = retry_plan(&rows, &made, &[("web".into(), 11)]);
     assert!(done.create.is_empty());
-    assert_eq!(done.edit, [7, 3]);
+    assert_eq!(nums(&done), [7, 3]);
+}
+
+#[test]
+fn r151_b_prs_with_the_same_number_in_two_sources_are_two_prs() {
+    // web#7 edited, api#7 not (the first edit worked, the second failed).
+    let made = [pr("web", Some("acme/web"), 7), pr("api", Some("acme/api"), 7)];
+    let rows = [row("web", 1), row("api", 1)];
+    let r = retry_plan(&rows, &made, &[("web".into(), 7)]);
+    assert!(r.create.is_empty());
+    assert_eq!(r.edit, [made[1].clone()]);
+    assert!(retry_plan(&rows, &made, &[("web".into(), 7), ("api".into(), 7)])
+        .edit
+        .is_empty());
+}
+
+#[test]
+fn r151_b_an_open_pr_for_the_branch_counts_as_made() {
+    let list = |s: &str| crate::pr::parse(s).unwrap();
+    let open = list(
+        r#"[{"number":4,"url":"https://github.com/acme/web/pull/4","state":"MERGED"},
+            {"number":9,"url":"https://github.com/acme/web/pull/9","state":"OPEN"}]"#,
+    );
+    let (got, url) = open_pr("web", &open).unwrap();
+    assert_eq!(url, "https://github.com/acme/web/pull/9");
+    assert_eq!((got.number, got.repo.as_deref()), (9, Some("acme/web")));
+    let closed = list(r#"[{"number":4,"url":"https://github.com/acme/web/pull/4","state":"CLOSED"}]"#);
+    assert_eq!(open_pr("web", &closed), None);
+    assert_eq!(open_pr("web", &[]), None);
 }
 
 #[test]

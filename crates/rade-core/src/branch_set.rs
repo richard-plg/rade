@@ -524,14 +524,24 @@ pub fn edit_argv(number: u64, body: &str) -> Vec<String> {
 pub struct Retry {
     /// Rows without a PR yet, in order.
     pub create: Vec<PrRow>,
-    /// PR numbers to edit once `create` has run (empty below two rows or
-    /// when `edited` has them all).
-    pub edit: Vec<u64>,
+    /// PRs to edit once `create` has run (empty below two rows or when
+    /// `edited` has them all).
+    pub edit: Vec<PrRef>,
 }
 
-/// `made` = PRs created so far, `edited` = numbers already edited. Never
+/// An edited PR: `(source, number)`. A number alone is not unique across
+/// Sources: `web#7` and `api#7` are two PRs.
+pub type Edited = (String, u64);
+
+impl PrRef {
+    pub fn key(&self) -> Edited {
+        (self.source.clone(), self.number)
+    }
+}
+
+/// `made` = PRs created so far, `edited` = those already edited. Never
 /// creates or edits twice. The first run is `retry_plan(rows, &[], &[])`.
-pub fn retry_plan(rows: &[PrRow], made: &[PrRef], edited: &[u64]) -> Retry {
+pub fn retry_plan(rows: &[PrRow], made: &[PrRef], edited: &[Edited]) -> Retry {
     let create: Vec<PrRow> = rows
         .iter()
         .filter(|r| !made.iter().any(|m| m.source == r.source))
@@ -539,8 +549,8 @@ pub fn retry_plan(rows: &[PrRow], made: &[PrRef], edited: &[u64]) -> Retry {
         .collect();
     let edit = if rows.len() >= 2 {
         made.iter()
-            .map(|m| m.number)
-            .filter(|n| !edited.contains(n))
+            .filter(|m| !edited.contains(&m.key()))
+            .cloned()
             .collect()
     } else {
         Vec::new()
@@ -699,6 +709,15 @@ pub fn pr_ref(source: &str, url: &str) -> Option<PrRef> {
         repo,
         number,
     })
+}
+
+/// A PR already open for a row's branch (R151.3): what a reopened dialog or
+/// a timed-out `gh pr create` that GitHub did make left behind. The newest
+/// open one of `gh pr list --head <branch>`; merged or closed ones do not
+/// count.
+pub fn open_pr(source: &str, prs: &[crate::pr::Pr]) -> Option<(PrRef, String)> {
+    let p = crate::pr::choose(prs).filter(|p| p.state == crate::pr::PrState::Open)?;
+    pr_ref(source, &p.url).map(|r| (r, p.url.clone()))
 }
 
 /// R151.3: Generate's input for a set, built from each row's PR draft

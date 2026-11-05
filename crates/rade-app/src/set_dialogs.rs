@@ -14,7 +14,7 @@ use crate::worktrees::in_background;
 use gtk::glib;
 use gtk::prelude::*;
 use gtk4 as gtk;
-use rade_core::branch_set::{self, PrRef, PrRow};
+use rade_core::branch_set::{self, Edited, PrRef, PrRow};
 use rade_core::rpc::{Error, Result};
 use rade_core::scm::{self, DraftKind};
 use serde_json::{json, Value};
@@ -792,7 +792,9 @@ struct Prs {
     primary: gtk::Button,
     made: RefCell<Vec<PrRef>>,
     urls: RefCell<Vec<(String, String)>>,
-    edited: RefCell<Vec<u64>>,
+    edited: RefCell<Vec<Edited>>,
+    /// Sources whose PR was already open (not made by this dialog).
+    found: RefCell<Vec<String>>,
     failed: RefCell<Option<(String, String)>>,
     loading: Cell<bool>,
     busy: Cell<bool>,
@@ -914,6 +916,7 @@ pub fn set_prs(project: &str, set: &str) {
         made: RefCell::default(),
         urls: RefCell::default(),
         edited: RefCell::default(),
+        found: RefCell::default(),
         failed: RefCell::default(),
         loading: Cell::new(true),
         busy: Cell::new(false),
@@ -1172,6 +1175,7 @@ impl Prs {
             .iter()
             .filter(|l| plan.create.iter().any(|r| r.source == l.row.source))
             .map(|l| Job {
+                recorded: recorded_open(&l.row.source, &l.row.worktree),
                 source: l.row.source.clone(),
                 dir: l.dir.clone(),
                 branch: l.branch.clone(),
@@ -1220,6 +1224,7 @@ impl Prs {
         }
         *self.made.borrow_mut() = out.made;
         *self.edited.borrow_mut() = out.edited;
+        self.found.borrow_mut().extend(out.found);
         *self.failed.borrow_mut() = out.error.clone();
         for l in self.lines.borrow().iter() {
             let made = self
@@ -1228,11 +1233,15 @@ impl Prs {
                 .iter()
                 .find(|m| m.source == l.row.source)
                 .cloned();
+            let word = match &made {
+                Some(m) if self.found.borrow().contains(&m.source) => "open already",
+                _ => "created",
+            };
             let text = match (&made, &out.error) {
-                (Some(m), _) if self.edited.borrow().contains(&m.number) => {
-                    format!("#{} created, linked", m.number)
+                (Some(m), _) if self.edited.borrow().contains(&m.key()) => {
+                    format!("#{} {word}, linked", m.number)
                 }
-                (Some(m), _) => format!("#{} created", m.number),
+                (Some(m), _) => format!("#{} {word}", m.number),
                 (None, Some((src, why))) if *src == l.row.source => format!("failed: {why}"),
                 (None, _) => "not created yet".into(),
             };
@@ -1300,7 +1309,8 @@ impl Prs {
             "open": true, "kind": "set_prs", "project": self.project, "set": self.set,
             "title": self.title.text().as_str(), "body": text_of(&self.body),
             "rows": rows, "made": made, "urls": *self.urls.borrow(),
-            "edited": *self.edited.borrow(),
+            "edited": self.edited.borrow().iter().map(|(_, n)| *n).collect::<Vec<_>>(),
+            "found": *self.found.borrow(),
             "failed": self.failed.borrow().as_ref().map(|(s, w)| json!({"source": s, "error": w})),
             "status": self.status.label().as_str(),
             "buttons": ["Cancel", self.primary.label().unwrap_or_default().as_str()],
@@ -1320,6 +1330,9 @@ struct Job {
     title: String,
     body: String,
     env: Env,
+    /// The Worktree's recorded PR when it is not known to be merged or
+    /// closed (R146.5): used when `gh pr list` can't be read.
+    recorded: Option<(PrRef, String)>,
 }
 
 /// What a Create / Retry starts from.
@@ -1328,12 +1341,14 @@ struct Run {
     body: String,
     rows: Vec<PrRow>,
     made: Vec<PrRef>,
-    edited: Vec<u64>,
+    edited: Vec<Edited>,
 }
 
 struct Outcome {
     made: Vec<PrRef>,
-    edited: Vec<u64>,
+    edited: Vec<Edited>,
+    /// Sources whose PR was open before this run: only linked.
+    found: Vec<String>,
     /// URLs of the PRs this run made: (source, url).
     urls: Vec<(String, String)>,
     /// (source, why) of the step that failed.
@@ -1343,47 +1358,82 @@ struct Outcome {
 impl Run {
     fn go(mut self, jobs: &[Job], places: &[(String, PathBuf, Env)]) -> Outcome {
         let mut urls = Vec::new();
+        let mut found = Vec::new();
         for j in jobs {
+            // A PR GitHub already has for the branch (a reopened dialog, a
+            // create that timed out but was made) is made: only linked.
+            if let Some((pr, _)) = open_pr_of(j) {
+                found.push(pr.source.clone());
+                self.made.push(pr);
+                continue;
+            }
             match create_one(j) {
                 Ok((pr, url)) => {
                     self.made.push(pr);
                     urls.push((j.source.clone(), url));
                 }
-                Err(e) => return self.outcome(urls, Some((j.source.clone(), e.message))),
+                Err(e) => {
+                    return self.outcome(urls, found, Some((j.source.clone(), e.message)))
+                }
             }
         }
         // Every row has its PR: append the cross-links (R151.3).
         let plan = branch_set::retry_plan(&self.rows, &self.made, &self.edited);
         if !plan.create.is_empty() {
-            return self.outcome(urls, None);
+            return self.outcome(urls, found, None);
         }
         let suffix = branch_set::cross_link(&self.set, &self.made);
         let body = branch_set::linked_body(&self.body, &self.set, &suffix);
-        let todo: Vec<PrRef> = self
-            .made
-            .iter()
-            .filter(|m| plan.edit.contains(&m.number))
-            .cloned()
-            .collect();
-        for m in todo {
+        for m in plan.edit {
             let Some((_, dir, env)) = places.iter().find(|(s, _, _)| *s == m.source) else {
                 continue;
             };
             if let Err(e) = scm::run_gh(dir, "gh", &branch_set::edit_argv(m.number, &body), env) {
-                return self.outcome(urls, Some((m.source.clone(), e.message)));
+                return self.outcome(urls, found, Some((m.source.clone(), e.message)));
             }
-            self.edited.push(m.number);
+            self.edited.push(m.key());
         }
-        self.outcome(urls, None)
+        self.outcome(urls, found, None)
     }
 
-    fn outcome(self, urls: Vec<(String, String)>, error: Option<(String, String)>) -> Outcome {
+    fn outcome(
+        self,
+        urls: Vec<(String, String)>,
+        found: Vec<String>,
+        error: Option<(String, String)>,
+    ) -> Outcome {
         Outcome {
             made: self.made,
             edited: self.edited,
+            found,
             urls,
             error,
         }
+    }
+}
+
+/// The Worktree's recorded PR (R146.5) unless its last read says merged or
+/// closed. UI thread.
+fn recorded_open(source: &str, worktree: &str) -> Option<(PrRef, String)> {
+    let rec = app()
+        .model
+        .borrow()
+        .worktree(source, worktree)
+        .and_then(|w| w.pr.clone())?;
+    if crate::pr_status::status(source, worktree)
+        .is_some_and(|s| s.state != rade_core::pr::PrState::Open)
+    {
+        return None;
+    }
+    branch_set::pr_ref(source, &rec.url).map(|r| (r, rec.url))
+}
+
+/// An open PR for the job's branch: `gh pr list --head`, else (gh can't be
+/// read) the recorded one. Off the UI thread.
+fn open_pr_of(j: &Job) -> Option<(PrRef, String)> {
+    match rade_core::pr::read(&j.dir, "gh", &j.branch, &j.env) {
+        Ok(prs) => branch_set::open_pr(&j.source, &prs),
+        Err(_) => j.recorded.clone(),
     }
 }
 
