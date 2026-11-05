@@ -4,7 +4,7 @@ Mockup: `mockup.html#b-dark` / `#b-light`, images `new-b-dark.png`, `new-b-light
 
 Window 1440 × 900 px. Columns: Navigator 268 px · page 1172 px (no Inspector on this screen). Page content width 1172 − 2 × 28 = 1116 px.
 
-**0.8.0 scope versus the mockup** (decisions log): the mockup's `Pull requests` KPI and the Worktree meta `PR #482 ✓` were "later" (design §8, PRD Non-goals); M54 added both (R146.3: the 4th KPI, `0 none open` in this scene whose #482 is recorded but not read) and the `New branch across sources…` button (R150.1) between `Settings` and `Open terminal`, in the mockup's order. The Activity row `#482 opened from perf-img` stays (Activity records PRs opened from RADE).
+**0.8.0 scope versus the mockup** (decisions log): the mockup's `Pull requests` KPI and the Worktree meta `PR #482 ✓` were "later" (design §8, PRD Non-goals); M54 added both (R146.3: the 4th KPI, always shown unless `[scm] pr_status = false`; `0 none open` in this scene) and the `New branch across sources…` button (R150.1) between `Settings` and `Open terminal`, in the mockup's order. The Activity row `#482 opened from perf-img` stays (Activity records PRs opened from RADE).
 
 ## Measurements
 

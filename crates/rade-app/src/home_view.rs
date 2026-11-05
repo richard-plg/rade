@@ -255,8 +255,13 @@ fn view(project: &str) -> Option<View> {
     let canon = crate::projects::canon;
     let facts = |path: &std::path::Path| crate::navdata::worktree_facts(&m, path);
     let mut kpis = home::kpis(&m, project, &links, &|p| facts(p).1, &canon);
-    // R146.3: `Pull requests`, once a Worktree of the Project has one.
-    kpis.extend(home::pr_kpi(&m, project, &links, &crate::pr_status::status));
+    // R146.3: `Pull requests` (the mockup's 4th KPI), unless PR status is off.
+    if links
+        .first()
+        .is_none_or(|l| app.config_for(&l.source, None).scm.pr_status)
+    {
+        kpis.push(home::pr_kpi(&m, project, &links, &crate::pr_status::status));
+    }
     let rows = links
         .iter()
         .map(|l| {

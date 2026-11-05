@@ -181,18 +181,11 @@ pub type PrRead<'a> = &'a dyn Fn(&str, &str) -> Option<crate::pr::PrStatus>;
 /// The 4th KPI `Pull requests` (R146.3): open PRs of the Project's
 /// Worktrees and the checks sub-line; `None` while no Worktree of it has a
 /// PR (read or recorded), so a Project without PRs keeps three cards.
-pub fn pr_kpi(state: &State, project: &str, links: &[LinkView], pr: PrRead) -> Option<Kpi> {
+pub fn pr_kpi(state: &State, project: &str, links: &[LinkView], pr: PrRead) -> Kpi {
     let wts = worktrees(state, project, links);
     let reads: Vec<Option<crate::pr::PrStatus>> = wts.iter().map(|(s, w, _)| pr(s, w)).collect();
-    let any = reads.iter().any(Option::is_some)
-        || wts
-            .iter()
-            .any(|(s, w, _)| state.worktree(s, w).is_some_and(|w| w.pr.is_some()));
-    if !any {
-        return None;
-    }
     let k = crate::pr::kpi(reads.iter().map(Option::as_ref));
-    Some(Kpi {
+    Kpi {
         label: "Pull requests".into(),
         value: k.value,
         detail: if k.sub.is_empty() {
@@ -200,7 +193,7 @@ pub fn pr_kpi(state: &State, project: &str, links: &[LinkView], pr: PrRead) -> O
         } else {
             k.sub
         },
-    })
+    }
 }
 
 /// The Worktrees card rows (R105.4): `facts` = (ahead, changed files) of
@@ -652,8 +645,9 @@ mod tests {
     fn r146_d_home_pr_kpi_worktree_meta_and_set_chip() {
         let mut sc = scene_set();
         let facts = |_: &Path| (0, 0);
-        // No PR anywhere: three KPIs only, no chips.
-        assert_eq!(pr_kpi(&sc.state, "shop", &sc.links, &no_pr), None);
+        // No PR anywhere: `0` `none open` (the mockup's 4th KPI), no chips.
+        let k = pr_kpi(&sc.state, "shop", &sc.links, &no_pr);
+        assert_eq!((k.value.as_str(), k.detail.as_str()), ("0", "none open"));
         let rows = worktree_rows(&sc.state, "shop", &sc.links, &facts, &no_pr);
         assert!(rows.iter().all(|r| r.pr_chip.is_none()));
         // perf-img passing; the set's shop-web failing, shop-api pending.
@@ -668,7 +662,7 @@ mod tests {
         .into_iter()
         .collect();
         let pr = |_: &str, w: &str| reads.get(w).cloned();
-        let k = pr_kpi(&sc.state, "shop", &sc.links, &pr).unwrap();
+        let k = pr_kpi(&sc.state, "shop", &sc.links, &pr);
         assert_eq!(
             (k.label.as_str(), k.value.as_str(), k.detail.as_str()),
             ("Pull requests", "3", "1 failing")
@@ -707,7 +701,7 @@ mod tests {
                 ..Default::default()
             },
         );
-        let k = pr_kpi(&sc.state, "shop", &sc.links, &no_pr).unwrap();
+        let k = pr_kpi(&sc.state, "shop", &sc.links, &no_pr);
         assert_eq!((k.value.as_str(), k.detail.as_str()), ("0", "none open"));
         let rows = worktree_rows(&sc.state, "shop", &sc.links, &facts, &no_pr);
         let r = rows.iter().find(|r| r.name == "checkout-v2").unwrap();
