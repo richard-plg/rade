@@ -670,6 +670,7 @@ toast > button.circular image { -gtk-icon-size: 16px; }
 .nav-row-selbar { min-width: 2px; min-height: 16px; border-radius: 2px; background: @acc; }
 .nav-drift { -gtk-icon-size: 12px; color: @wait; }
 .nav-also-in { -gtk-icon-size: 12px; color: @run; }
+.nav-set { font-family: "JetBrains Mono", monospace; font-size: 12px; color: @wt; }
 .nav-badge { font-family: "JetBrains Mono", monospace; font-feature-settings: "tnum"; font-weight: 600; font-size: 10.5px;
   color: @wait; background: @wait-dim; padding: 0 5px; border-radius: 4px; min-height: 16px; }
 .nav-suggest { font-size: 11.5px; font-weight: 600; color: @acc; min-height: 20px; padding: 0 6px; margin: 0; }
@@ -735,6 +736,21 @@ toast > button.circular image { -gtk-icon-size: 16px; }
   font-size: 11px; color: @fg3; }
 .home-empty, .activity-text { color: @fg3; font-size: 12.5px; }
 .home-link-button { min-height: 0; padding: 0 2px; color: @acc; }
+/* Branch sets (R150.1): the set row, its Worktrees indented under it. */
+.home-set-row .home-wt-name { font-weight: 600; }
+.home-set-row .home-set-icon { color: @wt; }
+.home-set-member { padding-left: 34px; }
+
+/* ---- Branch set dialogs (R150.1, R151.3) ---------------------------------------- */
+.set-link-base { font-family: "JetBrains Mono", monospace; font-feature-settings: "tnum"; font-size: 12px; color: @fg2; }
+.set-plan-summary { font-family: "Inter", sans-serif; font-size: 11.5px; color: @fg3; margin-top: 10px; }
+.set-plan-summary.refused, .set-pr-state.refused { color: @err; }
+.set-text-box { border: 1px solid @line2; border-radius: 6px; background: @bg0; }
+.set-text-box:disabled { opacity: 0.45; }
+.set-text, .set-text > text { background: transparent; color: @fg; font-family: "Inter", sans-serif; font-size: 12.5px; }
+.set-preset, .set-account { min-width: 190px; }
+.set-pr-row-title { min-height: 24px; font-size: 12px; }
+.set-pr-generate { min-height: 22px; padding: 0 8px; }
 
 /* ---- Activity (R107.2) ---------------------------------------------------------- */
 .activity-row { min-height: 30px; padding: 0 12px; border-bottom: 1px solid @line; }

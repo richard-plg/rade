@@ -239,6 +239,8 @@ fn tooltip(r: &Row) -> Option<String> {
             }
             (!lines.is_empty()).then(|| lines.join("\n"))
         }
+        // A Branch set's Worktree (R150.2).
+        RowKind::Worktree if r.set.is_some() => r.set.clone(),
         RowKind::Agent => try_app().and_then(|app| {
             let m = app.model.borrow();
             m.pane(&r.key).map(crate::status::tooltip)
@@ -354,6 +356,12 @@ fn build_row(r: &Row) -> gtk::ListBoxRow {
         let i = icon("ph-clock-symbolic", &["nav-schedule"]);
         i.set_tooltip_text(Some(&format!("Schedule {s}")));
         meta.append(&i);
+    }
+    if let Some(t) = &r.set {
+        let m = label(rade_core::branch_set::MARKER, &["nav-set"]);
+        m.set_tooltip_text(Some(t));
+        m.set_valign(gtk::Align::Center);
+        meta.append(&m);
     }
     if r.drift {
         meta.append(&icon("ph-warning-diamond-fill-symbolic", &["nav-drift"]));
@@ -833,6 +841,8 @@ impl Sidebar {
                     "kind": kind_str(r.kind), "depth": r.depth, "text": r.label(),
                     "title": r.title, "meta": r.meta, "drift": r.drift, "review": r.review,
                     "schedule": r.schedule,
+                    "set_marker": r.set.as_ref().map(|_| rade_core::branch_set::MARKER),
+                    "set_tooltip": r.set,
                     "also_in": r.kind == RowKind::Link && r.also_in.is_some(),
                     "tooltip": w.as_ref().and_then(|w| w.tooltip_text()).map(|t| t.to_string()),
                     "suggest": suggest_text(r), "collapsed": r.collapsed,

@@ -1029,6 +1029,12 @@ fn icon_of(it: &Item) -> (&'static str, Option<&'static str>) {
                 ("ph-users-three-symbolic", None)
             }
             palette::Target::Action { id } if id == "fanout" => ("ph-users-three-symbolic", None),
+            palette::Target::Action { id } if id == "new_branch_set" => {
+                ("ph-git-branch-symbolic", None)
+            }
+            palette::Target::Action { id } if id.starts_with(palette::SET_PRS_PREFIX) => {
+                ("ph-git-pull-request-symbolic", None)
+            }
             _ => ("ph-caret-right-symbolic", None),
         },
     }

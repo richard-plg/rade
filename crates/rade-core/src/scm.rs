@@ -993,6 +993,43 @@ pub fn create_pr(
     Ok(text.lines().last().unwrap_or("").trim().to_string())
 }
 
+/// Run `gh <argv>` in `dir` under the Workspace env, like [`create_pr`]
+/// (`gh pr edit <n> --body …` for a Branch set's cross-links, R151.3).
+pub fn run_gh(dir: &Path, gh: &str, argv: &[String], env: &Env) -> Result<()> {
+    let out = proc::output(
+        Command::new(gh)
+            .args(argv)
+            .current_dir(dir)
+            .envs(env.iter().map(|(k, v)| (k, v)))
+            .env("GH_PROMPT_DISABLED", "1")
+            .env("NO_COLOR", "1"),
+        proc::GIT_NETWORK,
+    )
+    .map_err(|e| match e.kind() {
+        std::io::ErrorKind::NotFound => Error::usage(
+            "GitHub CLI (gh) is not installed: see https://cli.github.com, then `gh auth login`",
+        ),
+        std::io::ErrorKind::TimedOut => Error::new(
+            ErrorKind::Timeout,
+            format!("gh did not finish within {} s", proc::GIT_NETWORK.as_secs()),
+        ),
+        _ => Error::usage(format!("cannot run gh: {e}")),
+    })?;
+    if out.status.success() {
+        return Ok(());
+    }
+    let err = String::from_utf8_lossy(&out.stderr);
+    let text = String::from_utf8_lossy(&out.stdout);
+    let msg = if err.trim().is_empty() {
+        text.trim()
+    } else {
+        err.trim()
+    };
+    Err(Error::usage(
+        msg.split_whitespace().collect::<Vec<_>>().join(" "),
+    ))
+}
+
 // ---- Drafts (Generate, R21.7) ----------------------------------------------
 
 /// `[scm] draft_command`'s default: Claude Code headless, no tools (it only

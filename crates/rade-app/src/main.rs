@@ -65,6 +65,7 @@ mod review_view;
 mod schedules;
 mod schedules_view;
 mod search_view;
+mod set_dialogs;
 mod settings_accounts;
 mod settings_view;
 mod sidebar;

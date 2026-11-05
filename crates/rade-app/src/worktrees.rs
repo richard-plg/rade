@@ -401,6 +401,80 @@ struct SetLink {
 /// then cut one Worktree per link from its own base; a failure undoes what
 /// this call made. Socket thread (git runs here, the model on the GTK thread).
 fn add_set(a: AddSetParams) -> Result<Value> {
+    let (plan, links) = prepare_set(&a)?;
+    let mut made: Vec<(String, String)> = Vec::new();
+    for (k, step) in plan.steps.iter().enumerate() {
+        let setup = links
+            .iter()
+            .find(|l| l.source == step.source)
+            .and_then(|l| l.setup.clone());
+        let ran = (|| -> Result<(String, String)> {
+            if let Some(parent) = step.dir.parent() {
+                std::fs::create_dir_all(parent)
+                    .map_err(|e| Error::internal(format!("{}: {e}", parent.display())))?;
+            }
+            let argv: Vec<&str> = step.argv.iter().map(String::as_str).collect();
+            git::run(&step.repo, &argv)?;
+            let (src, dir, base) = (step.source.clone(), step.dir.clone(), step.base.clone());
+            let (pid, set) = (plan.project.clone(), plan.name.clone());
+            on_main(move || {
+                app().update(|m| {
+                    let (s, w) = m.add_worktree(&src, &set, &dir, setup)?;
+                    m.set_worktree_origin(&s, &w, Some(pid), Some(base))?;
+                    m.set_worktree_set(&s, &w, Some(set))?;
+                    Ok::<_, Error>((s, w))
+                })
+            })
+        })();
+        match ran {
+            Ok(ids) => made.push(ids),
+            Err(e) => {
+                // A failing `post-checkout` hook exits non-zero after git
+                // made the Worktree: undo that one too.
+                let left_behind = step.dir.exists();
+                let rb = branch_set::rollback(&plan, k, left_behind, &e.message);
+                for u in &rb.undo {
+                    for c in &u.commands {
+                        let argv: Vec<&str> = c.iter().map(String::as_str).collect();
+                        let _ = git::run(&u.repo, &argv);
+                    }
+                }
+                let dropped = made.clone();
+                let _ = on_main(move || {
+                    app().update(|m| {
+                        for (s, w) in &dropped {
+                            let _ = m.remove_worktree(s, w);
+                        }
+                    });
+                    Ok(())
+                });
+                return Err(Error::new(e.kind, rb.message));
+            }
+        }
+    }
+    // `made` holds ids; the result names the Worktrees (a set's name is the
+    // same in every link).
+    let named: Vec<(String, String)> = made
+        .iter()
+        .map(|(s, _)| (s.clone(), plan.name.clone()))
+        .collect();
+    Ok(plan.result_json(&named))
+}
+
+/// The plan `worktree.add` with `"sources"` would run, from the same facts
+/// and with no git write (the New branch across sources form, R150.1).
+/// Off the GTK thread.
+pub(crate) fn plan_set(project: &str, sources: Value, name: &str) -> Result<branch_set::Plan> {
+    let a = AddSetParams {
+        project: Some(project.to_string()),
+        name: name.to_string(),
+        sources,
+    };
+    prepare_set(&a).map(|(plan, _)| plan)
+}
+
+/// Read every selected link's facts (no git write) and plan the set.
+fn prepare_set(a: &AddSetParams) -> Result<(branch_set::Plan, Vec<SetLink>)> {
     let asked = match &a.sources {
         Value::String(s) if s == "all" => Sources::All,
         Value::Array(v) => Sources::Named(
@@ -495,63 +569,7 @@ fn add_set(a: AddSetParams) -> Result<Value> {
         })
         .collect();
     let plan = branch_set::plan(&project, &asked, &a.name, &facts)?;
-    let mut made: Vec<(String, String)> = Vec::new();
-    for (k, step) in plan.steps.iter().enumerate() {
-        let setup = links
-            .iter()
-            .find(|l| l.source == step.source)
-            .and_then(|l| l.setup.clone());
-        let ran = (|| -> Result<(String, String)> {
-            if let Some(parent) = step.dir.parent() {
-                std::fs::create_dir_all(parent)
-                    .map_err(|e| Error::internal(format!("{}: {e}", parent.display())))?;
-            }
-            let argv: Vec<&str> = step.argv.iter().map(String::as_str).collect();
-            git::run(&step.repo, &argv)?;
-            let (src, dir, base) = (step.source.clone(), step.dir.clone(), step.base.clone());
-            let (pid, set) = (plan.project.clone(), plan.name.clone());
-            on_main(move || {
-                app().update(|m| {
-                    let (s, w) = m.add_worktree(&src, &set, &dir, setup)?;
-                    m.set_worktree_origin(&s, &w, Some(pid), Some(base))?;
-                    m.set_worktree_set(&s, &w, Some(set))?;
-                    Ok::<_, Error>((s, w))
-                })
-            })
-        })();
-        match ran {
-            Ok(ids) => made.push(ids),
-            Err(e) => {
-                // A failing `post-checkout` hook exits non-zero after git
-                // made the Worktree: undo that one too.
-                let left_behind = step.dir.exists();
-                let rb = branch_set::rollback(&plan, k, left_behind, &e.message);
-                for u in &rb.undo {
-                    for c in &u.commands {
-                        let argv: Vec<&str> = c.iter().map(String::as_str).collect();
-                        let _ = git::run(&u.repo, &argv);
-                    }
-                }
-                let dropped = made.clone();
-                let _ = on_main(move || {
-                    app().update(|m| {
-                        for (s, w) in &dropped {
-                            let _ = m.remove_worktree(s, w);
-                        }
-                    });
-                    Ok(())
-                });
-                return Err(Error::new(e.kind, rb.message));
-            }
-        }
-    }
-    // `made` holds ids; the result names the Worktrees (a set's name is the
-    // same in every link).
-    let named: Vec<(String, String)> = made
-        .iter()
-        .map(|(s, _)| (s.clone(), plan.name.clone()))
-        .collect();
-    Ok(plan.result_json(&named))
+    Ok((plan, links))
 }
 
 /// `worktree.remove` with `"set"` (R149.3): every Worktree's refusals are

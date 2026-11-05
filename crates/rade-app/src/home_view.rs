@@ -309,7 +309,11 @@ fn view(project: &str) -> Option<View> {
         links: rows,
         worktrees: home::worktree_rows(&m, project, &links, &facts),
         activity,
-        buttons: vec!["Settings".into(), "Open terminal".into()],
+        buttons: vec![
+            "Settings".into(),
+            "New branch across sources…".into(),
+            "Open terminal".into(),
+        ],
     })
 }
 
@@ -422,6 +426,16 @@ fn build(v: &View) -> gtk::Widget {
     let k = key.clone();
     settings.connect_clicked(move |_| crate::project_dialogs::settings(&k));
     actions.append(&settings);
+    // R150.1 (mockup): between Settings and Open terminal.
+    let set = secondary(
+        "ph-git-branch-symbolic",
+        "New branch across sources…",
+        "home-new-set",
+    );
+    set.set_sensitive(!v.links.is_empty());
+    let p = v.project.clone();
+    set.connect_clicked(move |_| crate::set_dialogs::new_set(&p));
+    actions.append(&set);
     let open = gtk::Button::new();
     let inner = gtk::Box::new(gtk::Orientation::Horizontal, 6);
     inner.append(&icon("ph-terminal-window-symbolic", &["btn-icon"]));
@@ -504,7 +518,7 @@ fn build(v: &View) -> gtk::Widget {
         card.append(&r);
     }
     for w in &v.worktrees {
-        card.append(&worktree_row(w));
+        card.append(&worktree_row(&v.project, w));
     }
     left.append(&card);
     left.set_margin_end(11);
@@ -716,10 +730,22 @@ fn actions() -> gio::SimpleActionGroup {
     group
 }
 
-fn worktree_row(w: &WorktreeRow) -> gtk::Widget {
+fn worktree_row(project: &str, w: &WorktreeRow) -> gtk::Widget {
     let b = gtk::Box::new(gtk::Orientation::Horizontal, 8);
     b.add_css_class("home-card-row");
-    b.append(&icon("ph-git-branch-symbolic", &["home-wt-icon"]));
+    if w.group {
+        // A Branch set's row (R150.1): its Worktrees follow, indented.
+        b.add_css_class("home-set-row");
+        b.append(&icon(
+            "ph-copy-symbolic",
+            &["home-wt-icon", "home-set-icon"],
+        ));
+    } else {
+        if w.set.is_some() {
+            b.add_css_class("home-set-member");
+        }
+        b.append(&icon("ph-git-branch-symbolic", &["home-wt-icon"]));
+    }
     b.append(&label(&w.name, &["home-wt-name"]));
     let sub = label(&w.sub, &["home-wt-sub"]);
     sub.set_hexpand(true);
@@ -732,11 +758,43 @@ fn worktree_row(w: &WorktreeRow) -> gtk::Widget {
         b.append(&led);
     }
     b.append(&label(&w.meta, &["home-wt-meta"]));
+    if let (true, Some(set)) = (w.group, &w.set) {
+        b.append(&set_menu(project, set));
+    }
     let (s, wt) = (w.source.clone(), w.worktree.clone());
     let click = gtk::GestureClick::new();
     click.connect_released(move |_, _, _, _| select_worktree(&s, &wt));
     b.add_controller(click);
     b.upcast()
+}
+
+/// The set row's `dots-three` menu (R151.3): Create Pull Requests for Set….
+fn set_menu(project: &str, set: &str) -> gtk::MenuButton {
+    let menu = gio::Menu::new();
+    let i = gio::MenuItem::new(Some("Create Pull Requests for Set…"), None);
+    i.set_action_and_target_value(
+        Some("homeset.prs"),
+        Some(&format!("{project}\u{1f}{set}").to_variant()),
+    );
+    menu.append_item(&i);
+    let group = gio::SimpleActionGroup::new();
+    let a = gio::SimpleAction::new("prs", Some(glib::VariantTy::STRING));
+    a.connect_activate(|_, v| {
+        let v: String = v.and_then(|v| v.get()).unwrap_or_default();
+        if let Some((p, s)) = v.split_once('\u{1f}') {
+            crate::set_dialogs::set_prs(p, s);
+        }
+    });
+    group.add_action(&a);
+    let b = gtk::MenuButton::new();
+    b.set_icon_name("ph-dots-three-symbolic");
+    b.add_css_class("flat");
+    b.add_css_class("link-row-action");
+    b.set_widget_name(&format!("home-set-menu-{set}"));
+    b.set_menu_model(Some(&menu));
+    b.insert_action_group("homeset", Some(&group));
+    b.set_valign(gtk::Align::Center);
+    b
 }
 
 /// A Worktree row: the Worktree with its last Tab (R105-f).
@@ -885,6 +943,15 @@ pub fn debug(arg: Option<&str>) -> rade_core::rpc::Result<Value> {
                         rade_core::Error::not_found(format!("no Worktree row '{rest}'"))
                     })?;
                 select_worktree(&w.source, &w.worktree);
+            }
+            // R151.3: the set row's menu item; R150.1: the header button.
+            "set_prs" => {
+                let p = project.ok_or_else(|| rade_core::Error::usage("no Project home shown"))?;
+                crate::set_dialogs::set_prs(&p, rest);
+            }
+            "new_set" => {
+                let p = project.ok_or_else(|| rade_core::Error::usage("no Project home shown"))?;
+                crate::set_dialogs::new_set(&p);
             }
             // Open terminal clicked (R132.5): one link opens, more show the menu.
             "click_open" => {

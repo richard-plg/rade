@@ -738,3 +738,48 @@ fn r104_p_an_unnamed_agent_row_shows_its_session_title() {
     sc.state.set_pane_title(&p, "Codex");
     assert_eq!(title(&sc), "codex", "a product name: the Preset");
 }
+
+/// A Branch set `feat-x` of Shop: one Worktree in each of its three links,
+/// added in reverse link order (the set keeps link order anyway).
+pub(crate) fn add_set(sc: &mut Scene) {
+    for src in ["shared-ui", "shop-api", "shop-web"] {
+        let path = root().join(".worktrees-dev").join(src).join("feat-x");
+        let (s, id) = sc.state.add_worktree(src, "feat-x", &path, None).unwrap();
+        sc.state
+            .set_worktree_origin(&s, &id, Some("shop".into()), Some("develop".into()))
+            .unwrap();
+        sc.state
+            .set_worktree_set(&s, &id, Some("feat-x".into()))
+            .unwrap();
+        sc.worktrees.insert(format!("{src}/feat-x"), (s, id));
+    }
+}
+
+#[test]
+fn r150_b_a_set_worktree_row_has_the_marker_and_also_in_tooltip() {
+    let mut sc = scene_a();
+    add_set(&mut sc);
+    let rows = sc.rows();
+    let marked = rows
+        .iter()
+        .filter(|r| r.kind == RowKind::Worktree && r.set.is_some())
+        .count();
+    assert_eq!(marked, 3, "{}", text(&rows));
+    let web = rows
+        .iter()
+        .find(|r| r.title == "feat-x" && r.key.contains("/shop-web/"))
+        .unwrap();
+    assert_eq!(web.set.as_deref(), Some("also in shop-api, shared-ui"));
+    assert_eq!(web.depth, 2, "kept under its link");
+    assert!(
+        web.text().contains("⧉ also in shop-api, shared-ui"),
+        "{}",
+        web.text()
+    );
+    let ui = rows
+        .iter()
+        .find(|r| r.title == "feat-x" && r.key.contains("/shared-ui/"))
+        .unwrap();
+    assert_eq!(ui.set.as_deref(), Some("also in shop-web, shop-api"));
+    assert_eq!(find(&rows, "checkout-v2").set, None, "in no set");
+}

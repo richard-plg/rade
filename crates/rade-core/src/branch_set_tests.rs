@@ -460,3 +460,86 @@ fn moving_a_set_worktree_out_of_its_project_drops_the_set() {
     st.move_worktree(&s, &w, None, None).unwrap();
     assert_eq!(st.worktree(&s, &w).unwrap().set, None);
 }
+
+#[test]
+fn r150_sets_group_by_project_in_link_order_and_name_the_other_links() {
+    let mut sc = crate::navigator::tests::scene_a();
+    crate::navigator::tests::add_set(&mut sc);
+    let sets = sets(&sc.state, &sc.projects);
+    assert_eq!(sets.len(), 1);
+    let g = &sets[0];
+    assert_eq!((g.project.as_str(), g.name.as_str()), ("shop", "feat-x"));
+    let order: Vec<&str> = g.members.iter().map(|(s, _)| s.as_str()).collect();
+    assert_eq!(order, ["shop-web", "shop-api", "shared-ui"], "link order");
+    let lead = g.lead().unwrap();
+    assert_eq!(lead, &sc.worktrees["shop-web/feat-x"]);
+    let (s, w) = &sc.worktrees["shop-api/feat-x"];
+    assert_eq!(
+        also_in(&sc.state, &sets, s, w).as_deref(),
+        Some("also in shop-web, shared-ui")
+    );
+    let (s, w) = &sc.worktrees["checkout-v2"];
+    assert_eq!(also_in(&sc.state, &sets, s, w), None);
+    // A Worktree of the same name made by hand is not in the set.
+    assert!(set_of(&sets, s, w).is_none());
+}
+
+#[test]
+fn r150_a_the_plan_text_names_each_links_base() {
+    let p = plan(&shop(), &Sources::All, "feat-x", &all_facts()).unwrap();
+    let lines: Vec<String> = p
+        .steps
+        .iter()
+        .map(|s| step_text(s, &p.name, Path::new("/w")))
+        .collect();
+    assert_eq!(
+        lines,
+        [
+            "new branch feat-x from develop in ~/.worktrees/web/feat-x",
+            "new branch feat-x from main in ~/.worktrees/api/feat-x",
+            "new branch feat-x from release/2.4 in ~/.worktrees/infra/feat-x",
+        ]
+    );
+    let mut f = all_facts();
+    f[1].branch_exists = true;
+    let e = plan(&shop(), &Sources::All, "feat-x", &f).unwrap_err();
+    assert_eq!(refused_source(&e.message), Some("api"));
+    assert_eq!(refused_source("--sources needs at least one source"), None);
+}
+
+#[test]
+fn r151_c_a_pr_url_gives_its_repo_and_number() {
+    assert_eq!(
+        pr_ref("web", "https://github.com/acme/web/pull/11\n"),
+        Some(pr("web", Some("acme/web"), 11))
+    );
+    assert_eq!(pr_ref("web", "nothing"), None);
+    assert_eq!(pr_ref("web", "https://github.com/acme/web/pull/x"), None);
+}
+
+#[test]
+fn r151_c_generate_drafts_once_from_the_combined_diff() {
+    let part = |src: &str, base: &str| {
+        (
+            src.to_string(),
+            crate::scm::DraftInput {
+                diff: format!("diff --git a/{src}.rs b/{src}.rs\n"),
+                rules: vec![(format!("{src}.md"), "rules".into())],
+                log: vec![format!("{src} log")],
+                branch: Some("feat-x".into()),
+                base: Some(base.into()),
+                commits: vec![format!("add {src}")],
+            },
+        )
+    };
+    let d = combined_draft("feat-x", &[part("web", "develop"), part("api", "main")]);
+    assert_eq!(d.branch.as_deref(), Some("feat-x"));
+    assert_eq!(d.base.as_deref(), Some("web ← develop, api ← main"));
+    assert_eq!(d.commits, ["web: add web", "api: add api"]);
+    assert_eq!(
+        d.diff,
+        "# web\ndiff --git a/web.rs b/web.rs\n# api\ndiff --git a/api.rs b/api.rs\n"
+    );
+    assert_eq!(d.rules.len(), 1, "the lead's rules");
+    assert_eq!(d.log, ["web log"]);
+}

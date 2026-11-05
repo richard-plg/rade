@@ -382,6 +382,19 @@ pub fn run(t: &Target) {
         Target::Link { project, source } => crate::home_view::open_terminal(project, source),
         Target::Project { project } => crate::home_view::open(project),
         Target::Worktree { source, worktree } => crate::worktrees::activate(source, worktree),
+        // A Branch set: its lead Worktree (R150.3).
+        Target::Set { project, set } => {
+            let lead = {
+                let m = app.model.borrow();
+                let ws = m.active_workspace().to_string();
+                crate::worktrees::set_members(&m, Some(&ws), Some(project), set)
+                    .ok()
+                    .and_then(|f| f.into_iter().next())
+            };
+            if let Some((s, w, _)) = lead {
+                crate::worktrees::activate(&s, &w);
+            }
+        }
         Target::Tab { tab } => {
             let _ = app.update(|m| {
                 let loc = m.locate_tab(tab);
@@ -399,6 +412,13 @@ pub fn run(t: &Target) {
             "mark_all_read" => app.update(|m| m.mark_all_read()),
             "clear_notifications" => app.update(|m| m.clear_notifications()),
             "new_project" => crate::project_dialogs::new_project(),
+            "new_branch_set" => crate::set_dialogs::new_set_here(),
+            id if id.starts_with(palette::SET_PRS_PREFIX) => {
+                let rest = &id[palette::SET_PRS_PREFIX.len()..];
+                if let Some((p, set)) = rest.split_once('/') {
+                    crate::set_dialogs::set_prs(p, set);
+                }
+            }
             "prune_project_checkouts" => crate::projects::prune_dialog(),
             id if id.starts_with(palette::LINK_ADD_PREFIX) => {
                 crate::project_dialogs::add_to_project(&id[palette::LINK_ADD_PREFIX.len()..])

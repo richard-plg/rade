@@ -13,9 +13,11 @@
 
 use crate::agents::AgentStatus;
 use crate::git;
+use crate::model::State;
 use crate::preset::{shell_quote, Preset};
 use crate::project::{self, Project};
 use crate::rpc::{Error, Result};
+use serde::Serialize;
 use serde_json::json;
 use std::path::PathBuf;
 
@@ -583,6 +585,148 @@ pub fn pr_chip(states: &[Option<Checks>]) -> Option<(String, Checks)> {
         ),
         worst,
     ))
+}
+
+/// One Branch set of the shown Workspace (R150).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct SetGroup {
+    pub project: String,
+    pub name: String,
+    /// `(source id, worktree id)` in the Project's link order: the lead first.
+    pub members: Vec<(String, String)>,
+}
+
+impl SetGroup {
+    /// The lead Worktree `(source id, worktree id)` (R151.1).
+    pub fn lead(&self) -> Option<&(String, String)> {
+        self.members.first()
+    }
+
+    pub fn has(&self, source: &str, worktree: &str) -> bool {
+        self.members
+            .iter()
+            .any(|(s, w)| s == source && w == worktree)
+    }
+}
+
+/// The shown Workspace's Branch sets: per Project (in `projects`' order),
+/// each set once, in the order its first Worktree appears in link order.
+pub fn sets(state: &State, projects: &[Project]) -> Vec<SetGroup> {
+    let mut out: Vec<SetGroup> = Vec::new();
+    for p in projects {
+        let mut found: Vec<SetGroup> = Vec::new();
+        for link in &p.sources {
+            let Some(s) = state.visible_sources().find(|s| s.id == link.source) else {
+                continue;
+            };
+            for w in s.worktrees.iter().skip(1) {
+                let Some(name) = w.set.as_deref() else {
+                    continue;
+                };
+                if w.project.as_deref() != Some(p.id.as_str()) {
+                    continue;
+                }
+                let m = (s.id.clone(), w.id.clone());
+                match found.iter_mut().find(|g| g.name == name) {
+                    Some(g) => g.members.push(m),
+                    None => found.push(SetGroup {
+                        project: p.id.clone(),
+                        name: name.to_string(),
+                        members: vec![m],
+                    }),
+                }
+            }
+        }
+        out.extend(found);
+    }
+    out
+}
+
+/// The set a Worktree is in.
+pub fn set_of<'a>(sets: &'a [SetGroup], source: &str, worktree: &str) -> Option<&'a SetGroup> {
+    sets.iter().find(|g| g.has(source, worktree))
+}
+
+/// The Navigator marker of a set Worktree (R150.2).
+pub const MARKER: &str = "⧉";
+
+/// The marker's tooltip: `also in <links>` = the set's other links by
+/// Source name; `None` when the Worktree is in no set.
+pub fn also_in(state: &State, sets: &[SetGroup], source: &str, worktree: &str) -> Option<String> {
+    let g = set_of(sets, source, worktree)?;
+    let others: Vec<String> = g
+        .members
+        .iter()
+        .filter(|(s, _)| s != source)
+        .map(|(s, _)| state.source(s).map_or(s.clone(), |x| x.name.clone()))
+        .collect();
+    Some(if others.is_empty() {
+        format!("branch set {}", g.name)
+    } else {
+        format!("also in {}", others.join(", "))
+    })
+}
+
+/// The form's plan line of one step (R150.1): the link's base and the
+/// folder (`~/…`).
+pub fn step_text(step: &Step, name: &str, home: &std::path::Path) -> String {
+    format!(
+        "new branch {name} from {} in {}",
+        step.base,
+        crate::navigator::tilde(&step.dir, home)
+    )
+}
+
+/// The link a [`plan`] refusal names (`source '<id>': …`).
+pub fn refused_source(message: &str) -> Option<&str> {
+    let rest = message.split_once("source '")?.1;
+    Some(rest.split_once('\'')?.0)
+}
+
+/// A PR from `gh pr create`'s URL (`https://github.com/<o>/<r>/pull/<n>`).
+pub fn pr_ref(source: &str, url: &str) -> Option<PrRef> {
+    let u = url.trim().trim_end_matches('/');
+    let (head, number) = u.rsplit_once("/pull/")?;
+    let number: u64 = number.parse().ok()?;
+    let path = head.split_once("://").map_or(head, |(_, r)| r);
+    let mut parts = path.split('/').skip(1);
+    let repo = match (parts.next(), parts.next()) {
+        (Some(o), Some(r)) if !o.is_empty() && !r.is_empty() => Some(format!("{o}/{r}")),
+        _ => None,
+    };
+    Some(PrRef {
+        source: source.into(),
+        repo,
+        number,
+    })
+}
+
+/// R151.3: Generate's input for a set, built from each row's PR draft
+/// input: one diff (a `# <source>` header per part), commits tagged with
+/// their Source, the first part's rules and log.
+pub fn combined_draft(
+    name: &str,
+    parts: &[(String, crate::scm::DraftInput)],
+) -> crate::scm::DraftInput {
+    let mut out = crate::scm::DraftInput {
+        branch: Some(name.to_string()),
+        ..Default::default()
+    };
+    let bases: Vec<String> = parts
+        .iter()
+        .map(|(s, i)| format!("{s} ← {}", i.base.as_deref().unwrap_or("main")))
+        .collect();
+    out.base = Some(bases.join(", "));
+    if let Some((_, first)) = parts.first() {
+        out.rules = first.rules.clone();
+        out.log = first.log.clone();
+    }
+    for (s, i) in parts {
+        out.commits
+            .extend(i.commits.iter().map(|c| format!("{s}: {c}")));
+        out.diff += &format!("# {s}\n{}\n", i.diff.trim_end());
+    }
+    out
 }
 
 #[cfg(test)]

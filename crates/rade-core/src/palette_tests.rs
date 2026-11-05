@@ -666,3 +666,49 @@ fn enter_hint_names_what_enter_does() {
         "open"
     );
 }
+
+#[test]
+fn r150_b_palette_lists_set_rows_and_the_set_actions() {
+    let mut sc = crate::navigator::tests::scene_a();
+    crate::navigator::tests::add_set(&mut sc);
+    let none = |_: &Path| 0;
+    let canon = |p: &Path| p.to_path_buf();
+    let ctx = Links {
+        projects: &sc.projects,
+        links: &sc.links,
+        ahead: &none,
+        canon: &canon,
+        home: Path::new("/home/u"),
+    };
+    let items = super::items(&sc.state, &Config::default().keybindings(), &[], &ctx);
+    let set: Vec<&Item> = items
+        .iter()
+        .filter(|i| matches!(i.target, Target::Set { .. }))
+        .collect();
+    assert_eq!(set.len(), 1);
+    assert_eq!(
+        (set[0].title.as_str(), set[0].detail.as_str()),
+        ("feat-x (set)", "Shop · 3 sources")
+    );
+    assert_eq!(set[0].target.key(), "set:shop/feat-x");
+    assert_eq!(set[0].target.enter_hint(), "switch");
+    assert!(key_exists(&sc.state, "set:shop/feat-x"));
+    assert!(!key_exists(&sc.state, "set:shop/gone"));
+    assert!(items.iter().any(|i| i.title == "New Branch Across Sources…"
+        && i.target
+            == Target::Action {
+                id: "new_branch_set".into()
+            }));
+    let prs = items
+        .iter()
+        .find(|i| i.title == "Create Pull Requests for Set…")
+        .unwrap();
+    assert_eq!(prs.detail, "feat-x · Shop");
+    assert_eq!(
+        prs.target,
+        Target::Action {
+            id: format!("{SET_PRS_PREFIX}shop/feat-x")
+        }
+    );
+    assert_eq!(go(&items, "feat-x (set)")[0], "feat-x (set)");
+}

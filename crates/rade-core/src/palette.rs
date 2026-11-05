@@ -167,15 +167,42 @@ pub fn with_filter(q: &str, f: Filter) -> String {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum Target {
-    Action { id: String },
-    Project { project: String },
-    Link { project: String, source: String },
-    Source { source: String },
-    Worktree { source: String, worktree: String },
-    Tab { tab: String },
-    Pane { pane: String },
-    File { path: PathBuf },
-    Symbol { path: PathBuf, line: u32, col: u32 },
+    Action {
+        id: String,
+    },
+    Project {
+        project: String,
+    },
+    Link {
+        project: String,
+        source: String,
+    },
+    Source {
+        source: String,
+    },
+    Worktree {
+        source: String,
+        worktree: String,
+    },
+    /// A Branch set (R150.3): Enter focuses its lead Worktree.
+    Set {
+        project: String,
+        set: String,
+    },
+    Tab {
+        tab: String,
+    },
+    Pane {
+        pane: String,
+    },
+    File {
+        path: PathBuf,
+    },
+    Symbol {
+        path: PathBuf,
+        line: u32,
+        col: u32,
+    },
 }
 
 impl Target {
@@ -185,7 +212,10 @@ impl Target {
         match self {
             Target::Link { .. } => "open terminal",
             Target::Project { .. } | Target::File { .. } => "open",
-            Target::Source { .. } | Target::Worktree { .. } | Target::Tab { .. } => "switch",
+            Target::Source { .. }
+            | Target::Worktree { .. }
+            | Target::Set { .. }
+            | Target::Tab { .. } => "switch",
             Target::Pane { .. } => "focus",
             Target::Symbol { .. } => "go to",
             Target::Action { .. } => "run",
@@ -200,6 +230,7 @@ impl Target {
             Target::Link { project, source } => format!("link:{project}/{source}"),
             Target::Source { source } => format!("source:{source}"),
             Target::Worktree { source, worktree } => format!("worktree:{source}/{worktree}"),
+            Target::Set { project, set } => format!("set:{project}/{set}"),
             Target::Tab { tab } => format!("tab:{tab}"),
             Target::Pane { pane } => format!("pane:{pane}"),
             Target::File { path } => format!("file:{}", path.display()),
@@ -379,6 +410,7 @@ pub const ACTIONS: &[(&str, &str)] = &[
     ("check_updates", "Check for Updates"),
     ("restart_update", "Restart to Finish Update…"),
     ("new_worktree", "New Worktree…"),
+    ("new_branch_set", "New Branch Across Sources…"),
     ("open_review", "Review Changes"),
     ("review_since", "Review: Since Last Round"),
     ("open_browser", "Open Browser"),
@@ -653,6 +685,22 @@ pub fn items(
         };
         out.push(Item::new(Kind::Source, target, &title, &detail, keys));
     }
+    // Branch sets (R150.3, R151.3): `<name> (set) · <Project>`, and the
+    // set's Create Pull Requests action.
+    let sets = crate::branch_set::sets(ws, l.projects);
+    for g in &sets {
+        let target = Target::Set {
+            project: g.project.clone(),
+            set: g.name.clone(),
+        };
+        let title = format!("{} (set)", g.name);
+        let detail = format!(
+            "{} · {}",
+            pname(&g.project),
+            plural(g.members.len(), "source", "sources")
+        );
+        out.push(Item::new(Kind::Worktree, target, &title, &detail, None));
+    }
     // "Switch Workspace" rows (R23.5), with more than one Workspace.
     // ponytail: the first nine (their Ctrl+Alt+<n> actions); a Workspace
     // target kind if anyone has ten.
@@ -674,6 +722,19 @@ pub fn items(
     for (id, title) in ACTIONS {
         let target = Target::Action { id: id.to_string() };
         out.push(Item::new(Kind::Action, target, title, "", key(id)));
+    }
+    for g in &sets {
+        let target = Target::Action {
+            id: format!("{SET_PRS_PREFIX}{}/{}", g.project, g.name),
+        };
+        let detail = format!("{} · {}", g.name, pname(&g.project));
+        out.push(Item::new(
+            Kind::Action,
+            target,
+            "Create Pull Requests for Set…",
+            &detail,
+            None,
+        ));
     }
     // Link actions (R107.3).
     for p in ws.visible_sources().filter(|p| !p.is_general()) {
@@ -727,6 +788,8 @@ pub const LINK_ADD_PREFIX: &str = "link_add:";
 /// Prefix of `Change base of <source> in <Project>…`
 /// (`link_base:<project>/<source>`).
 pub const LINK_BASE_PREFIX: &str = "link_base:";
+/// Prefix of `Create Pull Requests for Set…` (`set_prs:<project>/<set>`).
+pub const SET_PRS_PREFIX: &str = "set_prs:";
 /// Prefix of `Fan-out on <source>…` (`fanout_on:<source>`).
 pub const FANOUT_ON_PREFIX: &str = "fanout_on:";
 
@@ -917,6 +980,10 @@ pub fn key_exists(ws: &State, key: &str) -> bool {
         "worktree" => id
             .split_once('/')
             .is_some_and(|(p, w)| ws.worktree(p, w).is_some()),
+        "set" => id.split_once('/').is_some_and(|(p, n)| {
+            ws.worktrees()
+                .any(|(_, w)| w.set.as_deref() == Some(n) && w.project.as_deref() == Some(p))
+        }),
         _ => true,
     }
 }

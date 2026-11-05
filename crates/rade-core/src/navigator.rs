@@ -104,6 +104,9 @@ pub struct Row {
     pub review: Option<String>,
     /// Agent rows of a Schedule Run: the Schedule's name (R139.4).
     pub schedule: Option<String>,
+    /// A Branch set's Worktree: the `⧉` marker's tooltip (`also in
+    /// shop-api, shared-ui`, R150.2).
+    pub set: Option<String>,
     pub target: Target,
 }
 
@@ -128,6 +131,7 @@ impl Row {
             selected: false,
             review: None,
             schedule: None,
+            set: None,
             target,
         }
     }
@@ -169,6 +173,9 @@ impl Row {
         }
         if let Some(t) = &self.review {
             flags.push(format!("review: {t}"));
+        }
+        if let Some(t) = &self.set {
+            flags.push(format!("{} {t}", crate::branch_set::MARKER));
         }
         if let Some((_, n)) = &self.suggest {
             flags.push(format!("→ {n}?"));
@@ -431,6 +438,7 @@ pub fn build(state: &State, input: &Input) -> Vec<Row> {
     let collapsed = |key: &str| state.collapsed_projects.iter().any(|k| k == key);
     let sources: Vec<&Source> = state.visible_sources().collect();
     let source = |id: &str| sources.iter().copied().find(|s| s.id == id);
+    let sets = crate::branch_set::sets(state, input.projects);
     // Checkouts of links that are not the main checkout, per Source.
     let mut out = Vec::new();
     if input.projects.is_empty() {
@@ -513,6 +521,7 @@ pub fn build(state: &State, input: &Input) -> Vec<Row> {
                 }
                 wrow.meta = meta.join(" ");
                 wrow.review = crate::review_loop::chip(w);
+                wrow.set = crate::branch_set::also_in(state, &sets, &s.id, &w.id);
                 let wchildren: Vec<Row> = agents(w.tabs.iter().flat_map(|t| t.panes()).collect())
                     .into_iter()
                     .map(|x| agent_row(x, 3, input))
