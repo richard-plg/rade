@@ -67,6 +67,8 @@ pub fn dispatch(req: Request) -> Response {
         crate::browser::dispatch(&req.method, req.params)
     } else if req.method.starts_with("review.") {
         crate::review::dispatch(&req.method, req.params)
+    } else if req.method.starts_with("pr.") || req.method == "debug.pr" {
+        crate::pr_status::dispatch(&req.method, req.params)
     } else if req.method == "pane.spawn"
         && req.params.get("worktree").and_then(Value::as_str) == Some("new")
     {
@@ -872,6 +874,8 @@ fn set_status(app: &App, s: SetStatus, foreground: Option<Vec<String>>) -> Resul
     if let Some(inv) = inv {
         crate::accounts::detect(app, &pane, &inv);
     }
+    // A failing PR may wait for this Agent to stop running (R147.4).
+    crate::pr_status::agent_changed(&pane);
     // A turn ended: read its account's usage now (R109.2).
     if matches!(status, Some(AgentStatus::Done | AgentStatus::Waiting)) {
         crate::accounts::turn_ended(&app.model.borrow(), &pane);

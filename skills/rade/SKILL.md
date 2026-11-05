@@ -43,6 +43,17 @@ rade review request --summary "Done: OTP login; tests in tests/otp.rs. Not done:
 - `code changed` / `untouched` only says whether the commented lines changed since the comment was sent, not whether you did it right; the user resolves comments, not you.
 - An `Approved (review round <n>)` prompt asks you to commit (and maybe push and open a PR): follow the repository's commit conventions; do not push unless it says so.
 
+## After you push: `rade pr`
+RADE reads your worktree's pull request and its checks with `gh` (read only). Once you have pushed, wait for CI instead of polling GitHub, and read what failed:
+```sh
+rade pr wait --timeout 900    # reads every 20 s until the checks are not pending, then: #482 open · checks failing (test, lint)
+rade pr failures              # the failed jobs' log tails, ready to act on
+rade pr status --refresh      # the PR now (--json: number, checks, failing, review, stale)
+```
+- `rade pr wait` exits 6 over `--timeout`; `NOT_FOUND` (exit 4) means nothing is open for the branch yet.
+- When `checks failing`, run `rade pr failures`, fix the cause, run the failing step locally if you can, then commit and push.
+- These commands only read; they never push or comment.
+
 ## Trace code before you change it: `rade code`
 RADE runs the real language server (rust-analyzer, typescript-language-server) for your worktree and shares it with the user and other agents. Positions are `path:line:col` (1-based, relative to your cwd):
 ```sh

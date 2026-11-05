@@ -211,6 +211,20 @@ pub const SETTINGS: &[Setting] = &[
         kind: Kind::Bool,
     },
     Setting {
+        key: "scm.pr_status",
+        category: "Source Control",
+        label: "Pull request status",
+        description: "Read each Worktree's pull request and checks with gh. Off: RADE never runs gh for status.",
+        kind: Kind::Bool,
+    },
+    Setting {
+        key: "scm.ci_failures",
+        category: "Source Control",
+        label: "Failing CI",
+        description: "Ask: offer the failed log to the Agent. Send: send it to the Worktree's one Agent once it waits (3 tries per PR).",
+        kind: Kind::Choice(&["ask", "send"]),
+    },
+    Setting {
         key: "voice.agent",
         category: "Voice",
         label: "Voice agent",
@@ -466,6 +480,8 @@ mod tests {
             "scm.autofetch_period",
             "scm.diff_layout",
             "scm.quick_diff",
+            "scm.pr_status",
+            "scm.ci_failures",
         ] {
             let s = find(k).unwrap_or_else(|| panic!("{k}"));
             assert_eq!(s.category, "Source Control");

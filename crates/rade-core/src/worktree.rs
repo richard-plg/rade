@@ -94,6 +94,7 @@ impl State {
             project: None,
             base: None,
             set: None,
+            pr: None,
         };
         self.sources
             .iter_mut()

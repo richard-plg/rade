@@ -170,6 +170,17 @@ pub struct Worktree {
     /// call gave to the Worktrees it cut in several links of a Project.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub set: Option<String>,
+    /// Its pull request as last read or created (R146.5): the chip shows
+    /// the number greyed after a relaunch until the first read.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pr: Option<PrRef>,
+}
+
+/// The pull request recorded on a Worktree (R146.5).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PrRef {
+    pub number: u64,
+    pub url: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -377,6 +388,7 @@ impl State {
             project: None,
             base: None,
             set: None,
+            pr: None,
         }
     }
 
@@ -436,6 +448,18 @@ impl State {
 
     pub fn worktree(&self, source: &str, worktree: &str) -> Option<&Worktree> {
         self.source(source)?.worktree(worktree)
+    }
+
+    /// Record the Worktree's pull request (R146.5); false when it was
+    /// already that (nothing to save).
+    pub fn set_worktree_pr(&mut self, source: &str, worktree: &str, pr: PrRef) -> bool {
+        match self.worktree_mut(source, worktree) {
+            Ok(w) if w.pr.as_ref() != Some(&pr) => {
+                w.pr = Some(pr);
+                true
+            }
+            _ => false,
+        }
     }
 
     pub(crate) fn worktree_mut(&mut self, source: &str, worktree: &str) -> Result<&mut Worktree> {

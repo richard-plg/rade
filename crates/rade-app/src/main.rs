@@ -55,6 +55,7 @@ mod palette;
 mod palette_run;
 mod panes;
 mod perf;
+mod pr_status;
 mod project_dialogs;
 mod project_settings;
 mod projects;
@@ -393,6 +394,7 @@ fn build(gtk_app: &adw::Application) {
     }
     menus::install(&window); // context-menu actions (R19)
     navdata::install(); // the Navigator's git facts (R104.4)
+    pr_status::install(); // PR status of the Worktrees (R146)
     navdata::refresh();
     let monitor = keys::install(&window, &app.paths.config);
     *app.config_monitor.borrow_mut() = Some(monitor);

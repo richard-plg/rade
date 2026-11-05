@@ -436,3 +436,18 @@ fn r19_7_a_new_tab_goes_right_after_the_active_one() {
     w.move_tab_after(&t6, &t1);
     assert_eq!(order(&w), [t1, t6, t4, t2, t5, t3]);
 }
+
+#[test]
+fn r146_e_worktree_pr_is_kept_and_older_state_loads() {
+    let (mut w, id, _, _) = with_x();
+    let v = serde_json::to_value(&w).unwrap();
+    assert!(!v.to_string().contains("\"pr\""), "none is not written");
+    w.sources.iter_mut().find(|s| s.id == id).unwrap().worktrees[0].pr = Some(PrRef {
+        number: 482,
+        url: "https://github.com/o/r/pull/482".into(),
+    });
+    let back: State = serde_json::from_str(&serde_json::to_string(&w).unwrap()).unwrap();
+    assert_eq!(back, w);
+    let pr = back.source(&id).unwrap().worktrees[0].pr.clone().unwrap();
+    assert_eq!(pr.number, 482);
+}

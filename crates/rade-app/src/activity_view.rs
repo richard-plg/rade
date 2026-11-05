@@ -166,6 +166,11 @@ fn kind_str(k: Kind) -> &'static str {
         Kind::Update => "update",
         Kind::Ignored => "ignored",
         Kind::Schedule => "schedule",
+        Kind::PrFailed => "pr_failed",
+        Kind::PrPassed => "pr_passed",
+        Kind::PrMerged => "pr_merged",
+        Kind::PrReview => "pr_review",
+        Kind::PrNote => "pr_note",
     }
 }
 
@@ -189,6 +194,11 @@ pub fn mark(k: Kind) -> gtk::Widget {
         Kind::Update => icon("ph-arrow-circle-up-symbolic", "activity-update"),
         Kind::Ignored => icon("ph-robot-bold-symbolic", "activity-ignored"),
         Kind::Schedule => icon("ph-clock-symbolic", "activity-schedule"),
+        Kind::PrFailed => icon("ph-x-symbolic", "activity-limit"),
+        Kind::PrPassed => icon("ph-check-circle-symbolic", "activity-pr"),
+        Kind::PrMerged => icon("ph-git-pull-request-symbolic", "activity-pr"),
+        Kind::PrReview => icon("ph-warning-diamond-symbolic", "activity-limit"),
+        Kind::PrNote => icon("ph-info-symbolic", "activity-commit"),
     }
 }
 

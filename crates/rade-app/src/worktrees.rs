@@ -929,6 +929,7 @@ fn list(source: &str) -> Result<Value> {
                 "tabs": w.tabs.len(), "comments": w.comments.len(),
                 "active": w.id == p.active_worktree,
                 "project": w.project, "base": w.base, "set": w.set,
+                "pr": w.pr.as_ref().map(|p| json!({"number": p.number, "url": p.url})),
             })
         })
         .collect();

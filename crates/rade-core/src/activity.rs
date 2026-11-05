@@ -24,6 +24,16 @@ pub enum Kind {
     Ignored,
     /// A Schedule Run started, skipped, missed or failed (R139.4).
     Schedule,
+    /// A pull request's checks failed (R146.4).
+    PrFailed,
+    /// A pull request's checks passed.
+    PrPassed,
+    /// A pull request was merged.
+    PrMerged,
+    /// A reviewer asked for changes.
+    PrReview,
+    /// Anything else about PR status: `gh` unavailable, a CI log sent.
+    PrNote,
 }
 
 /// One event. A row reads `<actor> <text>` (`tests asked which
@@ -89,6 +99,13 @@ impl Event {
             &format!("#{number}"),
             format!("opened from {worktree}"),
         )
+    }
+
+    /// A PR status row (R146.4, R147.4): `line` is `#482 checks failed (2 jobs)`,
+    /// the first word is the actor.
+    pub fn pr_status(kind: Kind, line: &str, at: u64) -> Event {
+        let (actor, text) = line.split_once(' ').unwrap_or((line, ""));
+        Event::new(kind, at, actor, text.into())
     }
 
     /// `shop-web committed 1a2b3c4 Split the form`.
