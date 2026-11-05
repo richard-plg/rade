@@ -114,6 +114,7 @@ Plus the Viewer's code-navigation keys on diff lines.
 | arrows, `Tab` / `Shift+Tab` | Move; next / previous band |
 | `Enter` / `Shift+Enter` | Jump / jump and Zoom |
 | `Alt+R` | Review of the selected card's Worktree |
+| `Alt+F` | Send CI Failure to Agent… (the selected card's Worktree has failing checks) |
 | `Alt+G` | Group by status ⇄ Workspace |
 | `Alt+P` | Keyboard previews on / off |
 | hold `Ctrl+Shift`, tap `Space` | Flip through cards; release `Ctrl` to jump |

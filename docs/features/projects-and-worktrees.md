@@ -129,7 +129,8 @@ A folded row shows its children's worst status and waiting count. `Alt+1…9` ju
 
 ## Project home
 
-Click a Project row: KPIs (Agents waiting / running, Worktrees, uncommitted files), the **link
+Click a Project row: KPIs (Agents waiting / running, Worktrees, uncommitted files, and Pull
+requests once a Worktree has one), the **link
 table** (base, checkout, HEAD, ahead/behind, `clean` / `off base` / `also in`), the Project's
 Worktrees and its recent Activity. **Open terminal** opens a shell in a link's checkout: with
 several links it asks which (the one you used last first).
@@ -153,6 +154,28 @@ Or `Ctrl+Shift+B` (*New Worktree…*: name and base). New Worktrees go under
 - **Worktrees made outside RADE** (`git worktree add`) show up on their own.
 - **Removing** asks, refuses uncommitted or untracked changes unless forced, closes its Panes and
   offers to delete the branch.
+
+## Branch sets: one branch across Sources
+
+A task that changes several repositories of a Project gets one branch name in each of them, each
+cut from its own link's base (`web ← develop`, `api ← main`). In Project home click **New branch
+across sources…** (or *New Branch Across Sources…* in the palette): name it, pick the links, and
+optionally an Agent and a prompt. The plan shows each link's base and stops at the first problem
+(a name already taken, a checkout that can't be resolved) before anything is created. If creating
+fails halfway, what was made is removed again.
+
+```sh
+rade worktree add --project shop feat-x --sources all        # or --sources web,api
+rade spawn --set feat-x --agent claude "add the price field"  # one Agent for the whole set
+rade worktree remove --project shop --set feat-x              # checks every Worktree first
+```
+
+The set's Agent runs in the first link's Worktree and sees the others (`--add-dir` for Claude Code
+and Codex); its prompt names every Worktree, path and base. Review Comments and CI failures of any
+Worktree in the set reach it. In the Navigator a set's Worktrees carry `⧉` (tooltip: where else);
+Project home groups them under one row with their PR chips. **Create Pull Requests for Set…**
+pushes and opens one PR per Source, then links them to each other (`Part of feat-x: …`); if one
+fails, **Retry** opens only the missing ones.
 
 ## Related
 
