@@ -74,6 +74,13 @@ enum Cmd {
         worktree: Option<String>,
         #[arg(long)]
         source: Option<String>,
+        /// A Branch set's Agent (R151): a new Tab in the set's lead Worktree with
+        /// the other Worktrees added to the Agent; not with --worktree.
+        #[arg(long = "set", conflicts_with = "worktree")]
+        set: Option<String>,
+        /// The Project of --set (default: the one the set belongs to).
+        #[arg(long, requires = "set")]
+        project: Option<String>,
         /// Prompt for the Agent.
         #[arg(allow_hyphen_values = true)] // R144.1: text may start with "-"
         prompt: Option<String>,
@@ -214,6 +221,9 @@ enum Cmd {
     /// Review Comments on a Worktree's diff, sent to its Agent as one prompt.
     #[command(subcommand)]
     Review(ReviewCmd),
+    /// The pull request of a Worktree: status, wait for its checks, the failed jobs' logs (read only).
+    #[command(subcommand)]
+    Pr(PrCmd),
     /// One prompt to several Agents, each in its own Worktree; judge, choose a Winner.
     Fanout(fanout::FanoutArgs),
     /// A Browser Pane beside you: open a URL, snapshot it with refs, click / fill / press, eval, screenshot, console.
@@ -325,22 +335,34 @@ enum TabCmd {
 
 #[derive(Subcommand)]
 enum WorktreeCmd {
-    /// Create a Worktree on a new branch <name> (an existing branch is checked out).
+    /// Create a Worktree on a new branch <name> (an existing branch is checked out);
+    /// with --sources, one per link of a Project (a Branch set): add --project <p> <name> --sources <a,b>|all.
     Add {
-        source: String,
-        name: String,
+        /// <source> <name>; with --sources only <name>.
+        #[arg(value_names = ["SOURCE", "NAME"], num_args = 1..=2, required = true)]
+        names: Vec<String>,
         /// Start the new branch at this ref (default: the Source link's base,
         /// else the Source's main branch).
-        #[arg(long)]
+        #[arg(long, conflicts_with = "sources")]
         base: Option<String>,
         /// The Project this Worktree is for (default: the only one linking the Source).
         #[arg(long)]
         project: Option<String>,
+        /// Branch set: the Project's links to cut it in (comma-separated ids, or `all`).
+        #[arg(long, requires = "project", value_delimiter = ',')]
+        sources: Option<Vec<String>>,
     },
-    /// Remove a Worktree (refuses uncommitted changes unless --force).
+    /// Remove a Worktree (refuses uncommitted changes unless --force), or with --set every Worktree of a Branch set.
     Remove {
-        source: String,
-        name: String,
+        /// <source> <name>; with --set none.
+        #[arg(value_names = ["SOURCE", "NAME"], num_args = 0..=2)]
+        names: Vec<String>,
+        /// Remove the Branch set of this name in --project.
+        #[arg(long, requires = "project", conflicts_with = "names")]
+        set: Option<String>,
+        /// The Project of --set.
+        #[arg(long)]
+        project: Option<String>,
         #[arg(long)]
         force: bool,
         /// Also delete its branch (git branch -d; -D with --force).
@@ -374,6 +396,32 @@ struct WtArgs {
     source: Option<String>,
     #[arg(long)]
     worktree: Option<String>,
+}
+
+/// `rade pr ...` (R148): the caller's Worktree, else the one on screen.
+#[derive(Subcommand)]
+enum PrCmd {
+    /// The Worktree's pull request: `#482 open · checks failing (test, lint)`.
+    Status {
+        #[command(flatten)]
+        at: WtArgs,
+        /// Read from GitHub now instead of showing the last read.
+        #[arg(long)]
+        refresh: bool,
+    },
+    /// Wait until the checks are not pending, then print the status (exit 6 over --timeout).
+    Wait {
+        #[command(flatten)]
+        at: WtArgs,
+        /// Seconds to wait (default 1800).
+        #[arg(long)]
+        timeout: Option<u64>,
+    },
+    /// The failed jobs' log tails as the prompt Send to Agent offers.
+    Failures {
+        #[command(flatten)]
+        at: WtArgs,
+    },
 }
 
 #[derive(Subcommand)]
@@ -676,23 +724,57 @@ fn request(cmd: &Cmd) -> Result<(&'static str, Value), Error> {
             json!({"pane": pane, "op": op, "text": text}),
         ),
         Cmd::Worktree(WorktreeCmd::Add {
-            source,
-            name,
+            names,
             base,
             project,
-        }) => (
-            "worktree.add",
-            json!({"source": source, "name": name, "base": base, "project": project}),
-        ),
+            sources,
+        }) => match sources {
+            Some(list) => {
+                let [name] = names.as_slice() else {
+                    return Err(Error::usage(
+                        "with --sources give only the name: rade worktree add --project <p> <name> --sources <a,b>|all",
+                    ));
+                };
+                (
+                    "worktree.add",
+                    json!({"project": project, "name": name, "sources": sources_param(list)}),
+                )
+            }
+            None => {
+                let [source, name] = names.as_slice() else {
+                    return Err(Error::usage(
+                        "rade worktree add <source> <name> (or --project <p> <name> --sources <a,b>|all)",
+                    ));
+                };
+                (
+                    "worktree.add",
+                    json!({"source": source, "name": name, "base": base, "project": project}),
+                )
+            }
+        },
         Cmd::Worktree(WorktreeCmd::Remove {
-            source,
-            name,
+            names,
+            set,
+            project,
             force,
             delete_branch,
-        }) => (
-            "worktree.remove",
-            json!({"source": source, "name": name, "force": force, "delete_branch": delete_branch}),
-        ),
+        }) => match set {
+            Some(set) => (
+                "worktree.remove",
+                json!({"project": project, "set": set, "force": force, "delete_branch": delete_branch}),
+            ),
+            None => {
+                let [source, name] = names.as_slice() else {
+                    return Err(Error::usage(
+                        "rade worktree remove <source> <name> (or --project <p> --set <name>)",
+                    ));
+                };
+                (
+                    "worktree.remove",
+                    json!({"source": source, "name": name, "force": force, "delete_branch": delete_branch}),
+                )
+            }
+        },
         Cmd::Worktree(WorktreeCmd::List { source }) => ("worktree.list", json!({"source": source})),
         Cmd::Worktree(WorktreeCmd::Move {
             source,
@@ -704,6 +786,17 @@ fn request(cmd: &Cmd) -> Result<(&'static str, Value), Error> {
             "worktree.move",
             json!({"source": source, "worktree": name, "project": project, "rebase": rebase_to_link}),
         ),
+        Cmd::Pr(PrCmd::Status { at, refresh }) => {
+            let mut p = at.json();
+            p["refresh"] = json!(refresh);
+            ("pr.status", p)
+        }
+        Cmd::Pr(PrCmd::Wait { at, timeout }) => {
+            let mut p = at.json();
+            p["timeout"] = json!(timeout);
+            ("pr.wait", p)
+        }
+        Cmd::Pr(PrCmd::Failures { at }) => ("pr.failures", at.json()),
         Cmd::Review(ReviewCmd::List { at }) => ("review.list", at.json()),
         Cmd::Review(ReviewCmd::Open { at }) => ("review.open", at.json()),
         Cmd::Review(ReviewCmd::Status { at }) => ("review.status", at.json()),
@@ -752,12 +845,15 @@ fn request(cmd: &Cmd) -> Result<(&'static str, Value), Error> {
             split,
             worktree,
             source,
+            set,
+            project,
             prompt,
         } => (
             "pane.spawn",
             json!({
                 "agent": agent, "cmd": cmd, "name": name, "worktree": worktree,
                 "source": source, "prompt": prompt, "account": account,
+                "set": set, "project": project,
                 "tab": tab.map(|t| match t { TabArg::New => "new", TabArg::Current => "current" }),
                 "split": split.map(|s| match s { SplitArg::Right => "right", SplitArg::Down => "down" }),
             }),
@@ -928,6 +1024,15 @@ fn call_at(
     resp.into_result()
 }
 
+/// `--sources a,b` / `--sources all` as the `worktree.add` parameter.
+fn sources_param(list: &[String]) -> Value {
+    if list.len() == 1 && list[0] == "all" {
+        json!("all")
+    } else {
+        json!(list)
+    }
+}
+
 /// `--call-timeout`, set once by `main`.
 static CALL_TIMEOUT: OnceLock<Option<u64>> = OnceLock::new();
 
@@ -959,6 +1064,13 @@ fn default_limit(method: &str, params: &Value) -> u64 {
         "pane.wait" => n("timeout", 600) + 10,
         "fanout.wait" => n("timeout", 1800) + 10,
         "browser.wait" => n("timeout", 30) + 10,
+        // Reads every 20 s until the checks settle (R148.2).
+        "pr.wait" => n("timeout", 1800) + 10,
+        // One gh read now (R146.2).
+        // The failed jobs' logs: the Workspace's gh slot (25 s) + a read
+        // (20 s) + all the logs (90 s) + 10 s (R147.1).
+        "pr.failures" => 25 + 20 + 90 + 10,
+        "pr.status" if params["refresh"] == true => 60,
         // Wait for a page load (up to 30 s) before answering.
         "browser.open" | "browser.back" | "browser.forward" | "browser.reload"
         | "browser.click" | "browser.press" => 30 + 10,
@@ -966,7 +1078,7 @@ fn default_limit(method: &str, params: &Value) -> u64 {
         m if m.starts_with("code.") => n("wait", 60).max(30) + 10,
         // git-heavy.
         "worktree.add" | "worktree.remove" | "worktree.move" | "fanout.start" | "source.add" => 300,
-        "pane.spawn" if params["worktree"] == "new" => 300,
+        "pane.spawn" if params["worktree"] == "new" || params["set"].is_string() => 300,
         _ => 30,
     }
 }
@@ -1115,12 +1227,31 @@ fn print_human(cmd: &Cmd, r: &Value) {
         Cmd::Spawn { .. } | Cmd::Open { .. } | Cmd::Review(ReviewCmd::Open { .. }) => {
             println!("{}", s(&r["pane"]))
         }
+        Cmd::Worktree(WorktreeCmd::Add { .. }) if r["worktrees"].is_array() => {
+            for w in r["worktrees"].as_array().into_iter().flatten() {
+                println!(
+                    "{}/{} \u{2190} {}  {}",
+                    s(&w["source"]),
+                    s(&w["worktree"]),
+                    s(&w["base"]),
+                    s(&w["path"])
+                );
+            }
+        }
         Cmd::Worktree(WorktreeCmd::Add { .. }) => println!("{}", s(&r["path"])),
         Cmd::Project(c) => project::print(c, r),
         Cmd::Account(c) => account::print(c, r),
         Cmd::Schedule(c) => schedule::print(c, r),
         Cmd::Config(c) => project::print_config(c, r),
         Cmd::Code(c) => code::print(c, r),
+        Cmd::Worktree(WorktreeCmd::Remove { .. }) if r["removed"].is_array() => {
+            for w in r["removed"].as_array().into_iter().flatten() {
+                println!("{}/{}", s(&w["source"]), s(&w["worktree"]));
+                if let Some(e) = w["branch_error"].as_str() {
+                    eprintln!("rade: branch {} kept: {e}", s(&w["branch"]));
+                }
+            }
+        }
         Cmd::Worktree(WorktreeCmd::Remove { .. }) => {
             if let Some(e) = r["branch_error"].as_str() {
                 eprintln!("rade: branch {} kept: {e}", s(&r["branch"]));
@@ -1141,6 +1272,11 @@ fn print_human(cmd: &Cmd, r: &Value) {
                 );
             }
         }
+        Cmd::Pr(PrCmd::Status { .. } | PrCmd::Wait { .. }) => println!("{}", s(&r["text"])),
+        Cmd::Pr(PrCmd::Failures { .. }) => match r["prompt"].as_str() {
+            Some(p) => println!("{p}"),
+            None => println!("no failing checks on #{}", r["number"]),
+        },
         Cmd::Review(ReviewCmd::List { .. }) => {
             if let Some(p) = r["prompt"].as_str() {
                 println!("{p}");
@@ -1536,6 +1672,20 @@ mod tests {
             secs("pane.spawn", json!({"worktree": "wt-1"}), None, None),
             Some(30)
         );
+        // M54 (R149, R151): a Branch set's add / remove / Agent.
+        assert_eq!(
+            secs("pane.spawn", json!({"set": "feat-x"}), None, None),
+            Some(300)
+        );
+        assert_eq!(
+            secs("pane.spawn", json!({"set": null}), None, None),
+            Some(30)
+        );
+        assert_eq!(sources_param(&["all".into()]), json!("all"));
+        assert_eq!(
+            sources_param(&["web".into(), "api".into()]),
+            json!(["web", "api"])
+        );
         // The variable beats the default, the flag beats the variable.
         assert_eq!(secs("pane.list", none.clone(), None, Some("7")), Some(7));
         assert_eq!(secs("worktree.add", none.clone(), None, Some("7")), Some(7));
@@ -1749,6 +1899,36 @@ mod tests {
         }
         // `--profile` is gone too (R101).
         assert!(Cli::try_parse_from(["rade", "spawn", "--profile", "deep"]).is_err());
+    }
+
+    #[test]
+    fn r148_a_pr_commands_are_the_methods_and_wait_limit_is_timeout_plus_10() {
+        let req = |args: &[&str]| request(&parse(args).unwrap().cmd).unwrap();
+        let (m, p) = req(&[
+            "pr",
+            "status",
+            "--worktree",
+            "feat",
+            "--source",
+            "api",
+            "--refresh",
+        ]);
+        assert_eq!(m, "pr.status");
+        assert_eq!(
+            (&p["worktree"], &p["source"], &p["refresh"]),
+            (&json!("feat"), &json!("api"), &json!(true))
+        );
+        let (m, p) = req(&["pr", "status"]);
+        assert_eq!((m, p["refresh"].clone()), ("pr.status", json!(false)));
+        let (m, p) = req(&["pr", "wait", "--timeout", "3"]);
+        assert_eq!((m, p["timeout"].clone()), ("pr.wait", json!(3)));
+        assert_eq!(req(&["pr", "failures", "--json"]).0, "pr.failures");
+        let secs = |m: &str, p: Value| call_limit(m, &p, None, None).map(|d| d.as_secs());
+        assert_eq!(secs("pr.wait", json!({"timeout": 3})), Some(13));
+        assert_eq!(secs("pr.wait", json!({"timeout": null})), Some(1810));
+        assert_eq!(secs("pr.status", json!({"refresh": true})), Some(60));
+        assert_eq!(secs("pr.status", json!({"refresh": false})), Some(30));
+        assert_eq!(secs("pr.failures", json!({})), Some(145));
     }
 
     #[test]

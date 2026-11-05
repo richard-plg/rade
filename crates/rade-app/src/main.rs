@@ -28,6 +28,7 @@ mod changes;
 mod changes_card;
 mod changes_ops;
 mod chrome;
+mod ci_send_dialog;
 mod code;
 mod code_pop;
 mod code_results;
@@ -35,6 +36,7 @@ mod debug;
 mod diff_highlight;
 mod diff_pane;
 mod doc_view;
+mod drop_layout;
 mod fanout;
 mod fanout_view;
 mod files;
@@ -55,6 +57,7 @@ mod palette;
 mod palette_run;
 mod panes;
 mod perf;
+mod pr_status;
 mod project_dialogs;
 mod project_settings;
 mod projects;
@@ -64,6 +67,7 @@ mod review_view;
 mod schedules;
 mod schedules_view;
 mod search_view;
+mod set_dialogs;
 mod settings_accounts;
 mod settings_view;
 mod sidebar;
@@ -393,6 +397,7 @@ fn build(gtk_app: &adw::Application) {
     }
     menus::install(&window); // context-menu actions (R19)
     navdata::install(); // the Navigator's git facts (R104.4)
+    pr_status::install(); // PR status of the Worktrees (R146)
     navdata::refresh();
     let monitor = keys::install(&window, &app.paths.config);
     *app.config_monitor.borrow_mut() = Some(monitor);

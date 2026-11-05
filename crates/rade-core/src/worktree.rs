@@ -93,6 +93,8 @@ impl State {
             review: Default::default(),
             project: None,
             base: None,
+            set: None,
+            pr: None,
         };
         self.sources
             .iter_mut()
@@ -143,6 +145,10 @@ impl State {
             ));
         }
         let w = self.worktree_mut(source, worktree)?;
+        // Out of its Project it is out of its Branch set too (R149.4).
+        if w.project != project {
+            w.set = None;
+        }
         w.project = project;
         if base.is_some() {
             w.base = base;

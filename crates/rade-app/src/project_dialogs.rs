@@ -112,6 +112,13 @@ thread_local! {
 /// class meanwhile: one `.suggested-action` on screen, spec C.26).
 pub fn is_open() -> bool {
     OPEN.with(|o| o.borrow().is_some())
+        || crate::set_dialogs::is_open()
+        || crate::ci_send_dialog::is_open()
+}
+
+/// The scrim the Branch set dialogs share (R150.1, R151.3).
+pub(crate) fn scrim() -> Option<gtk::Box> {
+    SCRIM.with(|s| s.borrow().clone())
 }
 
 fn label(text: &str, classes: &[&str]) -> gtk::Label {
@@ -531,17 +538,21 @@ fn open(kind: Kind) {
     }
 }
 
-fn sync_primaries() {
+pub(crate) fn sync_primaries() {
     crate::changes::sync_primary();
     crate::home_view::sync_primary();
 }
 
 /// Close the open dialog (Cancel, Esc, the `x`, after the primary).
 pub fn close() {
-    let Some(d) = OPEN.with(|o| o.borrow_mut().take()) else {
+    let set = crate::set_dialogs::take() | crate::ci_send_dialog::take();
+    let d = OPEN.with(|o| o.borrow_mut().take());
+    if d.is_none() && !set {
         return;
-    };
-    d.forget_added();
+    }
+    if let Some(d) = &d {
+        d.forget_added();
+    }
     if let Some(s) = SCRIM.with(|s| s.borrow().clone()) {
         s.set_visible(false);
         while let Some(c) = s.first_child() {
@@ -1445,6 +1456,19 @@ fn branch_names(path: &std::path::Path) -> Vec<String> {
 /// `dialog_primary`, `dialog_cancel`. Answers `{"dialog": …}`.
 pub fn debug(p: &Value) -> Result<Value> {
     let s = |k: &str| p.get(k).and_then(Value::as_str).unwrap_or("");
+    // The Branch set dialogs (R150.1, R151.3) share the scrim and the ops.
+    let set_kind = matches!(s("kind"), "branch_set" | "set_prs");
+    if (s("op") == "dialog_open" && set_kind)
+        || (s("op") != "dialog_open" && crate::set_dialogs::is_open())
+    {
+        return crate::set_dialogs::debug(p);
+    }
+    // Send CI Failure to Agent (R147.3).
+    if (s("op") == "dialog_open" && s("kind") == "ci_send")
+        || (s("op") != "dialog_open" && crate::ci_send_dialog::is_open())
+    {
+        return crate::ci_send_dialog::debug(p);
+    }
     let ws = app().model.borrow().active_workspace().to_string();
     let key = format!("{ws}/{}", s("project"));
     match s("op") {
@@ -1553,7 +1577,7 @@ pub fn settings_info() -> Value {
 
 /// The dialog's width (spec C.2 "1280 px" keeps 680 px; at large text
 /// min(window − 32, 1000) px).
-fn dialog_width() -> i32 {
+pub(crate) fn dialog_width() -> i32 {
     match crate::layout_mode::window_width() {
         w if w > 0 => rade_core::chrome::overlay_width(w, 680, 1000, crate::layout_mode::mode()),
         _ => 680,

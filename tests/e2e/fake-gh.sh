@@ -10,8 +10,16 @@
 #   gh api user/keys | user/ssh_signing_keys [--jq …] → its keys
 #   gh ssh-key add <pub> --type authentication|signing → adds the key
 #   gh repo clone <spec> [d] → git clone $FAKE_GH_REMOTES/<repo>.git [d] (a missing remote fails)
-#   gh pr create …           → prints a PR URL ($FAKE_GH_PR_URL, default …/pr/1)
-#   gh pr list …             → prints $FAKE_GH_PRS (JSON), default []
+#   gh pr create …           → prints a PR URL ($FAKE_GH_PR_URL, default …/pr/1); with
+#                              $FAKE_GH_DIR: number n from $FAKE_GH_DIR/next (1, 2, …), URL
+#                              https://github.com/acme/<repo>/pull/<n> (<repo> = the folder above the
+#                              checkout: a Worktree's Source id), and an open PR without checks added
+#                              to prs/<head>.json; a file fail-create holding a word found in the
+#                              checkout's path fails this one call (the file is removed)
+#   gh pr list --head <b> …  → $FAKE_GH_DIR/prs/<b>.json (`/` in <b> → `__`), else $FAKE_GH_PRS, else [] ($FAKE_GH_BY_REPO set: prs/<repo>@<b>.json, <repo> as in `pr create`'s URL, so one branch name in several Sources has one PR each)
+#   gh pr edit <n> --body <t> → writes <t> to $FAKE_GH_DIR/edits/<n>
+#   gh run view <run> --job <job> --log-failed → $FAKE_GH_DIR/runs/<job>.log (missing → exit 1)
+# $FAKE_GH_SLEEP=<s> sleeps before every pr / run command (a hung gh).
 printf 'GH_CONFIG_DIR=%s %s%s\n' "${GH_CONFIG_DIR:-}" \
     "${GIT_SSH_COMMAND:+GIT_SSH_COMMAND=$GIT_SSH_COMMAND }" "$*" >>"${FAKE_GH_LOG:-/dev/null}"
 dir=${GH_CONFIG_DIR:-$HOME/.config/gh}
@@ -38,7 +46,49 @@ case "$1 $2" in
     "repo clone")
         repo=${3##*[/:]}; repo=${repo%.git}
         exec git clone -q "$FAKE_GH_REMOTES/$repo.git" "${4:-$repo}" ;;
-    "pr create") echo "${FAKE_GH_PR_URL:-https://example.test/pr/1}" ;;
-    "pr list") echo "${FAKE_GH_PRS:-[]}" ;;
+    "pr create")
+        [[ -n ${FAKE_GH_SLEEP:-} ]] && sleep "$FAKE_GH_SLEEP"
+        [[ -z ${FAKE_GH_DIR:-} ]] && { echo "${FAKE_GH_PR_URL:-https://example.test/pr/1}"; exit 0; }
+        top=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+        if [[ -f $FAKE_GH_DIR/fail-create ]] && [[ $top == *"$(cat "$FAKE_GH_DIR/fail-create")"* ]]; then
+            rm -f "$FAKE_GH_DIR/fail-create"
+            echo "pull request create failed: GraphQL: something went wrong (createPullRequest)" >&2; exit 1
+        fi
+        head=; title=; prev=
+        for a in "$@"; do
+            case $prev in --head) head=$a ;; --title) title=$a ;; esac
+            prev=$a
+        done
+        n=$(cat "$FAKE_GH_DIR/next" 2>/dev/null || echo 1)
+        echo $((n + 1)) >"$FAKE_GH_DIR/next"
+        repo=$(basename "$(dirname "$top")")
+        url="https://github.com/acme/$repo/pull/$n"
+        mkdir -p "$FAKE_GH_DIR/prs"
+        f="$FAKE_GH_DIR/prs/${FAKE_GH_BY_REPO:+$repo@}${head//\//__}.json"
+        oid=$(git rev-parse HEAD 2>/dev/null || echo 0)
+        jq -c --argjson n "$n" --arg t "$title" --arg u "$url" --arg o "$oid" \
+            '. + [{number: $n, title: $t, url: $u, state: "OPEN", isDraft: false, baseRefName: "main",
+                   headRefOid: $o, reviewDecision: "", mergeStateStatus: "CLEAN", statusCheckRollup: []}]' \
+            <(cat "$f" 2>/dev/null || echo '[]') >"$f.tmp" && mv "$f.tmp" "$f"
+        echo "$url" ;;
+    "pr list")
+        [[ -n ${FAKE_GH_SLEEP:-} ]] && sleep "$FAKE_GH_SLEEP"
+        head=; prev=
+        for a in "$@"; do [[ $prev == --head ]] && head=$a; prev=$a; done
+        top=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+        f="${FAKE_GH_DIR:-/nonexistent}/prs/${FAKE_GH_BY_REPO:+$(basename "$(dirname "$top")")@}${head//\//__}.json"
+        if [[ -n $head && -f $f ]]; then cat "$f"; else echo "${FAKE_GH_PRS:-[]}"; fi ;;
+    "pr edit")
+        n=$3; body=; prev=
+        for a in "$@"; do [[ $prev == --body ]] && body=$a; prev=$a; done
+        mkdir -p "${FAKE_GH_DIR:?}/edits"
+        printf '%s' "$body" >"$FAKE_GH_DIR/edits/$n" ;;
+    "run view")
+        [[ -n ${FAKE_GH_SLEEP:-} ]] && sleep "$FAKE_GH_SLEEP"
+        job=; prev=
+        for a in "$@"; do [[ $prev == --job ]] && job=$a; prev=$a; done
+        f="${FAKE_GH_DIR:-/nonexistent}/runs/$job.log"
+        [[ -f $f ]] || { echo "failed to get run log: job $job not found" >&2; exit 1; }
+        cat "$f" ;;
     *) echo "fake gh: unsupported: $*" >&2; exit 1 ;;
 esac

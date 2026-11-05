@@ -96,6 +96,9 @@ pub struct Card {
     sync_btn: gtk::Button,
     sync_label: gtk::Label,
     publish_btn: gtk::Button,
+    /// The PR chip (R146.3): a click opens the PR, a right click its menu.
+    pr_btn: gtk::Button,
+    pr_label: gtk::Label,
     more: gtk::MenuButton,
     body: gtk::Box,
     identity: gtk::Label,
@@ -225,6 +228,16 @@ impl Card {
         publish_btn.set_tooltip_text(Some("Publish Branch…"));
         publish_btn.set_visible(false);
         head.append(&publish_btn);
+        let pr_label = gtk::Label::new(None);
+        let pr_btn = gtk::Button::new();
+        pr_btn.set_child(Some(&pr_label));
+        pr_btn.add_css_class("flat");
+        pr_btn.add_css_class("pr-chip");
+        pr_btn.add_css_class("changes-pr");
+        pr_btn.set_valign(gtk::Align::Center);
+        pr_btn.set_focus_on_click(false);
+        pr_btn.set_visible(false);
+        head.append(&pr_btn);
         let more = gtk::MenuButton::new();
         more.set_icon_name("ph-dots-three-symbolic");
         more.add_css_class("flat");
@@ -346,6 +359,8 @@ impl Card {
             sync_btn,
             sync_label,
             publish_btn,
+            pr_btn,
+            pr_label,
             more,
             body,
             identity,
@@ -371,7 +386,84 @@ impl Card {
             setting: Cell::new(false),
         });
         card.wire();
+        card.update_pr();
         card
+    }
+
+    /// The card's Worktree `(source id, worktree id)`, when it shows one.
+    fn pr_ids(&self) -> Option<(String, String)> {
+        let app = try_app()?;
+        let m = app.model.borrow();
+        let found = m
+            .worktrees()
+            .find(|(_, w)| rade_core::git::same(&w.path, &self.path))
+            .map(|(s, w)| (s.id.clone(), w.id.clone()));
+        found
+    }
+
+    /// The PR chip's menu: Open Pull Request, Refresh PR Status, and Send
+    /// CI Failure to Agent… while the checks fail (R146.3, R147.3).
+    pub(crate) fn pr_menu_items(&self) -> Vec<(&'static str, &'static str)> {
+        let Some((p, w)) = self.pr_ids() else {
+            return Vec::new();
+        };
+        let mut v = Vec::new();
+        if crate::pr_status::url(&p, &w).is_some() {
+            v.push(("Open Pull Request", "pr-open"));
+            v.push(("Refresh PR Status", "pr-refresh"));
+        }
+        if crate::pr_status::failing(&p, &w) {
+            v.push(("Send CI Failure to Agent…", "ci-send"));
+        }
+        v
+    }
+
+    /// Show the PR chip as the last read (or the recorded number) says.
+    pub(crate) fn update_pr(&self) {
+        let chip = self
+            .pr_ids()
+            .and_then(|(p, w)| crate::pr_status::chip(&p, &w).map(|c| (c, p, w)));
+        for t in ["ok", "error", "warn", "fg3"] {
+            self.pr_btn.remove_css_class(&format!("pr-{t}"));
+        }
+        match chip {
+            Some((c, p, w)) => {
+                self.pr_label.set_label(&c.text);
+                self.pr_btn.add_css_class(&format!("pr-{}", c.tone.class()));
+                let tip = crate::pr_status::status(&p, &w)
+                    .map(|s| rade_core::pr::tooltip(&s))
+                    .unwrap_or_else(|| format!("Pull request {}", c.text));
+                self.pr_btn
+                    .set_tooltip_text(Some(&format!("{tip}\nClick: open · right-click: more")));
+                self.pr_btn.set_visible(true);
+            }
+            None => self.pr_btn.set_visible(false),
+        }
+    }
+
+    pub(crate) fn pr_chip_text(&self) -> Option<String> {
+        self.pr_btn
+            .is_visible()
+            .then(|| self.pr_label.label().to_string())
+    }
+
+    pub(crate) fn pr_chip_click(&self) {
+        if let Some(u) = self
+            .pr_ids()
+            .and_then(|(p, w)| crate::pr_status::url(&p, &w))
+        {
+            crate::viewer::launch_uri(&u);
+        }
+    }
+
+    pub(crate) fn pr_menu_activate(&self, label: &str) -> bool {
+        match self.pr_menu_items().into_iter().find(|(l, _)| *l == label) {
+            Some((_, a)) => {
+                self.actions.activate_action(a, None);
+                true
+            }
+            None => false,
+        }
     }
 
     fn weak(self: &Rc<Self>) -> Weak<Self> {
@@ -408,6 +500,44 @@ impl Card {
         self.add_action("c-push", |c| c.commit_variant("push"));
         self.add_action("c-all", |c| c.commit_variant("all"));
         self.add_action("c-undo", |c| c.undo());
+        // The PR (R146.3, R147.3).
+        self.add_action("pr-open", |c| c.pr_chip_click());
+        self.add_action("pr-refresh", |c| {
+            if let Some((p, w)) = c.pr_ids() {
+                crate::pr_status::refresh(&p, &w);
+            }
+        });
+        self.add_action("ci-send", |c| {
+            if let Some((p, w)) = c.pr_ids() {
+                crate::ci_send_dialog::open(&p, &w);
+            }
+        });
+        let w = self.weak();
+        self.pr_btn.connect_clicked(move |_| {
+            if let Some(c) = w.upgrade() {
+                c.pr_chip_click();
+            }
+        });
+        let right = gtk::GestureClick::new();
+        right.set_button(3);
+        let w = self.weak();
+        right.connect_pressed(move |g, _, _, _| {
+            g.set_state(gtk::EventSequenceState::Claimed);
+            let Some(c) = w.upgrade() else { return };
+            let menu = gio::Menu::new();
+            for (l, a) in c.pr_menu_items() {
+                menu.append(Some(l), Some(&format!("scm.{a}")));
+            }
+            let pop = gtk::PopoverMenu::from_model(Some(&menu));
+            pop.set_parent(&c.pr_btn);
+            pop.set_has_arrow(false);
+            pop.connect_closed(|p| {
+                let p = p.clone();
+                glib::idle_add_local_once(move || p.unparent());
+            });
+            pop.popup();
+        });
+        self.pr_btn.add_controller(right);
         let menu = gio::Menu::new();
         for (label, action) in [
             ("Commit", "c-commit"),
@@ -847,6 +977,8 @@ impl Card {
             items.push(("Publish Branch…", "publish"));
         }
         items.push(("Create Pull Request…", "pr"));
+        // R146.3: Open Pull Request, Refresh PR Status (+ Send CI Failure).
+        items.extend(self.pr_menu_items());
         let sec1 = gio::Menu::new();
         for (l, a) in &items {
             sec1.append(Some(l), Some(&format!("scm.{a}")));
@@ -881,6 +1013,7 @@ impl Card {
             None => self.action.set_visible(false),
         }
 
+        self.update_pr();
         self.apply_fold();
         self.rebuild_list();
         self.update_commit();
@@ -1931,6 +2064,9 @@ impl Card {
             "no_checkout": no_checkout,
             "note": self.note.is_visible().then(|| self.note.label().to_string()),
             "sync": sync, "action": action,
+            "pr_chip": self.pr_ids().and_then(|(p, w)| crate::pr_status::chip(&p, &w))
+                .filter(|_| self.pr_btn.is_visible()),
+            "pr_menu": self.pr_menu_items().iter().map(|(l, _)| *l).collect::<Vec<_>>(),
             "message": text_of(&self.message),
             "warning": self.warning.is_visible().then(|| self.warning.label().to_string()),
             "commit": {

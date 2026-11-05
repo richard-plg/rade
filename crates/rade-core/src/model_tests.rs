@@ -436,3 +436,65 @@ fn r19_7_a_new_tab_goes_right_after_the_active_one() {
     w.move_tab_after(&t6, &t1);
     assert_eq!(order(&w), [t1, t6, t4, t2, t5, t3]);
 }
+
+#[test]
+fn r146_e_worktree_pr_is_kept_and_older_state_loads() {
+    let (mut w, id, _, _) = with_x();
+    let v = serde_json::to_value(&w).unwrap();
+    assert!(!v.to_string().contains("\"pr\""), "none is not written");
+    w.sources.iter_mut().find(|s| s.id == id).unwrap().worktrees[0].pr = Some(PrRef {
+        number: 482,
+        url: "https://github.com/o/r/pull/482".into(),
+        ..Default::default()
+    });
+    let back: State = serde_json::from_str(&serde_json::to_string(&w).unwrap()).unwrap();
+    assert_eq!(back, w);
+    let pr = back.source(&id).unwrap().worktrees[0].pr.clone().unwrap();
+    assert_eq!(pr.number, 482);
+    // No auto-send counters: not written.
+    assert!(!serde_json::to_string(&w).unwrap().contains("auto_"));
+}
+
+#[test]
+fn r147_c_auto_send_counters_live_on_the_pr_and_survive_a_reload() {
+    let (mut w, id, _, _) = with_x();
+    let wt = w.source(&id).unwrap().worktrees[0].id.clone();
+    let pr = |n: u64| PrRef {
+        number: n,
+        url: format!("https://github.com/o/r/pull/{n}"),
+        ..Default::default()
+    };
+    // No PR: nothing to keep the counters on.
+    assert!(!w.set_worktree_auto(&id, &wt, Some("h1"), 1));
+    assert!(w.set_worktree_pr(&id, &wt, pr(7)));
+    assert!(w.set_worktree_auto(&id, &wt, Some("h1"), 2));
+    assert!(!w.set_worktree_auto(&id, &wt, Some("h1"), 2));
+    // A read of the same PR keeps them; the file has them.
+    assert!(!w.set_worktree_pr(&id, &wt, pr(7)));
+    let back: State = serde_json::from_str(&serde_json::to_string(&w).unwrap()).unwrap();
+    let p = back.source(&id).unwrap().worktrees[0].pr.clone().unwrap();
+    assert_eq!((p.auto_head.as_deref(), p.auto_in_a_row), (Some("h1"), 2));
+    // Another PR number starts from nothing.
+    assert!(w.set_worktree_pr(&id, &wt, pr(8)));
+    let p = w.source(&id).unwrap().worktrees[0].pr.clone().unwrap();
+    assert_eq!((p.auto_head, p.auto_in_a_row), (None, 0));
+}
+
+#[test]
+fn r146_a_read_without_a_pull_request_clears_the_recorded_one() {
+    let (mut w, id, _, _) = with_x();
+    let wt = w.source(&id).unwrap().worktrees[0].id.clone();
+    assert!(!w.clear_worktree_pr(&id, &wt));
+    w.set_worktree_pr(
+        &id,
+        &wt,
+        PrRef {
+            number: 7,
+            url: "https://github.com/o/r/pull/7".into(),
+            ..Default::default()
+        },
+    );
+    assert!(w.clear_worktree_pr(&id, &wt));
+    assert!(w.source(&id).unwrap().worktrees[0].pr.is_none());
+    assert!(!w.clear_worktree_pr(&id, &wt));
+}

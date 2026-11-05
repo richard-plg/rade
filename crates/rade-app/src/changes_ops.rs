@@ -120,6 +120,11 @@ impl Card {
                     Ok(v) => {
                         c.show_error(None);
                         ok(&c, v);
+                        // A push moves the PR's checks (R146.2); Create PR
+                        // records its own.
+                        if matches!(what, "Push" | "Publish" | "Sync") {
+                            crate::pr_status::now(&c.path);
+                        }
                     }
                     Err(e) => c.show_error(Some(format!("{what}: {}", e.message))),
                 }
@@ -734,6 +739,7 @@ impl Card {
                 },
                 move |c, url| {
                     crate::activity_view::pr_created(&c.path, &url);
+                    crate::pr_status::created(&c.path, &url);
                     let u = url.clone();
                     crate::app::app().chrome.toast(
                         &format!("Pull request created: {}", esc(&url)),

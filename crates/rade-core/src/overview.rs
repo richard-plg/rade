@@ -47,6 +47,18 @@ pub struct Fact {
     pub changed_at: Option<u64>,
     /// `↑3 · 4 changed`.
     pub git: Option<String>,
+    /// Its Worktree's PR chip (R146.3); the app fills it.
+    pub pr: Option<crate::pr::Chip>,
+}
+
+impl Fact {
+    /// Its Worktree's PR checks are failing: the card offers Send CI
+    /// Failure to Agent (R147.3).
+    pub fn ci_failing(&self) -> bool {
+        self.pr
+            .as_ref()
+            .is_some_and(|c| c.tone == crate::pr::Tone::Error)
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -1025,6 +1037,7 @@ pub fn facts(ws: &State, place: &dyn Fn(&str) -> String) -> Vec<Fact> {
                     account: p.account.clone(),
                     changed_at: None,
                     git: None,
+                    pr: None,
                 });
             }
         }

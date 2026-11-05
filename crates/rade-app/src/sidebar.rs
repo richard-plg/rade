@@ -239,12 +239,27 @@ fn tooltip(r: &Row) -> Option<String> {
             }
             (!lines.is_empty()).then(|| lines.join("\n"))
         }
+        // A Branch set's Worktree (R150.2).
+        RowKind::Worktree if r.set.is_some() => r.set.clone(),
         RowKind::Agent => try_app().and_then(|app| {
             let m = app.model.borrow();
             m.pane(&r.key).map(crate::status::tooltip)
         }),
         _ => None,
     }
+}
+
+/// A PR chip (R146.3): mono text in its tone (`pr-ok`, `pr-error`,
+/// `pr-warn`, `pr-fg3`), the PR's tooltip.
+pub(crate) fn pr_chip(c: &rade_core::pr::Chip, tip: Option<&str>, classes: &[&str]) -> gtk::Label {
+    let l = label(&c.text, &["pr-chip"]);
+    l.add_css_class(&format!("pr-{}", c.tone.class()));
+    for k in classes {
+        l.add_css_class(k);
+    }
+    l.set_valign(gtk::Align::Center);
+    l.set_tooltip_text(tip);
+    l
 }
 
 fn build_row(r: &Row) -> gtk::ListBoxRow {
@@ -316,8 +331,22 @@ fn build_row(r: &Row) -> gtk::ListBoxRow {
         },
     );
     title.set_ellipsize(gtk::pango::EllipsizeMode::End);
-    title.set_hexpand(true);
-    hbox.append(&title);
+    match &r.pr {
+        // R146.3: the PR chip right after the name; a spacer takes the
+        // rest of the row.
+        Some(c) => {
+            hbox.append(&title);
+            let chip = pr_chip(c, r.pr_tip.as_deref(), &["nav-pr"]);
+            hbox.append(&chip);
+            let fill = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+            fill.set_hexpand(true);
+            hbox.append(&fill);
+        }
+        None => {
+            title.set_hexpand(true);
+            hbox.append(&title);
+        }
+    }
     if let (Some(text), Some((pid, _))) = (suggest_text(r), &r.suggest) {
         // A one-click suggestion, never applied by RADE (R104.1).
         let b = gtk::Button::with_label(&text);
@@ -332,6 +361,10 @@ fn build_row(r: &Row) -> gtk::ListBoxRow {
     }
     let meta = gtk::Box::new(gtk::Orientation::Horizontal, 6);
     meta.add_css_class("nav-row-meta-box");
+    if r.kind == RowKind::Worktree {
+        // Short of room, the Review chip goes before the PR chip (R146.3).
+        meta.set_layout_manager(Some(crate::drop_layout::DropFirst::new()));
+    }
     if !r.meta.is_empty() {
         let m = label(&r.meta, &["nav-row-meta"]);
         if r.drift || matches!(r.led, Some(AgentStatus::Waiting)) && r.kind == RowKind::Agent {
@@ -340,7 +373,7 @@ fn build_row(r: &Row) -> gtk::ListBoxRow {
         meta.append(&m);
     }
     if let Some(t) = &r.review {
-        let c = label(t, &["nav-review"]);
+        let c = label(t, &["nav-review", crate::drop_layout::DROP_FIRST]);
         if t == "approved" {
             c.add_css_class("approved");
         } else if t.ends_with("changed") {
@@ -354,6 +387,12 @@ fn build_row(r: &Row) -> gtk::ListBoxRow {
         let i = icon("ph-clock-symbolic", &["nav-schedule"]);
         i.set_tooltip_text(Some(&format!("Schedule {s}")));
         meta.append(&i);
+    }
+    if let Some(t) = &r.set {
+        let m = label(rade_core::branch_set::MARKER, &["nav-set"]);
+        m.set_tooltip_text(Some(t));
+        m.set_valign(gtk::Align::Center);
+        meta.append(&m);
     }
     if r.drift {
         meta.append(&icon("ph-warning-diamond-fill-symbolic", &["nav-drift"]));
@@ -714,6 +753,7 @@ impl Sidebar {
                 home: &home,
                 selected: selected.as_ref(),
                 now: crate::panes::now(),
+                pr: &crate::pr_status::status,
             },
         )
     }
@@ -833,6 +873,9 @@ impl Sidebar {
                     "kind": kind_str(r.kind), "depth": r.depth, "text": r.label(),
                     "title": r.title, "meta": r.meta, "drift": r.drift, "review": r.review,
                     "schedule": r.schedule,
+                    "pr_chip": r.pr, "pr_tooltip": r.pr_tip,
+                    "set_marker": r.set.as_ref().map(|_| rade_core::branch_set::MARKER),
+                    "set_tooltip": r.set,
                     "also_in": r.kind == RowKind::Link && r.also_in.is_some(),
                     "tooltip": w.as_ref().and_then(|w| w.tooltip_text()).map(|t| t.to_string()),
                     "suggest": suggest_text(r), "collapsed": r.collapsed,
@@ -1059,6 +1102,23 @@ pub fn worktree_menu(m: &State, p: &str, w: &str) -> gio::Menu {
     if !missing {
         item(&menu, "Review Changes", "review", format!("{p}\u{1f}{w}"));
     }
+    // R146.3, R147.3: the Worktree's pull request.
+    if crate::pr_status::url(p, w).is_some() {
+        item(
+            &menu,
+            "Open Pull Request",
+            "open-pr",
+            format!("{p}\u{1f}{w}"),
+        );
+    }
+    if crate::pr_status::failing(p, w) {
+        item(
+            &menu,
+            "Send CI Failure to Agent…",
+            "ci-send",
+            format!("{p}\u{1f}{w}"),
+        );
+    }
     item(&menu, "New Worktree…", "new-worktree", format!("{p}\u{1f}"));
     let main = m.is_main_worktree(p, w);
     if !main {
@@ -1224,6 +1284,12 @@ fn install_menu(list: &gtk::ListBox, rows: Rc<RefCell<Vec<Row>>>) {
     act("remove-worktree", |p, w| {
         crate::worktrees::remove_dialog(p, w)
     });
+    act("open-pr", |p, w| {
+        if let Some(u) = crate::pr_status::url(p, w) {
+            crate::viewer::launch_uri(&u);
+        }
+    });
+    act("ci-send", crate::ci_send_dialog::open);
     // Target `source␟worktree␟project` ("" = no Project).
     act("move-to-project", |p, rest| {
         let (w, proj) = rest.split_once('\u{1f}').unwrap_or((rest, ""));

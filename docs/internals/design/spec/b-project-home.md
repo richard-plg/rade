@@ -4,7 +4,7 @@ Mockup: `mockup.html#b-dark` / `#b-light`, images `new-b-dark.png`, `new-b-light
 
 Window 1440 × 900 px. Columns: Navigator 268 px · page 1172 px (no Inspector on this screen). Page content width 1172 − 2 × 28 = 1116 px.
 
-**0.8.0 scope versus the mockup** (decisions log): the mockup's `New branch across sources…` button, the `Pull requests` KPI and the Worktree meta `PR #482 ✓` belong to "later" (design §8, PRD Non-goals); 0.8.0 shows three KPIs and no such button. The Activity row `#482 opened from perf-img` stays (Activity records PRs opened from RADE).
+**0.8.0 scope versus the mockup** (decisions log): the mockup's `Pull requests` KPI and the Worktree meta `PR #482 ✓` were "later" (design §8, PRD Non-goals); M54 added both (R146.3: the 4th KPI, always shown unless `[scm] pr_status = false`; `0 none open` in this scene) and the `New branch across sources…` button (R150.1) between `Settings` and `Open terminal`, in the mockup's order. The Activity row `#482 opened from perf-img` stays (Activity records PRs opened from RADE).
 
 ## Measurements
 
@@ -19,14 +19,14 @@ Window 1440 × 900 px. Columns: Navigator 268 px · page 1172 px (no Inspector o
 | B.7 | Header title `Shop` | Inter 20 px 600, letter-spacing −0.01em, `fg` | ±0.5 px; exact | `geometry home-title → font, color` |
 | B.8 | Header sub-line | `acme · 3 sources · .rade/projects/shop/project.toml`, JetBrains Mono 12 px `fg3` | ±0.5 px; exact text | `geometry home-sub → font, color, label` |
 | B.9 | Header icon–text gap / actions gap | 12 px / 8 px | ±1 px | `geometry home-header → x` deltas |
-| B.10 | Header actions (right-aligned) | `Settings` (`gear-six`, secondary), `Open terminal` (`terminal-window`, primary) | exact text, order | `debug.ui home` → buttons |
+| B.10 | Header actions (right-aligned) | `Settings` (`gear-six`, secondary), `New branch across sources…` (secondary, M54), `Open terminal` (`terminal-window`, primary) | exact text, order | `debug.ui home` → buttons |
 | B.11 | Primary button `Open terminal` | `acc` fill, `acc-fg` 600, height 26 px, radius 6 px; exactly one `.suggested-action` on screen B | exact; count exact | `geometry home-open-terminal → background, color, height, radius`; `count .suggested-action = 1` |
 | B.12 | Secondary button | height 26 px, padding 0 10 px, radius 6 px, 1 px `line2`, `bg2`, Inter 12.5 px `fg`, icon 14 px `fg2` | ±1 px; exact | `geometry home-settings → height, padding, radius, border, background` |
 | B.13 | KPI row margin and gap | 18 px above, 22 px below; gap 10 px | ±1 px | `geometry home-kpis → margin`; x deltas of `kpi` |
-| B.14 | KPI cards: count and width | 3 cards (`Agents`, `Worktrees`, `Uncommitted`), each (1116 − 20) / 3 = 365 px | ±1 px; exact count | `count kpi = 3`; `geometry kpi → width` |
+| B.14 | KPI cards: count and width | 4 cards (`Agents`, `Worktrees`, `Uncommitted`, `Pull requests`), each (1116 − 30) / 4 = 271.5 px | ±1 px; exact count | `count kpi = 4`; `geometry kpi → width` |
 | B.15 | KPI card box | 1 px `line`, radius 8 px, padding 10 12 px, `bg1` | ±1 px; exact | `geometry kpi → border, radius, padding, background` |
 | B.16 | KPI label / value / detail | label A.18 style; value JetBrains Mono 18 px 600 `fg`, 2 px below label; detail 12 px 400 `fg3` | ±0.5 px; exact | `geometry kpi-label → font`; `geometry kpi-value → font, color`; `geometry kpi-detail → font, color` |
-| B.17 | KPI texts | `3` `1 waiting · 1 running`; `2` `checkout-v2, perf-img`; `7` `files in 2 sources` | exact text | `debug.ui home` → kpis |
+| B.17 | KPI texts | `3` `1 waiting · 1 running`; `2` `checkout-v2, perf-img`; `7` `files in 2 sources`; `0` `none open` | exact text | `debug.ui home` → kpis |
 | B.18 | Section header `SOURCES` | label A.18 style, margin 6 px above / 8 px below; `Add source` secondary button (`plus`) right-aligned | ±1 px; exact | `geometry home-section → margin`; `debug.ui home` → section buttons |
 | B.19 | Link table width | 1116 px (full content width) | ±1 px | `geometry link-table → width` |
 | B.20 | Link table head | columns `SOURCE`, `BASE`, `CHECKOUT`, `HEAD`, `VS BASE`, `STATE`, (actions); JetBrains Mono 600 10.5 px, uppercase, letter-spacing 0.1em, `fg3`, padding 6 10 px, bottom border 1 px `line` | ±1 px; exact text | `geometry link-table-head → font, padding, border.bottom`; `debug.ui home` → columns |
@@ -74,7 +74,8 @@ Drift actions for `shop-api` are in the row's `dots-three` menu: `Keep`, `Move t
 ## 1280 px
 
 Window 1280 × 800 px: page width 1012 px, content 956 px.
-- KPI cards shrink equally (each (956 − 20) / 3 = 312 px).
+- KPI cards stay in one row and shrink equally (each (956 − 30) / 4 = 231.5 px); a detail that no longer fits ellipsizes.
+- Header keeps title and the three actions on one line.
 - Link table keeps all columns; the Checkout column ellipsizes the path (`.worktrees-dev/…/shared-ui`) first, then the State chip text; Source, Base, HEAD never ellipsize.
 - The lower grid stays two columns (≈ 520 / 414 px).
 - No horizontal scroll.
@@ -82,7 +83,8 @@ Window 1280 × 800 px: page width 1012 px, content 956 px.
 ## Text scale 200 %
 
 - Navigator becomes the 48 px icon rail (A, Text scale); page width 1392 px.
-- KPI cards wrap to one per line (full width) when a card is narrower than its value + detail at 2×.
+- Header: the three actions (`Settings`, `New branch across sources…`, `Open terminal`, same order) move to their own line under the title, right-aligned, 10 px below it (as the Usage page's header), so the header never scrolls sideways.
+- KPI cards wrap to one per line (full width) when a card ((content − 30) / 4) is narrower than its value + detail at 2×.
 - Link table: rows grow to text height + 18 px; the `VS BASE` and `CHECKOUT` columns move into a second line of each row (mono, `fg3`), so the table never scrolls sideways.
 - Lower grid becomes one column (Worktrees, then Recent activity).
 - No text clipped (`geometry` natural height ≤ allocation for every label).

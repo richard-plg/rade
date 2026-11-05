@@ -527,6 +527,13 @@ fn facts(app: &App) -> Vec<Fact> {
     for f in &mut facts {
         f.changed_at = crate::status::last_change(&f.pane);
         if let Some(loc) = m.locate(&f.pane) {
+            // R146.3: its Worktree's PR chip (main checkouts have none).
+            f.pr = m.worktree(&loc.source, &loc.worktree).and_then(|w| {
+                rade_core::pr::worktree_chip(
+                    crate::pr_status::status(&loc.source, &loc.worktree).as_ref(),
+                    w.pr.as_ref().map(|p| p.number),
+                )
+            });
             if let Some(w) = m.worktree(&loc.source, &loc.worktree) {
                 let (ahead, changed) = crate::navdata::worktree_facts(&m, &w.path);
                 f.git = match (ahead, changed) {
@@ -1067,10 +1074,23 @@ fn card(
     pl.set_ellipsize(gtk::pango::EllipsizeMode::End);
     pl.set_hexpand(true);
     where_.append(&pl);
+    // R146.3: its Worktree's PR chip; failing → Alt+F sends the CI
+    // failure (R147.3).
+    let pr = f0.pr.as_ref().map(|c| {
+        let tip = if f0.ci_failing() {
+            "Alt+F: Send CI Failure to Agent…"
+        } else {
+            "Pull request"
+        };
+        crate::sidebar::pr_chip(c, Some(tip), &["overview-card-pr"])
+    });
     if compact {
         w.append(&r1);
         where_.set_hexpand(true);
         w.append(&where_);
+        if let Some(c) = &pr {
+            w.append(c);
+        }
         st.set_hexpand(false);
         w.append(&st);
         return w;
@@ -1108,6 +1128,9 @@ fn card(
         let l = label(t, &[]);
         l.set_ellipsize(gtk::pango::EllipsizeMode::End);
         foot.append(&l);
+    }
+    if let Some(c) = &pr {
+        foot.append(c);
     }
     let k = label("↵ jump", &["overview-card-jump"]);
     k.set_hexpand(true);
@@ -1329,6 +1352,27 @@ fn jump(v: &Rc<View>, zoom: bool) {
     app.restore_focus();
 }
 
+/// `Alt+F` (R147.3): the selected card's Worktree has failing checks →
+/// close and open the Send CI Failure preview.
+fn send_ci(v: &Rc<View>) {
+    let Some(card) = v
+        .sel
+        .get()
+        .and_then(|p| v.overview.borrow().card(p).cloned())
+    else {
+        return;
+    };
+    if !card.facts()[0].ci_failing() {
+        return;
+    }
+    let Some(app) = try_app() else { return };
+    let Some((p, w)) = app.model.borrow().pane_worktree(card.pane()) else {
+        return;
+    };
+    close(Exit::Jump);
+    crate::ci_send_dialog::open(&p, &w);
+}
+
 /// A key while open (the layer's capture handler and `debug.ui key`).
 pub fn key(k: Key, m: ModifierType) -> bool {
     let Some(v) = view() else { return false };
@@ -1399,6 +1443,11 @@ pub fn key(k: Key, m: ModifierType) -> bool {
                 jump(&v, false);
                 crate::review::open_for(&pane);
             }
+            true
+        }
+        // R147.3: the selected card's failing CI → the preview.
+        Key::f | Key::F if alt && !ctrl => {
+            send_ci(&v);
             true
         }
         Key::g | Key::G if alt && !ctrl => {
@@ -1554,6 +1603,8 @@ fn state() -> Value {
                         "parent": f.parent,
                         "note": f.note,
                         "git": f.git,
+                        "pr_chip": f.pr,
+                        "ci_send": f.ci_failing(),
                         "tail": tails.get(&f.pane).cloned().unwrap_or_default(),
                         "tail_widget": widgets.get(&(i, j)).map_or(Value::Null, tail_widget),
                         "selected": sel == Some((i, j)),
@@ -1974,15 +2025,21 @@ fn fill_preview(v: &View, c: &Card) {
     for t in [&f0.git, &f0.account].into_iter().flatten() {
         p.foot.append(&label(t, &[]));
     }
+    if let Some(c) = &f0.pr {
+        p.foot
+            .append(&crate::sidebar::pr_chip(c, None, &["overview-card-pr"]));
+    }
     let off = try_app().is_some_and(|a| a.model.borrow().overview_no_preview);
-    let k = label(
-        if off {
-            "↵ jump · Alt+P show"
+    let keys = format!(
+        "{}↵ jump · Alt+P {}",
+        if f0.ci_failing() {
+            "Alt+F send CI failure · "
         } else {
-            "↵ jump · Alt+P hide"
+            ""
         },
-        &["overview-card-jump"],
+        if off { "show" } else { "hide" }
     );
+    let k = label(&keys, &["overview-card-jump"]);
     k.set_hexpand(true);
     k.set_xalign(1.0);
     p.foot.append(&k);

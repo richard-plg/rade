@@ -102,8 +102,16 @@ pub struct Row {
     pub selected: bool,
     /// A Worktree under review: `R2 · 3 open` / `approved` (R119.5).
     pub review: Option<String>,
+    /// A Worktree's pull request chip (R146.3): `#482 ✓` and its tone.
+    pub pr: Option<crate::pr::Chip>,
+    /// The PR chip's tooltip (title, state, review, stale); `None` before
+    /// the first read.
+    pub pr_tip: Option<String>,
     /// Agent rows of a Schedule Run: the Schedule's name (R139.4).
     pub schedule: Option<String>,
+    /// A Branch set's Worktree: the `⧉` marker's tooltip (`also in
+    /// shop-api, shared-ui`, R150.2).
+    pub set: Option<String>,
     pub target: Target,
 }
 
@@ -127,7 +135,10 @@ impl Row {
             color: None,
             selected: false,
             review: None,
+            pr: None,
+            pr_tip: None,
             schedule: None,
+            set: None,
             target,
         }
     }
@@ -170,6 +181,12 @@ impl Row {
         if let Some(t) = &self.review {
             flags.push(format!("review: {t}"));
         }
+        if let Some(c) = &self.pr {
+            flags.push(format!("pr: {} ({})", c.text, c.tone.class()));
+        }
+        if let Some(t) = &self.set {
+            flags.push(format!("{} {t}", crate::branch_set::MARKER));
+        }
         if let Some((_, n)) = &self.suggest {
             flags.push(format!("→ {n}?"));
         }
@@ -200,6 +217,16 @@ pub struct Input<'a> {
     pub home: &'a Path,
     pub selected: Option<&'a Target>,
     pub now: u64,
+    /// The last PR read of a Worktree (source id, worktree id), R146.
+    pub pr: &'a dyn Fn(&str, &str) -> Option<crate::pr::PrStatus>,
+}
+
+/// A Worktree row's PR chip and tooltip: the read, else the recorded
+/// number (R146.3, R146.5).
+fn pr_of(r: &mut Row, input: &Input, source: &str, w: &crate::model::Worktree) {
+    let read = (input.pr)(source, &w.id);
+    r.pr = crate::pr::worktree_chip(read.as_ref(), w.pr.as_ref().map(|p| p.number));
+    r.pr_tip = read.as_ref().map(crate::pr::tooltip);
 }
 
 /// The Projects in shown order (R104.4): those in `order` first, as
@@ -431,6 +458,7 @@ pub fn build(state: &State, input: &Input) -> Vec<Row> {
     let collapsed = |key: &str| state.collapsed_projects.iter().any(|k| k == key);
     let sources: Vec<&Source> = state.visible_sources().collect();
     let source = |id: &str| sources.iter().copied().find(|s| s.id == id);
+    let sets = crate::branch_set::sets(state, input.projects);
     // Checkouts of links that are not the main checkout, per Source.
     let mut out = Vec::new();
     if input.projects.is_empty() {
@@ -513,6 +541,8 @@ pub fn build(state: &State, input: &Input) -> Vec<Row> {
                 }
                 wrow.meta = meta.join(" ");
                 wrow.review = crate::review_loop::chip(w);
+                pr_of(&mut wrow, input, &s.id, w);
+                wrow.set = crate::branch_set::also_in(state, &sets, &s.id, &w.id);
                 let wchildren: Vec<Row> = agents(w.tabs.iter().flat_map(|t| t.panes()).collect())
                     .into_iter()
                     .map(|x| agent_row(x, 3, input))
@@ -664,6 +694,7 @@ fn scratch(input: &Input, sources: &[&Source], out: &mut Vec<Row>) {
                 },
             );
             r.review = crate::review_loop::chip(w);
+            pr_of(&mut r, input, &s.id, w);
             r.suggest = input
                 .branches
                 .current

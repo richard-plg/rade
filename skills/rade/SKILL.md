@@ -28,6 +28,7 @@ Works only inside RADE. Check first: `[ -n "$RADE_SOCKET" ] && rade list >/dev/n
 - Best of N: `rade fanout --agents codex,codex,claude "task"` gives each Agent its own git worktree (one Fan-out Tab), `rade fanout wait fanout-1`, `rade fanout judge fanout-1` (a read-only Judge compares the diffs), `rade fanout wait fanout-1 --until judged`, then leave the choice to the user or `rade fanout choose fanout-1 [<label>] --cleanup` (stages the Winner on the current branch, never commits). `rade close` refuses a Fan-out agent (end the Fan-out with `rade fanout discard fanout-1`).
 - A source the user paused (`rade source list` says `paused`) refuses spawn and send (exit 2): ask before `rade source resume <id>`. `rade rename <pane> <name>` names a pane; `rade tab list|rename|close` handles tabs.
 - Workspaces: you run in one (`$RADE_WORKSPACE`, e.g. a company or personal identity, with its own `gh` / Claude account in your env). `rade list` shows your Workspace's panes (`--all` for every one); never act in another Workspace unless the user asks. `rade source add owner/repo` clones into your Workspace with its `gh` account and registers it (`rade source add <path>` registers a folder). Projects link Sources, each link with one base branch (e.g. `develop`): `rade project list|show`, `rade worktree add <src> <name> [--project <p>] [--base <ref>]` (no `--base` = the link's base; `--project` only when several Projects link the Source); to change Project or config files use the `rade-config` skill.
+- Branch sets: one task across several repositories of a Project. `rade worktree add --project shop feat-x --sources web,api` (or `--sources all`) cuts branch `feat-x` in each named link from that link's own base and prints one `<source>/<name> ← <base>  <path>` line each; any problem with a link refuses the whole call and creates nothing. `rade spawn --set feat-x --agent claude "prompt"` starts one Agent in the set's first Worktree that also sees the others; `rade worktree remove --project shop --set feat-x [--force] [--delete-branch]` removes the set after checking every Worktree.
 - Agent Accounts: a Workspace can declare several Claude Code / Codex logins (`rade account list` shows them, `✓` = default; your own is `$RADE_ACCOUNT`). A Subagent you spawn uses your account; pick another of your Workspace with `rade spawn --agent claude --account acme-team …`. An account of another Workspace, or a command that points `CLAUDE_CONFIG_DIR` / `CODEX_HOME` elsewhere, is refused (exit 7, `FORBIDDEN`): don't work around it. A name a Claude and a Codex account share needs `--agent` (exit 4 otherwise). `rade account usage` prints each account's tightest limit and next reset (`acme-work  claude  62% 5-hour  resets in 1h 12m`); `rade account usage <name> --json` lists every limit and the tokens per day / Project / model. Near a limit, prefer another account of your Workspace for new Subagents (`--account`), never one of another Workspace. Accounts marked `(user)` come from the user's `~/.config/rade/accounts.toml` and are usable in every Workspace that doesn't set `accounts = "own"`. An account may load a `.env` file and extra variables (`rade account list --json` shows `env_keys`, never values); never print, copy or ask for those values.
 - Show the user a file: `rade open path/to/file.rs:42` (or a `.md`, rendered) opens it in a read-only Viewer beside you without taking focus.
 
@@ -41,6 +42,17 @@ rade review request --summary "Done: OTP login; tests in tests/otp.rs. Not done:
 - Address every open comment, then run `rade review request --summary "…"` (what you changed, what you did not and why, 1–3 lines): the user gets a *Ready for review* notification and sees your summary in the Review header.
 - `code changed` / `untouched` only says whether the commented lines changed since the comment was sent, not whether you did it right; the user resolves comments, not you.
 - An `Approved (review round <n>)` prompt asks you to commit (and maybe push and open a PR): follow the repository's commit conventions; do not push unless it says so.
+
+## After you push: `rade pr`
+RADE reads your worktree's pull request and its checks with `gh` (read only). Once you have pushed, wait for CI instead of polling GitHub, and read what failed:
+```sh
+rade pr wait --timeout 900    # reads every 20 s until the checks are not pending, then: #482 open · checks failing (test, lint)
+rade pr failures              # the failed jobs' log tails, ready to act on
+rade pr status --refresh      # the PR now (--json: number, checks, failing, review, stale)
+```
+- `rade pr wait` exits 6 over `--timeout`; `NOT_FOUND` (exit 4) means nothing is open for the branch yet.
+- When `checks failing`, run `rade pr failures`, fix the cause, run the failing step locally if you can, then commit and push.
+- These commands only read; they never push or comment.
 
 ## Trace code before you change it: `rade code`
 RADE runs the real language server (rust-analyzer, typescript-language-server) for your worktree and shares it with the user and other agents. Positions are `path:line:col` (1-based, relative to your cwd):

@@ -697,8 +697,8 @@ pub fn ui(app: &App, p: &Value) -> Result<Value> {
                 }
             }
         },
-        "chrome" | "toast_show" | "toast_review" | "toasts_clear" | "right_page" | "retry_save"
-        | "state_location" | "forecast_action" => {}
+        "chrome" | "toast_show" | "toast_review" | "toast_button" | "toasts_clear"
+        | "right_page" | "retry_save" | "state_location" | "forecast_action" => {}
         _ => return Err(Error::usage(format!("unknown debug.ui op '{op}'"))),
     }
     r["chrome"] = app.chrome.debug(op, s("arg"));

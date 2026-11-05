@@ -174,6 +174,12 @@ pub struct ScmConfig {
     pub diff_layout: DiffLayout,
     /// Quick Diff marks in the Viewer's gutter (R123).
     pub quick_diff: bool,
+    /// Read each Worktree's pull request and checks with `gh` (R146.2);
+    /// false: RADE never runs `gh` for status.
+    pub pr_status: bool,
+    /// `"ask"` | `"send"`: send a failing PR's CI log to the Worktree's one
+    /// Agent without a click (R147.4).
+    pub ci_failures: String,
 }
 
 impl Default for ScmConfig {
@@ -186,6 +192,8 @@ impl Default for ScmConfig {
             autofetch_period: 180,
             diff_layout: DiffLayout::default(),
             quick_diff: true,
+            pr_status: true,
+            ci_failures: "ask".into(),
         }
     }
 }

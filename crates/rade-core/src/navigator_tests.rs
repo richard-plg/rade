@@ -17,6 +17,8 @@ pub(crate) struct Scene {
     /// Worktree name → (source, id).
     pub worktrees: HashMap<String, (String, String)>,
     pub branches: Branches,
+    /// PR reads by worktree id (R146.3).
+    pub prs: HashMap<String, crate::pr::PrStatus>,
 }
 
 pub(crate) fn root() -> PathBuf {
@@ -214,6 +216,7 @@ pub(crate) fn scene_a() -> Scene {
         panes,
         worktrees,
         branches: Branches::default(),
+        prs: HashMap::new(),
     }
 }
 
@@ -230,7 +233,9 @@ impl Scene {
         let port = move |p: &str| (p == dev).then_some(5173);
         let canon = |p: &Path| p.to_path_buf();
         let sel = selection(&self.state, &self.links, None, &canon);
+        let pr = |_: &str, w: &str| self.prs.get(w).cloned();
         let input = Input {
+            pr: &pr,
             projects: &self.projects,
             links: &self.links,
             worktree_facts: &facts,
@@ -737,4 +742,95 @@ fn r104_p_an_unnamed_agent_row_shows_its_session_title() {
     assert_eq!(title(&sc), "Kiểm tra tiến trình");
     sc.state.set_pane_title(&p, "Codex");
     assert_eq!(title(&sc), "codex", "a product name: the Preset");
+}
+
+/// A Branch set `feat-x` of Shop: one Worktree in each of its three links,
+/// added in reverse link order (the set keeps link order anyway).
+pub(crate) fn add_set(sc: &mut Scene) {
+    for src in ["shared-ui", "shop-api", "shop-web"] {
+        let path = root().join(".worktrees-dev").join(src).join("feat-x");
+        let (s, id) = sc.state.add_worktree(src, "feat-x", &path, None).unwrap();
+        sc.state
+            .set_worktree_origin(&s, &id, Some("shop".into()), Some("develop".into()))
+            .unwrap();
+        sc.state
+            .set_worktree_set(&s, &id, Some("feat-x".into()))
+            .unwrap();
+        sc.worktrees.insert(format!("{src}/feat-x"), (s, id));
+    }
+}
+
+#[test]
+fn r150_b_a_set_worktree_row_has_the_marker_and_also_in_tooltip() {
+    let mut sc = scene_a();
+    add_set(&mut sc);
+    let rows = sc.rows();
+    let marked = rows
+        .iter()
+        .filter(|r| r.kind == RowKind::Worktree && r.set.is_some())
+        .count();
+    assert_eq!(marked, 3, "{}", text(&rows));
+    let web = rows
+        .iter()
+        .find(|r| r.title == "feat-x" && r.key.contains("/shop-web/"))
+        .unwrap();
+    assert_eq!(web.set.as_deref(), Some("also in shop-api, shared-ui"));
+    assert_eq!(web.depth, 2, "kept under its link");
+    assert!(
+        web.text().contains("⧉ also in shop-api, shared-ui"),
+        "{}",
+        web.text()
+    );
+    let ui = rows
+        .iter()
+        .find(|r| r.title == "feat-x" && r.key.contains("/shared-ui/"))
+        .unwrap();
+    assert_eq!(ui.set.as_deref(), Some("also in shop-web, shop-api"));
+    assert_eq!(find(&rows, "checkout-v2").set, None, "in no set");
+}
+
+#[test]
+fn r146_d_a_worktree_row_shows_its_pr_chip_read_or_recorded() {
+    let mut sc = scene_a();
+    let cv2 = sc.worktrees["checkout-v2"].1.clone();
+    let (s2, tokens) = sc.worktrees["tokens"].clone();
+    // Recorded at the last run, not read yet: the number in fg3.
+    sc.state.set_worktree_pr(
+        &s2,
+        &tokens,
+        crate::model::PrRef {
+            number: 12,
+            url: "https://github.com/o/r/pull/12".into(),
+            ..Default::default()
+        },
+    );
+    let json = r#"[{"number":482,"title":"Faster images","url":"u","state":"OPEN","isDraft":false,"baseRefName":"develop","headRefOid":"h","reviewDecision":"","statusCheckRollup":[{"__typename":"CheckRun","name":"test","workflowName":"CI","status":"COMPLETED","conclusion":"FAILURE","detailsUrl":"d"}]}]"#;
+    let read = crate::pr::status_from_json(json, "h", None)
+        .unwrap()
+        .unwrap();
+    sc.prs.insert(cv2, read);
+    let rows = sc.rows();
+    let r = find(&rows, "checkout-v2");
+    let chip = r.pr.as_ref().unwrap();
+    assert_eq!(
+        (chip.text.as_str(), chip.tone),
+        ("#482 \u{2717}", crate::pr::Tone::Error)
+    );
+    assert!(r
+        .pr_tip
+        .as_deref()
+        .unwrap()
+        .starts_with("#482 Faster images"));
+    assert!(
+        r.text().contains("pr: #482 \u{2717} (error)"),
+        "{}",
+        r.text()
+    );
+    let t = find(&rows, "tokens");
+    assert_eq!(t.pr, Some(crate::pr::chip_recorded(12)));
+    assert_eq!(t.pr_tip, None, "no tooltip before the first read");
+    assert!(rows
+        .iter()
+        .filter(|r| r.kind != RowKind::Worktree)
+        .all(|r| r.pr.is_none()));
 }

@@ -960,6 +960,17 @@ pub fn gather() -> (Vec<Item>, Option<std::path::PathBuf>) {
         home: &home,
     };
     let mut items = palette::items(&m, &config.keybindings(), &presets, &ctx);
+    // R147.3: Send CI Failure to Agent… per failing Worktree on screen.
+    let failing: Vec<(String, String, String, u64)> = m
+        .visible_sources()
+        .flat_map(|s| s.worktrees.iter().skip(1).map(move |w| (s, w)))
+        .filter_map(|(s, w)| {
+            let st = crate::pr_status::status(&s.id, &w.id)?;
+            crate::pr_status::failing(&s.id, &w.id)
+                .then(|| (s.id.clone(), w.id.clone(), w.name.clone(), st.number))
+        })
+        .collect();
+    items.extend(palette::ci_items(&failing));
     drop(m);
     // "Open localhost:<port>" for dev servers running in Panes (R18.4).
     let by_pane = crate::browser::scan_ports();
@@ -1029,6 +1040,15 @@ fn icon_of(it: &Item) -> (&'static str, Option<&'static str>) {
                 ("ph-users-three-symbolic", None)
             }
             palette::Target::Action { id } if id == "fanout" => ("ph-users-three-symbolic", None),
+            palette::Target::Action { id } if id == "new_branch_set" => {
+                ("ph-git-branch-symbolic", None)
+            }
+            palette::Target::Action { id }
+                if id.starts_with(palette::SET_PRS_PREFIX)
+                    || id.starts_with(palette::CI_SEND_PREFIX) =>
+            {
+                ("ph-git-pull-request-symbolic", None)
+            }
             _ => ("ph-caret-right-symbolic", None),
         },
     }

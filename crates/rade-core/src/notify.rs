@@ -29,6 +29,34 @@ pub struct Notification {
     /// What raised it, for coalescing one Agent event into one entry.
     #[serde(default, skip_serializing_if = "Origin::is_message")]
     pub source: Origin,
+    /// RADE's own notice (PR / CI, R146.4): never coalesced with an Agent
+    /// event, so it is never absorbed into one.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub own: bool,
+    /// What its Inbox row offers besides Focus (R146.4, R147.3).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub action: Option<NoteAction>,
+    /// The Worktree `(source id, worktree id)` the action is about when it
+    /// is not the Pane's own: a set's Worktree with no Pane of its own
+    /// puts its notice on the set's Agent (R151.2).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target: Option<(String, String)>,
+}
+
+/// A Notification's own button.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum NoteAction {
+    /// Send the failing CI log of its Pane's Worktree to the Agent (R147.3).
+    SendCiFailure,
+}
+
+impl NoteAction {
+    pub fn label(self) -> &'static str {
+        match self {
+            NoteAction::SendCiFailure => "Send to Agent",
+        }
+    }
 }
 
 /// Where a Notification came from (R3.1 coalescing).
@@ -98,18 +126,58 @@ impl State {
         text: &str,
         now: u64,
     ) -> Option<u64> {
-        self.post(pane, title, text, Origin::Message, now)
+        self.post(pane, title, text, Origin::Message, now, false)
+    }
+
+    /// [`State::notify`] with a button on its Inbox row (R146.4: a failing
+    /// PR's Send to Agent). A repeat within [`DEDUPE_SECS`] or an entry it
+    /// coalesces into gets the action too.
+    pub fn notify_action(
+        &mut self,
+        pane: &str,
+        title: Option<String>,
+        text: &str,
+        now: u64,
+        action: NoteAction,
+        about: Option<(String, String)>,
+    ) -> Option<u64> {
+        // RADE's own notice: never folded into an Agent event (R146.4).
+        let id = self.post(pane, title, text, Origin::Message, now, true);
+        let target = id.or_else(|| {
+            self.notifications
+                .iter()
+                .rev()
+                .find(|n| n.pane == pane)
+                .map(|n| n.id)
+        });
+        if let Some(n) = target.and_then(|t| self.notifications.iter_mut().find(|n| n.id == t)) {
+            n.action = Some(action);
+            n.target = about;
+        }
+        id
     }
 
     /// BEL (R3.1): "Bell", or nothing new when it reports an Agent event
     /// that already has an entry.
     pub fn notify_bell(&mut self, pane: &str, now: u64) -> Option<u64> {
-        self.post(pane, None, "Bell", Origin::Bell, now)
+        self.post(pane, None, "Bell", Origin::Bell, now, false)
+    }
+
+    /// RADE's own notice on `pane` (R146.4: checks failed, changes
+    /// requested, CI still failing): de-duplicated, never coalesced.
+    pub fn notify_own(
+        &mut self,
+        pane: &str,
+        title: Option<String>,
+        text: &str,
+        now: u64,
+    ) -> Option<u64> {
+        self.post(pane, title, text, Origin::Message, now, true)
     }
 
     /// An Agent Status transition ("<name> finished", R10.3).
     pub(crate) fn notify_status(&mut self, pane: &str, text: &str, now: u64) -> Option<u64> {
-        self.post(pane, None, text, Origin::Status, now)
+        self.post(pane, None, text, Origin::Status, now, false)
     }
 
     fn post(
@@ -119,6 +187,7 @@ impl State {
         text: &str,
         source: Origin,
         now: u64,
+        own: bool,
     ) -> Option<u64> {
         if let Some(last) = self.notifications.iter_mut().rev().find(|n| n.pane == pane) {
             let age = now.abs_diff(last.time);
@@ -127,7 +196,11 @@ impl State {
                 return None;
             }
             // The window counts from the entry's own time, never slides.
-            if age <= COALESCE_SECS && coalesce(last, title.as_deref(), text, source) {
+            if !own
+                && !last.own
+                && age <= COALESCE_SECS
+                && coalesce(last, title.as_deref(), text, source)
+            {
                 return Some(last.id);
             }
         }
@@ -142,6 +215,9 @@ impl State {
             read: false,
             path,
             source,
+            own,
+            action: None,
+            target: None,
         });
         let extra = self.notifications.len().saturating_sub(MAX_NOTIFICATIONS);
         self.notifications.drain(..extra);

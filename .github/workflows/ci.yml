@@ -118,7 +118,7 @@ jobs:
           - shard: c
             suites: m30 m28 m39 m15b m24 m31 m38 m16 run settings m46 m49 m51
           - shard: d
-            suites: m35 m40 m43 m44 sysmon m53
+            suites: m35 m40 m43 m44 sysmon m53 m54
     env:
       E2E_JOBS: 2 # a hosted runner has 4 vCPUs
       E2E_SKIP_PERF: 1 # ms budgets need real hardware (tests/e2e/lib.sh perf_check)

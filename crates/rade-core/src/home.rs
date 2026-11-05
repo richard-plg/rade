@@ -156,17 +156,56 @@ pub struct WorktreeRow {
     pub meta: String,
     /// The worst status of its Agents.
     pub led: Option<AgentStatus>,
+    /// A Branch set's Worktree (indented under its set row) or the set row
+    /// itself: the set's name (R150.1).
+    pub set: Option<String>,
+    /// The set row `<name> · <n> sources` heading its Worktrees.
+    pub group: bool,
+    /// `PR #482 ✓` (R146.3) or a set row's `2 PRs · 1 failing` (R151.4),
+    /// with its tone.
+    pub pr_chip: Option<crate::pr::Chip>,
+    /// The PR's URL (a Worktree's last read or recorded PR).
+    #[serde(skip)]
+    pub pr_url: Option<String>,
+    /// The set row: each member's checks (`None` = no PR).
+    #[serde(skip)]
+    set_checks: Option<crate::branch_set::Checks>,
+    /// (ahead, changed, agents): the set row sums them.
+    #[serde(skip)]
+    counts: (usize, usize, usize),
+}
+
+/// The last PR read of a Worktree (source id, worktree id), R146.
+pub type PrRead<'a> = &'a dyn Fn(&str, &str) -> Option<crate::pr::PrStatus>;
+
+/// The 4th KPI `Pull requests` (R146.3): open PRs of the Project's
+/// Worktrees and the checks sub-line; `None` while no Worktree of it has a
+/// PR (read or recorded), so a Project without PRs keeps three cards.
+pub fn pr_kpi(state: &State, project: &str, links: &[LinkView], pr: PrRead) -> Kpi {
+    let wts = worktrees(state, project, links);
+    let reads: Vec<Option<crate::pr::PrStatus>> = wts.iter().map(|(s, w, _)| pr(s, w)).collect();
+    let k = crate::pr::kpi(reads.iter().map(Option::as_ref));
+    Kpi {
+        label: "Pull requests".into(),
+        value: k.value,
+        detail: if k.sub.is_empty() {
+            "none open".into()
+        } else {
+            k.sub
+        },
+    }
 }
 
 /// The Worktrees card rows (R105.4): `facts` = (ahead, changed files) of
-/// a Worktree folder.
+/// a Worktree folder; `pr` = a Worktree's last PR read.
 pub fn worktree_rows(
     state: &State,
     project: &str,
     links: &[LinkView],
     facts: &dyn Fn(&Path) -> (usize, usize),
+    pr: PrRead,
 ) -> Vec<WorktreeRow> {
-    worktrees(state, project, links)
+    let rows: Vec<WorktreeRow> = worktrees(state, project, links)
         .into_iter()
         .filter_map(|(s, w, path)| {
             let src = state.source(&s)?;
@@ -184,30 +223,112 @@ pub fn worktree_rows(
                 .flat_map(|t| t.panes())
                 .filter(|p| p.agent.is_some())
                 .collect();
-            let mut parts = Vec::new();
-            if ahead > 0 {
-                parts.push(format!("↑{ahead}"));
-            }
-            if changed > 0 {
-                parts.push(format!("{changed} changed"));
-            }
-            if !agents.is_empty() {
-                parts.push(plural(agents.len(), "agent", "agents"));
-            }
+            let read = pr(&s, &w);
+            let recorded = wt.pr.as_ref();
+            let chip =
+                crate::pr::worktree_chip(read.as_ref(), recorded.map(|p| p.number)).map(|c| {
+                    crate::pr::Chip {
+                        text: format!("PR {}", c.text),
+                        tone: c.tone,
+                    }
+                });
             Some(WorktreeRow {
                 source: s.clone(),
                 worktree: w.clone(),
                 name: wt.name.clone(),
                 sub: format!("{} ← {base}", src.name),
-                meta: if parts.is_empty() {
-                    "clean".into()
-                } else {
-                    parts.join(" · ")
-                },
+                meta: meta_text(ahead, changed, agents.len()),
                 led: crate::status::worst(agents.iter().map(|p| p.status)),
+                set: wt.set.clone(),
+                group: false,
+                pr_chip: chip,
+                pr_url: read
+                    .as_ref()
+                    .map(|r| r.url.clone())
+                    .or_else(|| recorded.map(|p| p.url.clone()))
+                    .filter(|u| !u.is_empty()),
+                set_checks: crate::pr::set_checks(read.as_ref()),
+                counts: (ahead, changed, agents.len()),
             })
         })
-        .collect()
+        .collect();
+    group_sets(rows, links)
+}
+
+/// `↑3 · 4 changed · 2 agents`, or `clean`.
+fn meta_text(ahead: usize, changed: usize, agents: usize) -> String {
+    let mut parts = Vec::new();
+    if ahead > 0 {
+        parts.push(format!("↑{ahead}"));
+    }
+    if changed > 0 {
+        parts.push(format!("{changed} changed"));
+    }
+    if agents > 0 {
+        parts.push(plural(agents, "agent", "agents"));
+    }
+    if parts.is_empty() {
+        "clean".into()
+    } else {
+        parts.join(" · ")
+    }
+}
+
+/// R150.1: a Branch set's Worktrees under one set row (`<name> · <n>
+/// sources`, the worst status of them, their summed meta) at the place of
+/// its first Worktree; its Worktrees follow in link order.
+fn group_sets(rows: Vec<WorktreeRow>, links: &[LinkView]) -> Vec<WorktreeRow> {
+    let rank = |s: &str| {
+        links
+            .iter()
+            .position(|l| l.source == s)
+            .unwrap_or(usize::MAX)
+    };
+    let mut out: Vec<WorktreeRow> = Vec::new();
+    let mut done: Vec<String> = Vec::new();
+    for r in &rows {
+        let Some(set) = &r.set else {
+            out.push(r.clone());
+            continue;
+        };
+        if done.contains(set) {
+            continue;
+        }
+        done.push(set.clone());
+        let mut members: Vec<WorktreeRow> = rows
+            .iter()
+            .filter(|x| x.set.as_ref() == Some(set))
+            .cloned()
+            .collect();
+        members.sort_by_key(|m| rank(&m.source));
+        let sum = members.iter().fold((0, 0, 0), |a, m| {
+            (a.0 + m.counts.0, a.1 + m.counts.1, a.2 + m.counts.2)
+        });
+        let lead = &members[0];
+        // R151.4: the worst of its PRs, `<k> PRs · <j> failing`.
+        let checks: Vec<Option<crate::branch_set::Checks>> =
+            members.iter().map(|m| m.set_checks).collect();
+        let pr = crate::branch_set::pr_chip(&checks).map(|(text, worst)| crate::pr::Chip {
+            text,
+            tone: crate::pr::set_tone(worst),
+        });
+        out.push(WorktreeRow {
+            pr_chip: pr,
+            pr_url: None,
+            set_checks: None,
+            source: lead.source.clone(),
+            worktree: lead.worktree.clone(),
+            name: crate::branch_set::row_text(set, members.len()),
+            sub: String::new(),
+            meta: meta_text(sum.0, sum.1, sum.2),
+            led: crate::branch_set::row_status(members.iter().map(|m| m.led)),
+            set: Some(set.clone()),
+            group: true,
+            counts: sum,
+        });
+        out.extend(members);
+    }
+    out
 }
 
 /// What a Changes link group shows (R107.1): the focused Worktree when it
@@ -233,7 +354,21 @@ pub fn change_groups(
     links: &[LinkView],
     focused: Option<(&str, &str)>,
 ) -> Vec<Group> {
-    links
+    // R150.4: a focused set Worktree → each link shows the set's Worktree.
+    let set = focused
+        .and_then(|(s, w)| state.worktree(s, w))
+        .filter(|w| w.project.as_deref() == Some(project))
+        .and_then(|w| w.set.clone());
+    let set_wt = |source: &str| {
+        let name = set.as_deref()?;
+        state
+            .source(source)?
+            .worktrees
+            .iter()
+            .skip(1)
+            .find(|w| w.set.as_deref() == Some(name) && w.project.as_deref() == Some(project))
+    };
+    let mut groups: Vec<Group> = links
         .iter()
         .filter(|l| l.project == project)
         .filter_map(|l| {
@@ -243,7 +378,8 @@ pub fn change_groups(
                 .filter(|w| {
                     !state.is_main_worktree(&l.source, &w.id)
                         && w.project.as_deref() == Some(project)
-                });
+                })
+                .or_else(|| set_wt(&l.source));
             match wt {
                 Some(w) => Some(Group {
                     project: project.into(),
@@ -264,7 +400,19 @@ pub fn change_groups(
                 }),
             }
         })
-        .collect()
+        .collect();
+    // The set's cards first, in link order (a stable sort).
+    if let Some(name) = &set {
+        groups.sort_by_key(|g| {
+            let in_set = g
+                .worktree
+                .as_ref()
+                .and_then(|(s, w)| state.worktree(s, w))
+                .is_some_and(|w| w.set.as_ref() == Some(name));
+            !in_set
+        });
+    }
+    groups
 }
 
 /// A group header's right meta (spec A.60): `↑3 · 4`, `3`, or `clean`.
@@ -473,6 +621,96 @@ mod tests {
         sc
     }
 
+    fn no_pr(_: &str, _: &str) -> Option<crate::pr::PrStatus> {
+        None
+    }
+
+    fn read(number: u64, conclusion: &str) -> crate::pr::PrStatus {
+        let checks = if conclusion.is_empty() {
+            String::new()
+        } else {
+            format!(
+                r#"{{"__typename":"CheckRun","name":"test","workflowName":"CI","status":"COMPLETED","conclusion":"{conclusion}","detailsUrl":"d"}}"#
+            )
+        };
+        let json = format!(
+            r#"[{{"number":{number},"title":"t","url":"https://github.com/o/r/pull/{number}","state":"OPEN","isDraft":false,"baseRefName":"develop","headRefOid":"h","reviewDecision":"","statusCheckRollup":[{checks}]}}]"#
+        );
+        crate::pr::status_from_json(&json, "h", None)
+            .unwrap()
+            .unwrap()
+    }
+
+    #[test]
+    fn r146_d_home_pr_kpi_worktree_meta_and_set_chip() {
+        let mut sc = scene_set();
+        let facts = |_: &Path| (0, 0);
+        // No PR anywhere: `0` `none open` (the mockup's 4th KPI), no chips.
+        let k = pr_kpi(&sc.state, "shop", &sc.links, &no_pr);
+        assert_eq!((k.value.as_str(), k.detail.as_str()), ("0", "none open"));
+        let rows = worktree_rows(&sc.state, "shop", &sc.links, &facts, &no_pr);
+        assert!(rows.iter().all(|r| r.pr_chip.is_none()));
+        // perf-img passing; the set's shop-web failing, shop-api pending.
+        let perf = sc.worktrees["perf-img"].1.clone();
+        let web = sc.worktrees["shop-web/feat-x"].1.clone();
+        let api = sc.worktrees["shop-api/feat-x"].1.clone();
+        let reads: std::collections::HashMap<String, crate::pr::PrStatus> = [
+            (perf.clone(), read(482, "SUCCESS")),
+            (web.clone(), read(7, "FAILURE")),
+            (api.clone(), read(8, "")),
+        ]
+        .into_iter()
+        .collect();
+        let pr = |_: &str, w: &str| reads.get(w).cloned();
+        let k = pr_kpi(&sc.state, "shop", &sc.links, &pr);
+        assert_eq!(
+            (k.label.as_str(), k.value.as_str(), k.detail.as_str()),
+            ("Pull requests", "3", "1 failing")
+        );
+        let rows = worktree_rows(&sc.state, "shop", &sc.links, &facts, &pr);
+        let chip = |name: &str, group: bool| {
+            rows.iter()
+                .find(|r| r.name == name && r.group == group)
+                .and_then(|r| r.pr_chip.clone())
+                .map(|c| (c.text, c.tone))
+        };
+        use crate::pr::Tone;
+        assert_eq!(
+            chip("perf-img", false),
+            Some(("PR #482 \u{2713}".into(), Tone::Ok))
+        );
+        assert_eq!(
+            chip("feat-x · 3 sources", true),
+            Some(("2 PRs · 1 failing".into(), Tone::Error))
+        );
+        assert_eq!(chip("checkout-v2", false), None);
+        let perf_row = rows.iter().find(|r| r.name == "perf-img").unwrap();
+        assert_eq!(
+            perf_row.pr_url.as_deref(),
+            Some("https://github.com/o/r/pull/482")
+        );
+        // Only a recorded PR (before the first read): the KPI shows, the
+        // meta greys the number.
+        let (s, cv2) = sc.worktrees["checkout-v2"].clone();
+        sc.state.set_worktree_pr(
+            &s,
+            &cv2,
+            crate::model::PrRef {
+                number: 5,
+                url: "https://github.com/o/r/pull/5".into(),
+                ..Default::default()
+            },
+        );
+        let k = pr_kpi(&sc.state, "shop", &sc.links, &no_pr);
+        assert_eq!((k.value.as_str(), k.detail.as_str()), ("0", "none open"));
+        let rows = worktree_rows(&sc.state, "shop", &sc.links, &facts, &no_pr);
+        let r = rows.iter().find(|r| r.name == "checkout-v2").unwrap();
+        assert_eq!(
+            r.pr_chip.clone().map(|c| (c.text, c.tone)),
+            Some(("PR #5".into(), Tone::Fg3))
+        );
+    }
+
     fn changed(p: &Path) -> usize {
         match p.file_name().and_then(|n| n.to_str()) {
             Some("checkout-v2") => 4,
@@ -511,7 +749,7 @@ mod tests {
             Some("checkout-v2") => (3, 4),
             _ => (0, 0),
         };
-        let rows = worktree_rows(&sc.state, "shop", &sc.links, &facts);
+        let rows = worktree_rows(&sc.state, "shop", &sc.links, &facts, &no_pr);
         let got: Vec<(&str, &str, &str)> = rows
             .iter()
             .map(|r| (r.name.as_str(), r.sub.as_str(), r.meta.as_str()))
@@ -528,9 +766,104 @@ mod tests {
             ]
         );
         assert_eq!(rows[0].led, Some(AgentStatus::Waiting));
-        let billing = worktree_rows(&sc.state, "billing", &sc.links, &facts);
+        let billing = worktree_rows(&sc.state, "billing", &sc.links, &facts, &no_pr);
         assert_eq!(billing[0].sub, "shared-ui ← release/2.4");
         assert_eq!(billing[0].meta, "1 agent");
+    }
+
+    /// Scene B with Shop's Branch set `feat-x`: a running Agent in its
+    /// shop-web Worktree, a waiting one in its shop-api Worktree.
+    fn scene_set() -> Scene {
+        let mut sc = scene_b();
+        crate::navigator::tests::add_set(&mut sc);
+        for (src, st) in [
+            ("shop-web", AgentStatus::Running),
+            ("shop-api", AgentStatus::Waiting),
+        ] {
+            let (s, w) = sc.worktrees[&format!("{src}/feat-x")].clone();
+            let (_, p) = sc.state.new_tab(&s, &w, None, None).unwrap();
+            sc.state
+                .set_status(&p, Some(st), None, Some("claude".into()), NOW)
+                .unwrap();
+        }
+        sc
+    }
+
+    #[test]
+    fn r150_b_home_groups_a_set_under_one_row_with_the_worst_status() {
+        let sc = scene_set();
+        let facts = |p: &Path| match p.to_str() {
+            Some(x) if x.ends_with("shop-web/feat-x") => (2, 1),
+            Some(x) if x.ends_with("shop-api/feat-x") => (1, 0),
+            _ => (0, 0),
+        };
+        let rows = worktree_rows(&sc.state, "shop", &sc.links, &facts, &no_pr);
+        let got: Vec<(&str, &str, bool, Option<&str>)> = rows
+            .iter()
+            .map(|r| (r.name.as_str(), r.sub.as_str(), r.group, r.set.as_deref()))
+            .collect();
+        assert_eq!(
+            got,
+            [
+                ("checkout-v2", "shop-web ← develop", false, None),
+                ("perf-img", "shop-web ← develop", false, None),
+                ("feat-x · 3 sources", "", true, Some("feat-x")),
+                ("feat-x", "shop-web ← develop", false, Some("feat-x")),
+                ("feat-x", "shop-api ← develop", false, Some("feat-x")),
+                ("feat-x", "shared-ui ← develop", false, Some("feat-x")),
+            ]
+        );
+        let head = &rows[2];
+        assert_eq!(
+            head.led,
+            Some(AgentStatus::Waiting),
+            "worst of its Worktrees"
+        );
+        assert_eq!(head.meta, "↑3 · 1 changed · 2 agents");
+        // Its click target is the lead (first link in Project order).
+        let lead = &sc.worktrees["shop-web/feat-x"];
+        assert_eq!((&head.source, &head.worktree), (&lead.0, &lead.1));
+    }
+
+    #[test]
+    fn r150_changes_put_a_focused_set_worktrees_cards_first() {
+        let sc = scene_set();
+        let (s, w) = sc.worktrees["shop-api/feat-x"].clone();
+        let g = change_groups(&sc.state, "shop", &sc.links, Some((&s, &w)));
+        let got: Vec<(&str, &str, bool)> = g
+            .iter()
+            .map(|g| (g.source.as_str(), g.label.as_str(), g.worktree.is_some()))
+            .collect();
+        assert_eq!(
+            got,
+            [
+                ("shop-web", "feat-x", true),
+                ("shop-api", "feat-x", true),
+                ("shared-ui", "feat-x", true),
+            ]
+        );
+        // A set of two links: their cards before the third link's.
+        let mut sc2 = scene_set();
+        let (ws, ww) = sc2.worktrees["shop-web/feat-x"].clone();
+        sc2.state.set_worktree_set(&ws, &ww, None).unwrap();
+        let g = change_groups(&sc2.state, "shop", &sc2.links, Some((&s, &w)));
+        let got: Vec<(&str, &str)> = g
+            .iter()
+            .map(|g| (g.source.as_str(), g.label.as_str()))
+            .collect();
+        assert_eq!(
+            got,
+            [
+                ("shop-api", "feat-x"),
+                ("shared-ui", "feat-x"),
+                ("shop-web", "develop")
+            ]
+        );
+        // Without a set Worktree in focus: the links' own checkouts.
+        let (s, w) = sc.worktrees["checkout-v2"].clone();
+        let g = change_groups(&sc.state, "shop", &sc.links, Some((&s, &w)));
+        let labels: Vec<&str> = g.iter().map(|g| g.label.as_str()).collect();
+        assert_eq!(labels, ["checkout-v2", "feat/checkout-v2", "develop"]);
     }
 
     #[test]

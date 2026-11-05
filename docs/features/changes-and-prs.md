@@ -3,8 +3,9 @@
 The Inspector's **Changes** tab is a git panel in the shape of VS Code's Source Control: one
 **card** per Source link of the focused Project (a checkout in no Project gets one card for
 itself), each with its commit box, its staged and unstaged files, Sync / Publish and PR. RADE runs
-git or `gh` only when you click — agents can draft the message, but you confirm. The one
-exception is auto-fetch, which is off until you turn it on.
+git or `gh` only when you click — agents can draft the message, but you confirm. The
+exceptions only read: auto-fetch, which is off until you turn it on, and the PR status of
+pushed branches (below).
 
 <picture>
   <source media="(prefers-color-scheme: light)" srcset="../images/changes-commit-light.png">
@@ -87,6 +88,43 @@ under the Workspace's `gh` login; the PR link shows in a Toast.
   <img alt="The Create Pull Request dialog with a generated title and description" src="../images/pr-dialog-dark.png">
 </picture>
 
+## PR status and CI failures
+
+Once a Worktree's branch is pushed or has a PR, RADE reads its pull request and checks with `gh`
+(read only, under the Workspace's `gh` login) and shows a chip after the Worktree's name in the
+Navigator, on its Changes card, in Project home (the **Pull requests** KPI and `PR #482 ✓` in the
+Worktree row) and on its Agent Overview card:
+
+| Chip | Means |
+|---|---|
+| `#482 ●` | checks running |
+| `#482 ✗` | a check failed |
+| `#482 ✓` | every check passed |
+| `#482` | no checks |
+| `#482 merged` / `closed` | done |
+
+It reads every minute for the Workspace you are looking at (every 20 s while checks run), every
+10 minutes otherwise, and right after a Push or Create PR from RADE. The chip's tooltip says when
+the checks ran on an older push than your branch. Click it on a card to open the PR. If `gh` is
+missing or not logged in, the Activity tab says so once and RADE waits 10 minutes before trying
+again.
+
+When checks fail you get a Notification on the Worktree's Agent with **Send to Agent**. It opens a
+preview of the prompt: the failed GitHub Actions jobs' last 150 log lines each, cut and labelled,
+which you can edit before it goes to the Agent. The same action is in the Navigator row's menu,
+the card's chip menu, the palette (*Send CI Failure to Agent*) and the Overview card
+(`Alt+F`). With `ci_failures = "send"` RADE sends it on its own once the Agent is waiting, once
+per pushed commit and at most 3 times in a row; after that it asks you. A merged PR shows a Toast
+with **Remove Worktree…**.
+
+Agents can do the same from their Terminal:
+
+```sh
+rade pr status            # #482 open · checks failing (test, lint)
+rade pr wait              # until the checks finish
+rade pr failures          # the failed jobs' log tails as a prompt
+```
+
 ## The Diff Pane
 
 A click on a Changes row opens a **Diff Pane** in the Tab: the Tab's own Diff Pane navigates to the
@@ -126,6 +164,8 @@ autofetch = false         # fetch every card in the background; never pulls or p
 autofetch_period = 180    # seconds, 60 to 3600
 diff_layout = "auto"      # "auto" | "inline" | "side_by_side"
 quick_diff = true         # gutter marks in the Viewer
+pr_status = true          # read PR and checks with gh (read only); false = never
+ci_failures = "ask"       # "ask" | "send": a failing run's logs go to the idle Agent on their own
 ```
 
 Set `draft_command` per Workspace or Project to use another agent or model for drafts. The view,

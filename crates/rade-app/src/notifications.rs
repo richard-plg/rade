@@ -9,7 +9,7 @@ use adw::prelude::*;
 use gtk::{gio, glib};
 use gtk4 as gtk;
 use libadwaita as adw;
-use rade_core::notify::{desktop_decision, relative_time, DesktopCall, DesktopSlots};
+use rade_core::notify::{desktop_decision, relative_time, DesktopCall, DesktopSlots, NoteAction};
 use rade_core::State;
 use serde_json::{json, Value};
 use std::cell::RefCell;
@@ -40,6 +40,9 @@ struct RowData {
     /// The Agent's finished turn (or its "Ready for review") offers its
     /// Worktree's Review (R119.5): the Pane.
     review: Option<String>,
+    /// A failing PR's Send to Agent (R146.4, R147.3): its Pane's Worktree
+    /// `(source, worktree)`.
+    ci_send: Option<(String, String)>,
 }
 
 pub struct Panel {
@@ -227,6 +230,9 @@ impl Panel {
                         || n.title.as_deref() == Some("Ready for review"))
                     .then(|| ws.review_target(&n.pane).map(|_| n.pane.clone()))
                     .flatten(),
+                    ci_send: (n.action == Some(NoteAction::SendCiFailure))
+                        .then(|| n.target.clone().or_else(|| ws.pane_worktree(&n.pane)))
+                        .flatten(),
                 }
             })
             .collect();
@@ -275,6 +281,7 @@ impl Panel {
                 "id": r.id, "glyph": r.status.map(|s| s.as_str()),
                 "mark": r.mark.map(|m| m.as_str()), "text": r.text,
                 "path": breadcrumb(&r.path), "unread": !r.read, "review": r.review.is_some(),
+                "title": r.title, "ci_send": r.ci_send.is_some(),
             })).collect::<Vec<_>>(),
         })
     }
@@ -312,6 +319,17 @@ fn row(r: &RowData) -> gtk::ListBoxRow {
         b.set_valign(gtk::Align::Start);
         let pane = pane.clone();
         b.connect_clicked(move |_| crate::review::open_for(&pane));
+        top.append(&b);
+    }
+    if let Some((p, w)) = &r.ci_send {
+        let b = gtk::Button::with_label(NoteAction::SendCiFailure.label());
+        b.add_css_class("flat");
+        b.add_css_class("rade-notif-review");
+        b.add_css_class("rade-notif-ci-send");
+        b.set_valign(gtk::Align::Start);
+        b.set_tooltip_text(Some("Send CI Failure to Agent…"));
+        let (p, w) = (p.clone(), w.clone());
+        b.connect_clicked(move |_| crate::ci_send_dialog::open(&p, &w));
         top.append(&b);
     }
     top.append(&time);
@@ -385,6 +403,26 @@ pub fn panel_op(op: &str, id: Option<u64>) -> rade_core::rpc::Result<Value> {
             crate::review::open_for(&pane);
             Ok(json!({"pane": pane}))
         }
+        // R146.4, R147.3: a failing PR row's Send to Agent → the preview.
+        ("ci_send", Some(id)) => {
+            let target = {
+                let m = app.model.borrow();
+                let n = m
+                    .notification(id)
+                    .ok_or_else(|| rade_core::rpc::Error::not_found(format!("no notification {id}")))?;
+                if n.action != Some(NoteAction::SendCiFailure) {
+                    return Err(rade_core::rpc::Error::usage(format!(
+                        "notification {id} has no Send to Agent"
+                    )));
+                }
+                n.target
+                    .clone()
+                    .or_else(|| m.pane_worktree(&n.pane))
+                    .ok_or_else(|| rade_core::rpc::Error::not_found("its Pane is gone"))?
+            };
+            crate::ci_send_dialog::open(&target.0, &target.1);
+            Ok(json!({"source": target.0, "worktree": target.1}))
+        }
         ("activate", Some(id)) => {
             let pane = app.update(|m| m.activate_notification(id))?;
             Ok(json!({"pane": pane}))
@@ -428,7 +466,7 @@ pub fn panel_op(op: &str, id: Option<u64>) -> rade_core::rpc::Result<Value> {
             Ok(json!({}))
         }
         _ => Err(rade_core::Error::usage(format!(
-            "panel op must be activate <id>|toggle|mark_all_read|clear|counts, not '{op}'"
+            "panel op must be activate <id>|review <id>|ci_send <id>|toggle|mark_all_read|clear|counts, not '{op}'"
         ))),
     }
 }
