@@ -40,6 +40,7 @@ pub mod palette_form;
 pub mod paste;
 pub mod paths;
 pub mod ports;
+pub mod pr;
 pub mod preset;
 pub mod proc;
 pub mod process;

@@ -338,6 +338,10 @@ mod tests {
             "gh pr create goes through proc; the Draft runner has its own limit and cancel",
         ),
         (
+            "rade-core/src/pr.rs",
+            "gh pr list / run view reads go through proc (20 s / 30 s)",
+        ),
+        (
             "rade-core/src/update.rs",
             "curl with --max-time; install is long-running by design",
         ),
